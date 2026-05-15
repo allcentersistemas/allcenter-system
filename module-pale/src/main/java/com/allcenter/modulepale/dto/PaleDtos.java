@@ -84,5 +84,28 @@ public class PaleDtos {
 
     public record ClosePaleRequest(String notes) {}
 
+    public record UpdatePaleRequest(
+            String code,
+            String estado,
+            Long branchId,
+            Long originLocationId,
+            Long destinationBranchId,
+            Long destinationLocationId,
+            String notes) {}
+
+    public record PaleAuditEntryDto(
+            Long id,
+            LocalDateTime occurredAt,
+            String action,
+            String entityType,
+            String entityId,
+            Long paleId,
+            String paleCodigo,
+            String details,
+            Long actorEmployeeId,
+            String actorEmail,
+            String sourceIp,
+            String userAgent) {}
+
     public record ApiMessage(boolean success, String message) {}
 }

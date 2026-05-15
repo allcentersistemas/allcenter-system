@@ -1,7 +1,9 @@
 package com.allcenter.moduleclient.service;
 
+import com.allcenter.moduleclient.config.AuthEndpointProperties;
 import com.allcenter.moduleclient.exception.BadRequestException;
 import com.allcenter.moduleclient.exception.ConflictException;
+import com.allcenter.moduleclient.exception.ForbiddenException;
 import com.allcenter.moduleclient.exception.NotFoundException;
 import com.allcenter.moduleclient.model.ClientUser;
 import com.allcenter.moduleclient.model.dto.AuthSessionResponse;
@@ -30,6 +32,7 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
     private final JwtProperties jwtProperties;
+    private final AuthEndpointProperties authEndpointProperties;
     private final RefreshTokenService refreshTokenService;
     private final AuthenticationManager authenticationManager;
 
@@ -46,6 +49,9 @@ public class AuthService {
 
     @Transactional
     public AuthSessionResponse register(RegisterRequest request) {
+        if (!authEndpointProperties.registrationEnabled()) {
+            throw new ForbiddenException("Public registration is disabled in this environment");
+        }
         String email = request.email().trim().toLowerCase();
         if (clientUserRepository.existsByEmailIgnoreCase(email)) {
             throw new ConflictException("El correo " + email + " ya esta registrado");

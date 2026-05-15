@@ -4,6 +4,7 @@ import com.allcenter.modulebiesse.dto.PendingPartResponse;
 import com.allcenter.modulebiesse.dto.ScanPartRequest;
 import com.allcenter.modulebiesse.dto.ScanPieceRequest;
 import com.allcenter.modulebiesse.dto.ScanResultResponse;
+import com.allcenter.modulebiesse.dto.UpdateOrderRequest;
 import com.allcenter.modulebiesse.dto.UserScanStatsResponse;
 import com.allcenter.modulebiesse.service.AuthGatewayService;
 import com.allcenter.modulebiesse.service.BiesseScanService;
@@ -14,6 +15,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -74,12 +76,27 @@ public class BiesseScanController {
     @GetMapping("/orders")
     public ResponseEntity<List<Map<String, Object>>> getOrders(
             @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
+            @RequestParam(required = false) Long orderId,
             @RequestParam(required = false) String state,
             @RequestParam(required = false) String q,
+            @RequestParam(required = false) String fromDate,
+            @RequestParam(required = false) String toDate,
             @RequestParam(defaultValue = "50") int limit,
             @RequestParam(defaultValue = "0") int offset) {
         authGatewayService.resolveEmployeeId(authorization);
-        return ResponseEntity.ok(scanService.getOrders(state, q, limit, offset));
+        return ResponseEntity.ok(scanService.getOrders(orderId, state, q, fromDate, toDate, limit, offset));
+    }
+
+    @GetMapping("/audit")
+    public ResponseEntity<List<Map<String, Object>>> audit(
+            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
+            @RequestParam(required = false) Long orderId,
+            @RequestParam(required = false) Long partId,
+            @RequestParam(required = false) String action,
+            @RequestParam(defaultValue = "100") int limit,
+            @RequestParam(defaultValue = "0") int offset) {
+        authGatewayService.resolveEmployeeId(authorization);
+        return ResponseEntity.ok(scanService.getAudit(orderId, partId, action, limit, offset));
     }
 
     @GetMapping("/orders/{orderId}")
@@ -87,6 +104,15 @@ public class BiesseScanController {
             @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization, @PathVariable Long orderId) {
         authGatewayService.resolveEmployeeId(authorization);
         return ResponseEntity.ok(scanService.getOrderDetail(orderId));
+    }
+
+    @PatchMapping("/orders/{orderId}")
+    public ResponseEntity<Map<String, Object>> updateOrder(
+            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
+            @PathVariable Long orderId,
+            @RequestBody UpdateOrderRequest request) {
+        Long employeeId = authGatewayService.resolveEmployeeId(authorization);
+        return ResponseEntity.ok(scanService.updateOrder(employeeId, orderId, request.observaciones()));
     }
 
     @PostMapping("/orders/{orderId}/complete")

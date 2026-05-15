@@ -24,6 +24,7 @@ public class RoleBootstrap implements ApplicationRunner {
         ensureRole("PRODUCCION", "Operario de línea / escaneo OSI");
         ensureRole("ADMIN_PRODUCCION", "Coordinación y supervisión de producción");
         ensureRole("DESPACHO", "Operaciones de despacho y salida de pedidos");
+        ensureRole("CHOFER", "Conductor / chofer de flota (RM, transporte)");
     }
 
     private void ensureRole(String name, String description) {

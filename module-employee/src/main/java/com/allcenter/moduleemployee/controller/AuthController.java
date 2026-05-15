@@ -8,6 +8,7 @@ import com.allcenter.moduleemployee.model.dto.FirstSetupStatusResponse;
 import com.allcenter.moduleemployee.model.dto.LoginRequest;
 import com.allcenter.moduleemployee.model.dto.RefreshTokenRequest;
 import com.allcenter.moduleemployee.model.dto.RegisterRequest;
+import com.allcenter.moduleemployee.model.dto.VerifyPasswordRequest;
 import com.allcenter.moduleemployee.security.EmployeeUserDetails;
 import com.allcenter.moduleemployee.service.AuthService;
 import jakarta.validation.Valid;
@@ -87,6 +88,16 @@ public class AuthController {
             @AuthenticationPrincipal EmployeeUserDetails principal,
             @Valid @RequestBody ChangePasswordRequest request) {
         authService.changePassword(principal.getEmployee().getId(), request);
+        return ResponseEntity.noContent().build();
+    }
+
+    /** Valida la contraseña del usuario autenticado sin cambiar sesión ni tokens. */
+    @PostMapping("/verify-password")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<Void> verifyPassword(
+            @AuthenticationPrincipal EmployeeUserDetails principal,
+            @Valid @RequestBody VerifyPasswordRequest request) {
+        authService.verifyCurrentPassword(principal.getEmployee().getId(), request.password());
         return ResponseEntity.noContent().build();
     }
 }

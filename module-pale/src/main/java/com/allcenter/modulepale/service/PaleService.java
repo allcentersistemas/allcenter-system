@@ -12,12 +12,17 @@ import com.allcenter.modulepale.dto.PaleDtos.CreateSucursalRequest;
 import com.allcenter.modulepale.dto.PaleDtos.CreateUbicacionRequest;
 import com.allcenter.modulepale.dto.PaleDtos.PaleDetailItemDto;
 import com.allcenter.modulepale.dto.PaleDtos.PaleDetailResponse;
+import com.allcenter.modulepale.dto.PaleDtos.PaleAuditEntryDto;
 import com.allcenter.modulepale.dto.PaleDtos.PaleHeaderDto;
 import com.allcenter.modulepale.dto.PaleDtos.ScanPieceToPaleRequest;
 import com.allcenter.modulepale.dto.PaleDtos.SucursalDto;
 import com.allcenter.modulepale.dto.PaleDtos.UbicacionDto;
+import com.allcenter.modulepale.dto.PaleDtos.UpdatePaleRequest;
 import com.allcenter.modulepale.model.Pale;
+import com.allcenter.modulepale.model.PaleAuditEntry;
 import com.allcenter.modulepale.model.PaleDetalle;
+import com.allcenter.modulepale.support.PaleAuditSourceCapture;
+import com.allcenter.modulepale.repository.PaleAuditEntryRepository;
 import com.allcenter.modulepale.repository.PaleDetalleRepository;
 import com.allcenter.modulepale.repository.PaleRepository;
 import java.time.LocalDateTime;
@@ -31,6 +36,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -52,6 +58,7 @@ public class PaleService {
 
     private final PaleRepository paleRepository;
     private final PaleDetalleRepository detalleRepository;
+    private final PaleAuditEntryRepository auditEntryRepository;
     private final SucursalRepository sucursalRepository;
     private final UbicacionRepository ubicacionRepository;
     private final JdbcTemplate jdbcTemplate;
@@ -66,6 +73,25 @@ public class PaleService {
         return paleRepository.findAllWithRelations().stream()
                 .sorted((a, b) -> b.getFechaCreacion().compareTo(a.getFechaCreacion()))
                 .map(this::toHeader)
+                .toList();
+    }
+
+    public List<PaleAuditEntryDto> listAudit(Long paleId, String action, int limit) {
+        int safeLimit = Math.max(1, Math.min(limit, 500));
+        String cleanAction = action == null || action.isBlank() ? null : action.trim();
+        PageRequest page = PageRequest.of(0, safeLimit);
+        List<PaleAuditEntry> entries;
+        if (paleId != null && cleanAction != null) {
+            entries = auditEntryRepository.findByPaleIdAndActionIgnoreCaseOrderByOccurredAtDesc(paleId, cleanAction, page);
+        } else if (paleId != null) {
+            entries = auditEntryRepository.findByPaleIdOrderByOccurredAtDesc(paleId, page);
+        } else if (cleanAction != null) {
+            entries = auditEntryRepository.findByActionIgnoreCaseOrderByOccurredAtDesc(cleanAction, page);
+        } else {
+            entries = auditEntryRepository.findAllByOrderByOccurredAtDesc(page);
+        }
+        return entries.stream()
+                .map(this::toAuditDto)
                 .toList();
     }
 
@@ -170,6 +196,7 @@ public class PaleService {
         pale.setCreadoPor(req.createdBy());
         pale.setFechaCreacion(LocalDateTime.now());
         pale = paleRepository.save(pale);
+        recordAudit("CREATE", "Pale", String.valueOf(pale.getId()), pale, "Pale creado");
         return toDetailResponse(pale);
     }
 
@@ -183,6 +210,84 @@ public class PaleService {
         Pale pale = paleRepository.findByIdWithRelations(id)
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Pale no encontrado"));
         return toDetailResponse(pale);
+    }
+
+    @Transactional
+    public PaleDetailResponse updatePale(Long id, UpdatePaleRequest req) {
+        Pale pale = paleRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Pale no encontrado"));
+        if (req == null) {
+            req = new UpdatePaleRequest(null, null, null, null, null, null, null);
+        }
+        if (req.code() != null) {
+            String code = normalizeRequired(req.code(), "codigo");
+            paleRepository.findByCodigoIgnoreCase(code)
+                    .filter(existing -> !existing.getId().equals(id))
+                    .ifPresent(existing -> {
+                        throw new ResponseStatusException(CONFLICT, "Ya existe un pale con ese codigo");
+                    });
+            pale.setCodigo(code);
+        }
+        if (req.estado() != null) {
+            String estado = normalizeRequired(req.estado(), "estado").toUpperCase();
+            pale.setEstado(estado);
+            if ("CERRADO".equals(estado) && pale.getFechaCierre() == null) {
+                pale.setFechaCierre(LocalDateTime.now());
+            }
+            if (!"CERRADO".equals(estado)) {
+                pale.setFechaCierre(null);
+            }
+        }
+        if (req.branchId() != null) {
+            Sucursal origin = sucursalRepository.findById(req.branchId())
+                    .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Sucursal origen no encontrada"));
+            pale.setSucursalOrigen(origin);
+        }
+        if (req.originLocationId() != null) {
+            Ubicacion originLocation = ubicacionRepository.findById(req.originLocationId())
+                    .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Ubicacion origen no encontrada"));
+            pale.setUbicacionOrigen(originLocation);
+        }
+        if (req.destinationBranchId() != null) {
+            Sucursal destination = sucursalRepository.findById(req.destinationBranchId())
+                    .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Sucursal destino no encontrada"));
+            pale.setSucursalDestino(destination);
+        }
+        if (req.destinationLocationId() != null) {
+            Ubicacion destinationLocation = ubicacionRepository.findById(req.destinationLocationId())
+                    .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Ubicacion destino no encontrada"));
+            pale.setUbicacionDestino(destinationLocation);
+        }
+        if (req.notes() != null) {
+            pale.setNotas(req.notes().trim());
+        }
+        paleRepository.save(pale);
+        recordAudit("UPDATE", "Pale", String.valueOf(pale.getId()), pale, "Informacion del pale actualizada");
+        Pale fresh = paleRepository.findByIdWithRelations(id)
+                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Pale no encontrado"));
+        return toDetailResponse(fresh);
+    }
+
+    @Transactional
+    public PaleDetailResponse removeDetail(Long paleId, Long detailId) {
+        Pale pale = paleRepository.findById(paleId)
+                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Pale no encontrado"));
+        PaleDetalle detail = detalleRepository.findById(detailId)
+                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Detalle no encontrado"));
+        if (!detail.getPale().getId().equals(paleId)) {
+            throw new ResponseStatusException(BAD_REQUEST, "El detalle no pertenece al pale indicado");
+        }
+        detalleRepository.delete(detail);
+        refreshPaleSummary(pale);
+        recordAudit(
+                "DELETE_DETAIL",
+                "PaleDetalle",
+                String.valueOf(detailId),
+                pale,
+                "Detalle eliminado. piezaId=" + detail.getPiezaId() + ", partId=" + detail.getPartId());
+        Pale fresh = paleRepository.findByIdWithRelations(paleId)
+                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Pale no encontrado"));
+        return toDetailResponse(fresh);
     }
 
     @Transactional
@@ -256,6 +361,12 @@ public class PaleService {
         registerPieceScanInBiesse(authorization, req.pieceId(), pale.getCodigo());
 
         refreshPaleSummary(pale);
+        recordAudit(
+                "SCAN_PIECE",
+                "PaleDetalle",
+                String.valueOf(detail.getId()),
+                pale,
+                "Pieza agregada al pale. piezaId=" + req.pieceId());
         return new ApiMessage(true, "Pieza agregada al pale " + pale.getCodigo());
     }
 
@@ -272,6 +383,7 @@ public class PaleService {
             pale.setNotas(req.notes());
         }
         paleRepository.save(pale);
+        recordAudit("CLOSE", "Pale", String.valueOf(pale.getId()), pale, "Pale cerrado");
         return new ApiMessage(true, "Pale cerrado correctamente");
     }
 
@@ -469,6 +581,39 @@ public class PaleService {
                 p.getFechaCierre());
     }
 
+    private void recordAudit(String action, String entityType, String entityId, Pale pale, String details) {
+        PaleAuditEntry e = new PaleAuditEntry();
+        e.setOccurredAt(LocalDateTime.now());
+        e.setAction(action);
+        e.setEntityType(entityType);
+        e.setEntityId(entityId);
+        e.setPaleId(pale == null ? null : pale.getId());
+        e.setPaleCodigo(pale == null ? null : pale.getCodigo());
+        e.setDetails(details);
+        PaleAuditSourceCapture.Captured cap = PaleAuditSourceCapture.fromCurrentRequest();
+        e.setActorEmployeeId(cap.actorEmployeeId());
+        e.setActorEmail(cap.actorEmail());
+        e.setSourceIp(cap.sourceIp());
+        e.setUserAgent(cap.userAgent());
+        auditEntryRepository.save(e);
+    }
+
+    private PaleAuditEntryDto toAuditDto(PaleAuditEntry e) {
+        return new PaleAuditEntryDto(
+                e.getId(),
+                e.getOccurredAt(),
+                e.getAction(),
+                e.getEntityType(),
+                e.getEntityId(),
+                e.getPaleId(),
+                e.getPaleCodigo(),
+                e.getDetails(),
+                e.getActorEmployeeId(),
+                e.getActorEmail(),
+                e.getSourceIp(),
+                e.getUserAgent());
+    }
+
     private String nextPaleCode() {
         Long max = paleRepository.findMaxNumericCode();
         long next = (max == null ? 0L : max) + 1L;
@@ -590,6 +735,13 @@ public class PaleService {
             log.debug("Medida desde partes local no disponible (partid={}): {}", partId, ex.getMessage());
             return null;
         }
+    }
+
+    private String normalizeRequired(String value, String fieldName) {
+        if (value == null || value.trim().isEmpty()) {
+            throw new ResponseStatusException(BAD_REQUEST, "El campo " + fieldName + " es obligatorio");
+        }
+        return value.trim();
     }
 
     /** Formato compacto para impresión (mismas unidades que en {@code partes}). */

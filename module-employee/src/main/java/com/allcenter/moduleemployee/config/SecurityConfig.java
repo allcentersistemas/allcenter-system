@@ -19,9 +19,9 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
-import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
-import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import org.springframework.security.authorization.AuthorizationDecision;
+import org.springframework.security.config.Customizer;
 
 @Configuration
 @EnableWebSecurity
@@ -32,11 +32,20 @@ public class SecurityConfig {
     private final EmployeeUserDetailsService userDetailsService;
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final JwtAuthEntryPoint jwtAuthEntryPoint;
+    private final CorsConfigurationSource allcenterCorsConfigurationSource;
+    private final AuthEndpointProperties authEndpointProperties;
 
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http.csrf(AbstractHttpConfigurer::disable)
-                .cors(c -> c.configurationSource(corsConfigurationSource()))
+                .cors(c -> c.configurationSource(allcenterCorsConfigurationSource))
+                .headers(h -> h.contentTypeOptions(Customizer.withDefaults())
+                        .frameOptions(f -> f.deny())
+                        .referrerPolicy(r -> r.policy(
+                                org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy
+                                        .STRICT_ORIGIN_WHEN_CROSS_ORIGIN))
+                        .httpStrictTransportSecurity(
+                                s -> s.includeSubDomains(true).maxAgeInSeconds(31536000)))
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .exceptionHandling(e -> e.authenticationEntryPoint(jwtAuthEntryPoint))
                 .authorizeHttpRequests(
@@ -44,19 +53,21 @@ public class SecurityConfig {
                                 auth.requestMatchers(
                                                 HttpMethod.POST,
                                                 "/api/auth/login",
-                                                "/api/auth/register",
                                                 "/api/auth/refresh",
-                                                "/api/auth/logout",
-                                                "/api/auth/first-setup",
-                                                "/actuator/prometheus")
+                                                "/api/auth/logout")
                                         .permitAll()
+                                        .requestMatchers(HttpMethod.POST, "/api/auth/register")
+                                        .access((a, ctx) -> new AuthorizationDecision(
+                                                authEndpointProperties.registrationEnabled()))
+                                        .requestMatchers(HttpMethod.POST, "/api/auth/first-setup")
+                                        .access((a, ctx) -> new AuthorizationDecision(
+                                                authEndpointProperties.firstSetupEnabled()))
                                         .requestMatchers(HttpMethod.GET, "/api/auth/first-setup/status")
-                                        .permitAll()
+                                        .access((a, ctx) -> new AuthorizationDecision(
+                                                authEndpointProperties.firstSetupEnabled()))
                                         .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**")
                                         .permitAll()
                                         .requestMatchers(HttpMethod.GET, "/actuator/info")
-                                        .permitAll()
-                                        .requestMatchers(HttpMethod.GET, "/actuator/prometheus")
                                         .permitAll()
                                         .requestMatchers(HttpMethod.GET, "/api")
                                         .permitAll()
@@ -86,15 +97,4 @@ public class SecurityConfig {
         return new BCryptPasswordEncoder();
     }
 
-    @Bean
-    CorsConfigurationSource corsConfigurationSource() {
-        CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOriginPatterns(java.util.List.of("*"));
-        config.setAllowedMethods(java.util.List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-        config.setAllowedHeaders(java.util.List.of("*"));
-        config.setAllowCredentials(false);
-        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/**", config);
-        return source;
-    }
 }

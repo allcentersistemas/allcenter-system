@@ -84,10 +84,17 @@ public class BiesseScanService {
         return repository.findScannedPartsByUser(employeeId, fromDate, toDate, safeLimit);
     }
 
-    public List<Map<String, Object>> getOrders(String state, String query, int limit, int offset) {
+    public List<Map<String, Object>> getOrders(
+            Long orderId, String state, String query, String fromDate, String toDate, int limit, int offset) {
         int safeLimit = Math.max(1, Math.min(limit, 500));
         int safeOffset = Math.max(0, offset);
-        return repository.findOrders(state, query, safeLimit, safeOffset);
+        return repository.findOrders(orderId, state, query, fromDate, toDate, safeLimit, safeOffset);
+    }
+
+    public List<Map<String, Object>> getAudit(Long orderId, Long partId, String action, int limit, int offset) {
+        int safeLimit = Math.max(1, Math.min(limit, 500));
+        int safeOffset = Math.max(0, offset);
+        return repository.findScanAudit(orderId, partId, action, safeLimit, safeOffset);
     }
 
     public Map<String, Object> getOrderDetail(Long orderId) {
@@ -113,6 +120,27 @@ public class BiesseScanService {
         response.put("part_stats", repository.findOrderPartStats(orderId));
         response.put("parts", parts);
         return response;
+    }
+
+    @Transactional
+    public Map<String, Object> updateOrder(Long employeeId, Long orderId, String observaciones) {
+        Map<String, Object> order = repository.findOrderById(orderId);
+        if (order == null) {
+            throw new ResponseStatusException(NOT_FOUND, "Order not found");
+        }
+        int updated = repository.updateOrderObservaciones(orderId, observaciones == null ? "" : observaciones.trim());
+        if (updated == 0) {
+            throw new ResponseStatusException(BAD_REQUEST, "Order update failed");
+        }
+        repository.insertScanAudit(
+                employeeId,
+                orderId,
+                null,
+                "EDITAR_ORDEN",
+                "Observaciones de orden actualizadas",
+                "MANUAL",
+                "FRONTEND");
+        return repository.findOrderById(orderId);
     }
 
     @Transactional

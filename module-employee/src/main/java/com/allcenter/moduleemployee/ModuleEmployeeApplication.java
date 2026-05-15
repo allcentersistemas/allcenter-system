@@ -1,5 +1,6 @@
 package com.allcenter.moduleemployee;
 
+import com.allcenter.moduleemployee.config.AuthEndpointProperties;
 import com.allcenter.moduleemployee.config.FirstSetupProperties;
 import com.allcenter.moduleemployee.config.MasterUserProperties;
 import com.allcenter.moduleemployee.config.RegistrationProperties;
@@ -13,7 +14,8 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
     JwtProperties.class,
     RegistrationProperties.class,
     MasterUserProperties.class,
-    FirstSetupProperties.class
+    FirstSetupProperties.class,
+    AuthEndpointProperties.class
 })
 public class ModuleEmployeeApplication {
 

@@ -4,6 +4,7 @@
     <file url="file://$PROJECT_DIR$/module-biesse/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/module-biesse1/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/module-client/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/module-common-security/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/module-employee/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/module-eureka/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/module-inventory/src/main/java" charset="UTF-8" />
@@ -11,6 +12,7 @@
     <file url="file://$PROJECT_DIR$/module-optimization/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/module-order/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/module-pale/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/module-rm/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/module-transport/src/main/java" charset="UTF-8" />
   </component>
 </project>

@@ -3,6 +3,7 @@ package com.allcenter.moduleemployee.controller;
 import com.allcenter.moduleemployee.exception.ForbiddenException;
 import com.allcenter.moduleemployee.model.dto.AdminCreateEmployeeRequest;
 import com.allcenter.moduleemployee.model.dto.EmployeeAdminPatchRequest;
+import com.allcenter.moduleemployee.model.dto.EmployeeCatalogItem;
 import com.allcenter.moduleemployee.model.dto.EmployeeResponse;
 import com.allcenter.moduleemployee.model.dto.EmployeeRolesRequest;
 import com.allcenter.moduleemployee.model.dto.EmployeeSelfPatchRequest;
@@ -35,6 +36,13 @@ public class EmployeeController {
     @GetMapping("/me")
     public ResponseEntity<EmployeeResponse> me(@AuthenticationPrincipal EmployeeUserDetails principal) {
         return ResponseEntity.ok(EmployeeResponse.from(principal.getEmployee()));
+    }
+
+    /** Catálogo de empleados activos por nombre de rol (p. ej. CHOFER). Cualquier usuario autenticado. */
+    @GetMapping("/catalog/by-role/{roleName}")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<List<EmployeeCatalogItem>> catalogByRole(@PathVariable String roleName) {
+        return ResponseEntity.ok(employeeService.listActiveCatalogByRole(roleName));
     }
 
     @PatchMapping("/me")

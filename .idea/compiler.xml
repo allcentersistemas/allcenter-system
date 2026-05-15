@@ -27,6 +27,7 @@
         <sourceOutputDir name="target/generated-sources/annotations" />
         <sourceTestOutputDir name="target/generated-test-sources/test-annotations" />
         <outputRelativeToContentRoot value="true" />
+        <module name="module-common-security" />
         <module name="module-eureka" />
       </profile>
       <profile name="Annotation profile for allcenter-system" enabled="true">
@@ -36,21 +37,13 @@
         <processorPath useClasspath="false">
           <entry name="$MAVEN_REPOSITORY$/org/projectlombok/lombok/1.18.46/lombok-1.18.46.jar" />
         </processorPath>
+        <module name="module-rm" />
         <module name="module-inventory" />
+        <module name="module-transport" />
+        <module name="module-location" />
         <module name="module-pale" />
         <module name="module-order" />
         <module name="module-biesse" />
-        <module name="module-location" />
-      </profile>
-      <profile name="Annotation profile for module-transport" enabled="true">
-        <sourceOutputDir name="target/generated-sources/annotations" />
-        <sourceTestOutputDir name="target/generated-test-sources/test-annotations" />
-        <outputRelativeToContentRoot value="true" />
-        <processorPath useClasspath="false">
-          <entry name="$MAVEN_REPOSITORY$/org/projectlombok/lombok/1.18.46/lombok-1.18.46.jar" />
-          <entry name="$MAVEN_REPOSITORY$/org/projectlombok/lombok/1.18.46/lombok-1.18.46.jar" />
-        </processorPath>
-        <module name="module-transport" />
       </profile>
     </annotationProcessing>
     <bytecodeTargetLevel>
@@ -61,6 +54,7 @@
     <option name="ADDITIONAL_OPTIONS_OVERRIDE">
       <module name="module-biesse" options="-parameters" />
       <module name="module-client" options="-parameters" />
+      <module name="module-common-security" options="-parameters" />
       <module name="module-employee" options="-parameters" />
       <module name="module-eureka" options="-parameters" />
       <module name="module-inventory" options="-parameters" />
@@ -68,6 +62,7 @@
       <module name="module-optimization" options="-parameters" />
       <module name="module-order" options="-parameters" />
       <module name="module-pale" options="-parameters" />
+      <module name="module-rm" options="-parameters" />
       <module name="module-transport" options="-parameters" />
     </option>
   </component>

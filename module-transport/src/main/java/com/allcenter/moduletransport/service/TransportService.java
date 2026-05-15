@@ -10,6 +10,8 @@ import com.allcenter.moduletransport.dto.TransportDtos.TransporteCargaResponse;
 import com.allcenter.moduletransport.dto.TransportDtos.TransporteDto;
 import com.allcenter.moduletransport.dto.TransportDtos.UpdateTransporteCargaRequest;
 import com.allcenter.moduletransport.dto.TransportDtos.UpdateTransporteRequest;
+import com.allcenter.moduletransport.model.TransportAuditAction;
+import com.allcenter.moduletransport.model.TransportAuditEntityTypes;
 import com.allcenter.moduletransport.model.Transporte;
 import com.allcenter.moduletransport.model.TransporteCarga;
 import com.allcenter.moduletransport.model.TransporteCargaDetalle;
@@ -48,10 +50,11 @@ public class TransportService {
     private final TransporteRepository transporteRepository;
     private final TransporteCargaRepository cargaRepository;
     private final TransporteCargaDetalleRepository detalleRepository;
+    private final TransportAuditService transportAuditService;
     private final RestTemplate restTemplate = new RestTemplate();
 
-    @Value("${app.order.base-url:http://localhost:8083}")
-    private String orderBaseUrl;
+    @Value("${app.pale.base-url:http://localhost:8087}")
+    private String paleBaseUrl;
 
     public List<TransporteDto> listTransportes() {
         return transporteRepository.findAll().stream()
@@ -86,6 +89,13 @@ public class TransportService {
         transporte.setFechaCreacion(LocalDateTime.now());
 
         transporte = transporteRepository.save(transporte);
+        String tid = String.valueOf(transporte.getId());
+        transportAuditService.record(
+                TransportAuditAction.CREATE,
+                TransportAuditEntityTypes.TRANSPORTE,
+                tid,
+                tid,
+                "placa=" + transporte.getPlaca());
         return toTransporteDto(transporte);
     }
 
@@ -109,6 +119,9 @@ public class TransportService {
         if (request.modelo() != null) {
             transporte.setModelo(normalizeOptional(request.modelo()));
         }
+        if (request.marca() != null) {
+            transporte.setMarca(normalizeOptional(request.marca()));
+        }
         if (request.color() != null) {
             transporte.setColor(normalizeOptional(request.color()));
         }
@@ -126,6 +139,13 @@ public class TransportService {
         }
 
         transporte = transporteRepository.save(transporte);
+        String tid = String.valueOf(transporte.getId());
+        transportAuditService.record(
+                TransportAuditAction.UPDATE,
+                TransportAuditEntityTypes.TRANSPORTE,
+                tid,
+                tid,
+                "placa=" + transporte.getPlaca() + ";activo=" + transporte.getActivo());
         return toTransporteDto(transporte);
     }
 
@@ -162,6 +182,20 @@ public class TransportService {
         carga.setFechaCreacion(LocalDateTime.now());
         carga = cargaRepository.save(carga);
 
+        String cid = String.valueOf(carga.getId());
+        transportAuditService.record(
+                TransportAuditAction.CREATE,
+                TransportAuditEntityTypes.TRANSPORTE_CARGA,
+                cid,
+                cid,
+                "transporteId="
+                        + transporte.getId()
+                        + ";placa="
+                        + transporte.getPlaca()
+                        + ";chofer="
+                        + carga.getChoferNombre()
+                        + ";estado="
+                        + carga.getEstado());
         return toCargaResponse(carga);
     }
 
@@ -169,6 +203,8 @@ public class TransportService {
     public TransporteCargaResponse updateCarga(Long id, UpdateTransporteCargaRequest request) {
         TransporteCarga carga = cargaRepository.findByIdWithTransporte(id)
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Carga no encontrada"));
+
+        String estadoPrevio = carga.getEstado();
 
         if (request.choferNombre() != null) {
             carga.setChoferNombre(normalizeRequired(request.choferNombre(), "choferNombre"));
@@ -194,6 +230,20 @@ public class TransportService {
             }
         }
         carga = cargaRepository.save(carga);
+        String cid = String.valueOf(carga.getId());
+        StringBuilder detail = new StringBuilder();
+        if (request.estado() != null && estadoPrevio != null && !estadoPrevio.equals(carga.getEstado())) {
+            detail.append("estadoAnterior=").append(estadoPrevio).append(";estadoNuevo=").append(carga.getEstado());
+        } else {
+            detail.append("estado=").append(carga.getEstado());
+        }
+        detail.append(";chofer=").append(carga.getChoferNombre());
+        transportAuditService.record(
+                TransportAuditAction.UPDATE,
+                TransportAuditEntityTypes.TRANSPORTE_CARGA,
+                cid,
+                cid,
+                detail.toString());
         return toCargaResponse(carga);
     }
 
@@ -207,18 +257,30 @@ public class TransportService {
             throw new ResponseStatusException(CONFLICT, "Ese pale ya fue agregado a la carga");
         }
 
-        OrderPallet orderPallet = fetchPalletFromOrder(request.paleEnvioId());
-        validatePalletReadyForTransport(orderPallet);
+        PaleForTransport pale = fetchPalletFromPaleModule(request.paleEnvioId());
+        validatePalletReadyForTransport(pale);
 
         TransporteCargaDetalle detalle = new TransporteCargaDetalle();
         detalle.setTransporteCarga(carga);
         detalle.setPaleEnvioId(request.paleEnvioId());
-        detalle.setPaleCodigo(resolvePaleCodigo(request.paleCodigo(), orderPallet.codigo()));
+        detalle.setPaleCodigo(resolvePaleCodigo(request.paleCodigo(), pale.codigo()));
         detalle.setCantidad(request.cantidad());
         detalle.setObservacion(normalizeOptional(request.observacion()));
         detalle.setFechaRegistro(LocalDateTime.now());
-        detalleRepository.save(detalle);
+        detalle = detalleRepository.save(detalle);
 
+        String corr = String.valueOf(cargaId);
+        transportAuditService.record(
+                TransportAuditAction.CREATE,
+                TransportAuditEntityTypes.TRANSPORTE_CARGA_DETALLE,
+                String.valueOf(detalle.getId()),
+                corr,
+                "paleEnvioId="
+                        + request.paleEnvioId()
+                        + ";paleCodigo="
+                        + detalle.getPaleCodigo()
+                        + ";cantidad="
+                        + request.cantidad());
         return toCargaResponse(carga);
     }
 
@@ -233,6 +295,16 @@ public class TransportService {
         if (!detalle.getTransporteCarga().getId().equals(cargaId)) {
             throw new ResponseStatusException(BAD_REQUEST, "El detalle no pertenece a la carga indicada");
         }
+        String corr = String.valueOf(cargaId);
+        transportAuditService.record(
+                TransportAuditAction.DELETE,
+                TransportAuditEntityTypes.TRANSPORTE_CARGA_DETALLE,
+                String.valueOf(detalleId),
+                corr,
+                "paleEnvioId="
+                        + detalle.getPaleEnvioId()
+                        + ";paleCodigo="
+                        + detalle.getPaleCodigo());
         detalleRepository.delete(detalle);
         return new ApiMessage(true, "Detalle removido de la carga");
     }
@@ -267,38 +339,38 @@ public class TransportService {
         }
     }
 
-    private OrderPallet fetchPalletFromOrder(Long paleEnvioId) {
+    private PaleForTransport fetchPalletFromPaleModule(Long paleEnvioId) {
         try {
             ResponseEntity<Map> response = restTemplate.exchange(
-                    orderBaseUrl + "/api/order/pallets/" + paleEnvioId,
+                    paleBaseUrl + "/api/pallets/" + paleEnvioId,
                     HttpMethod.GET,
                     null,
                     Map.class);
             Map<?, ?> body = response.getBody();
             if (body == null) {
-                throw new ResponseStatusException(BAD_REQUEST, "Respuesta invalida de module-order para el pale");
+                throw new ResponseStatusException(BAD_REQUEST, "Respuesta invalida de module-pale para el pale");
             }
             Object palletObj = body.get("pallet");
             if (!(palletObj instanceof Map<?, ?> palletMap)) {
-                throw new ResponseStatusException(BAD_REQUEST, "No se encontro informacion de pallet en module-order");
+                throw new ResponseStatusException(BAD_REQUEST, "No se encontro informacion de pallet en module-pale");
             }
-            String codigo = readRequiredText(palletMap, "codigo", "El pale en module-order no tiene codigo");
-            String estado = readRequiredText(palletMap, "estado", "El pale en module-order no tiene estado");
-            return new OrderPallet(codigo, estado);
+            String codigo = readRequiredText(palletMap, "codigo", "El pale en module-pale no tiene codigo");
+            String estado = readRequiredText(palletMap, "estado", "El pale en module-pale no tiene estado");
+            return new PaleForTransport(codigo, estado);
         } catch (HttpClientErrorException.NotFound ex) {
-            throw new ResponseStatusException(NOT_FOUND, "El pale no existe en module-order");
+            throw new ResponseStatusException(NOT_FOUND, "El pale no existe en module-pale");
         } catch (HttpClientErrorException ex) {
-            throw new ResponseStatusException(BAD_REQUEST, "module-order rechazo la validacion del pale");
+            throw new ResponseStatusException(BAD_REQUEST, "module-pale rechazo la validacion del pale");
         } catch (HttpServerErrorException ex) {
-            throw new ResponseStatusException(BAD_REQUEST, "module-order no esta disponible en este momento");
+            throw new ResponseStatusException(BAD_REQUEST, "module-pale no esta disponible en este momento");
         } catch (ResponseStatusException ex) {
             throw ex;
         } catch (Exception ex) {
-            throw new ResponseStatusException(BAD_REQUEST, "No se pudo validar el pale contra module-order");
+            throw new ResponseStatusException(BAD_REQUEST, "No se pudo validar el pale contra module-pale");
         }
     }
 
-    private void validatePalletReadyForTransport(OrderPallet pallet) {
+    private void validatePalletReadyForTransport(PaleForTransport pallet) {
         if (!PALE_ESTADO_CERRADO.equalsIgnoreCase(pallet.estado())) {
             throw new ResponseStatusException(
                     BAD_REQUEST,
@@ -314,7 +386,7 @@ public class TransportService {
         if (!requestNormalized.equalsIgnoreCase(orderCode)) {
             throw new ResponseStatusException(
                     BAD_REQUEST,
-                    "El paleCodigo no coincide con el registro en module-order");
+                    "El paleCodigo no coincide con el registro en module-pale");
         }
         return orderCode;
     }
@@ -394,5 +466,5 @@ public class TransportService {
         return normalized.isEmpty() ? null : normalized;
     }
 
-    private record OrderPallet(String codigo, String estado) {}
+    private record PaleForTransport(String codigo, String estado) {}
 }

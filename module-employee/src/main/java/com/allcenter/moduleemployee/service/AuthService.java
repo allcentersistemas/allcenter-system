@@ -1,5 +1,6 @@
 package com.allcenter.moduleemployee.service;
 
+import com.allcenter.moduleemployee.config.AuthEndpointProperties;
 import com.allcenter.moduleemployee.config.FirstSetupProperties;
 import com.allcenter.moduleemployee.config.RegistrationProperties;
 import com.allcenter.moduleemployee.exception.BadRequestException;
@@ -48,6 +49,7 @@ public class AuthService {
     private final AuthenticationManager authenticationManager;
     private final RegistrationProperties registrationProperties;
     private final FirstSetupProperties firstSetupProperties;
+    private final AuthEndpointProperties authEndpointProperties;
 
     @Transactional(readOnly = true)
     public boolean isFirstSetupRequired() {
@@ -60,6 +62,9 @@ public class AuthService {
      */
     @Transactional
     public AuthSessionResponse completeFirstSetup(String setupSecretHeader, FirstSetupRequest request) {
+        if (!authEndpointProperties.firstSetupEnabled()) {
+            throw new ForbiddenException("First setup is disabled in this environment");
+        }
         if (employeeRepository.count() > 0) {
             throw new ConflictException(
                     "La instalación ya tiene usuarios; inicie sesión o pida a un administrador que le cree la cuenta");
@@ -123,6 +128,9 @@ public class AuthService {
 
     @Transactional
     public AuthSessionResponse register(RegisterRequest request) {
+        if (!authEndpointProperties.registrationEnabled()) {
+            throw new ForbiddenException("Public registration is disabled in this environment");
+        }
         String email = request.email().trim().toLowerCase();
         if (employeeRepository.existsByEmailIgnoreCase(email)) {
             throw new ConflictException("El correo " + email + " ya está registrado");
@@ -218,6 +226,25 @@ public class AuthService {
         }
         e.setPassword(passwordEncoder.encode(request.newPassword()));
         employeeRepository.save(e);
+    }
+
+    /**
+     * Comprueba la contraseña local del empleado autenticado (p. ej. confirmación antes de firmar un
+     * registro). No emite nuevos tokens.
+     */
+    @Transactional(readOnly = true)
+    public void verifyCurrentPassword(long employeeId, String password) {
+        Employee e =
+                employeeRepository
+                        .findById(employeeId)
+                        .orElseThrow(() -> new NotFoundException("No existe un empleado con id " + employeeId));
+        if (e.getPassword() == null || e.getPassword().isBlank()) {
+            throw new BadRequestException(
+                    "Esta cuenta no tiene contraseña local; use el acceso corporativo o contacte a un administrador.");
+        }
+        if (!passwordEncoder.matches(password.trim(), e.getPassword())) {
+            throw new BadRequestException("La contraseña no es correcta");
+        }
     }
 
     private AuthSessionResponse buildSession(EmployeeUserDetails principal, String refreshTokenRaw) {

@@ -10,6 +10,7 @@ import com.allcenter.moduleemployee.model.Role;
 import com.allcenter.moduleemployee.model.dto.AdminCreateEmployeeRequest;
 import com.allcenter.moduleemployee.model.dto.EmployeeAdminPatchRequest;
 import com.allcenter.moduleemployee.model.dto.EmployeeResponse;
+import com.allcenter.moduleemployee.model.dto.EmployeeCatalogItem;
 import com.allcenter.moduleemployee.model.dto.EmployeeSelfPatchRequest;
 import com.allcenter.moduleemployee.repository.EmployeeRepository;
 import com.allcenter.moduleemployee.repository.RoleRepository;
@@ -43,6 +44,30 @@ public class EmployeeService {
     @Transactional(readOnly = true)
     public List<EmployeeResponse> findAll() {
         return employeeRepository.findAllWithRoles().stream().map(EmployeeResponse::from).toList();
+    }
+
+    /** Empleados activos con un rol dado (p. ej. CHOFER), para desplegables en apps de campo. */
+    @Transactional(readOnly = true)
+    public List<EmployeeCatalogItem> listActiveCatalogByRole(String roleName) {
+        if (roleName == null || roleName.isBlank()) {
+            throw new BadRequestException("Nombre de rol obligatorio");
+        }
+        return employeeRepository.findAllActiveByRoleName(roleName.trim()).stream()
+                .map(e -> new EmployeeCatalogItem(e.getId(), e.getEmail(), buildDisplayName(e)))
+                .toList();
+    }
+
+    private static String buildDisplayName(Employee e) {
+        String fn = e.getFirstName() == null ? "" : e.getFirstName().trim();
+        String ln = e.getLastName() == null ? "" : e.getLastName().trim();
+        String both = (fn + " " + ln).trim();
+        if (!both.isEmpty()) {
+            return both;
+        }
+        if (e.getEmail() != null && !e.getEmail().isBlank()) {
+            return e.getEmail().trim();
+        }
+        return "ID " + e.getId();
     }
 
     @Transactional

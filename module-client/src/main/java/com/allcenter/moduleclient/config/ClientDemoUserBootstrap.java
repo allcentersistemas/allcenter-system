@@ -6,11 +6,13 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 @Component
+@ConditionalOnProperty(prefix = "app.client.demo-user", name = "enabled", havingValue = "true")
 @RequiredArgsConstructor
 public class ClientDemoUserBootstrap implements ApplicationRunner {
 

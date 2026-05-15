@@ -3,6 +3,7 @@ package com.allcenter.moduletransport.dto;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -91,4 +92,17 @@ public class TransportDtos {
             String paleCodigo,
             @NotNull @Positive Integer cantidad,
             String observacion) {}
+
+    /** Entrada de auditoría / trazabilidad de transporte (consulta paginada). */
+    public record TransportAuditEntryDto(
+            Long id,
+            Instant occurredAt,
+            String action,
+            String entityType,
+            String entityId,
+            String correlationId,
+            Long actorEmployeeId,
+            String actorEmail,
+            String clientIpPublic,
+            String details) {}
 }

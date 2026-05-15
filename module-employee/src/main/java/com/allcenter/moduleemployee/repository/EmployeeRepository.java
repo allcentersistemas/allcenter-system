@@ -30,4 +30,14 @@ public interface EmployeeRepository extends JpaRepository<Employee, Long> {
 
     @Query("SELECT COUNT(DISTINCT e.id) FROM Employee e JOIN e.roles r WHERE r.id = :roleId")
     long countEmployeesWithRole(@Param("roleId") Long roleId);
+
+    @Query(
+            """
+            SELECT DISTINCT e FROM Employee e
+            JOIN e.roles r
+            WHERE UPPER(r.name) = UPPER(:roleName)
+              AND e.active = true
+            ORDER BY e.lastName ASC, e.firstName ASC
+            """)
+    List<Employee> findAllActiveByRoleName(@Param("roleName") String roleName);
 }

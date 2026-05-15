@@ -11,12 +11,14 @@
     <description>Multi-módulo AllCenter (cada submódulo conserva su parent Spring Boot)</description>
 
     <modules>
+        <module>module-common-security</module>
         <module>module-eureka</module>
         <module>module-location</module>
         <module>module-pale</module>
         <module>module-order</module>
         <module>module-transport</module>
         <module>module-inventory</module>
+        <module>module-rm</module>
         <module>module-employee</module>
         <module>module-client</module>
         <module>module-biesse</module>

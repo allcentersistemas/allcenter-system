@@ -280,7 +280,8 @@ public class BiesseScanRepository {
         return jdbcTemplate.queryForList(sql.toString(), employeeId, limit);
     }
 
-    public List<Map<String, Object>> findOrders(String state, String query, int limit, int offset) {
+    public List<Map<String, Object>> findOrders(
+            Long orderId, String state, String query, String fromDate, String toDate, int limit, int offset) {
         StringBuilder sql =
                 new StringBuilder(
                         """
@@ -290,30 +291,94 @@ public class BiesseScanRepository {
                                (SELECT COUNT(*)::int FROM piezas z WHERE z.orderid = o.orderid AND z.escaneado = TRUE) AS piezas_escaneadas
                         FROM ordenes o
                         """);
+        boolean hasOrderId = orderId != null;
         boolean hasState = state != null && !state.isBlank();
         boolean hasQuery = query != null && !query.isBlank();
+        boolean hasFromDate = fromDate != null && !fromDate.isBlank();
+        boolean hasToDate = toDate != null && !toDate.isBlank();
 
-        if (hasState || hasQuery) {
+        if (hasOrderId || hasState || hasQuery || hasFromDate || hasToDate) {
             sql.append(" WHERE 1=1 ");
+            if (hasOrderId) {
+                sql.append(" AND o.orderid = ? ");
+            }
             if (hasState) {
                 sql.append(" AND o.estado_escaneo = ? ");
             }
             if (hasQuery) {
-                sql.append(" AND (o.ordername ILIKE ? OR COALESCE(o.bookingcode, '') ILIKE ?) ");
+                sql.append(
+                        " AND (o.ordername ILIKE ? OR COALESCE(o.bookingcode, '') ILIKE ? OR CAST(o.orderid AS TEXT) LIKE ?) ");
+            }
+            if (hasFromDate) {
+                sql.append(" AND DATE(o.fechacreacion) >= CAST(? AS DATE) ");
+            }
+            if (hasToDate) {
+                sql.append(" AND DATE(o.fechacreacion) <= CAST(? AS DATE) ");
             }
             sql.append(" ORDER BY o.fechacreacion DESC LIMIT ? OFFSET ? ");
-            if (hasState && hasQuery) {
-                String like = "%" + query.trim() + "%";
-                return jdbcTemplate.queryForList(sql.toString(), state, like, like, limit, offset);
+            java.util.List<Object> args = new java.util.ArrayList<>();
+            if (hasOrderId) {
+                args.add(orderId);
             }
             if (hasState) {
-                return jdbcTemplate.queryForList(sql.toString(), state, limit, offset);
+                args.add(state);
             }
-            String like = "%" + query.trim() + "%";
-            return jdbcTemplate.queryForList(sql.toString(), like, like, limit, offset);
+            if (hasQuery) {
+                String like = "%" + query.trim() + "%";
+                args.add(like);
+                args.add(like);
+                args.add(like);
+            }
+            if (hasFromDate) {
+                args.add(fromDate.trim());
+            }
+            if (hasToDate) {
+                args.add(toDate.trim());
+            }
+            args.add(limit);
+            args.add(offset);
+            return jdbcTemplate.queryForList(sql.toString(), args.toArray());
         }
         sql.append(" ORDER BY o.fechacreacion DESC LIMIT ? OFFSET ? ");
         return jdbcTemplate.queryForList(sql.toString(), limit, offset);
+    }
+
+    public int updateOrderObservaciones(Long orderId, String observaciones) {
+        return jdbcTemplate.update(
+                """
+                UPDATE ordenes
+                SET observaciones = ?, fecha_modificacion = CURRENT_TIMESTAMP
+                WHERE orderid = ?
+                """,
+                observaciones,
+                orderId);
+    }
+
+    public List<Map<String, Object>> findScanAudit(Long orderId, Long partId, String action, int limit, int offset) {
+        StringBuilder sql =
+                new StringBuilder(
+                        """
+                        SELECT auditoriaid, usuarioid, orderid, partid, accion, detalles, equipo, metodo, exito, fecha
+                        FROM auditoriaescaneos
+                        WHERE 1=1
+                        """);
+        java.util.List<Object> args = new java.util.ArrayList<>();
+        if (orderId != null) {
+            sql.append(" AND orderid = ? ");
+            args.add(orderId);
+        }
+        if (partId != null) {
+            sql.append(" AND partid = ? ");
+            args.add(partId);
+        }
+        if (action != null && !action.isBlank()) {
+            sql.append(" AND UPPER(accion) = UPPER(?) ");
+            args.add(action.trim());
+        }
+        sql.append(" ORDER BY fecha DESC LIMIT ? OFFSET ? ");
+        args.add(limit);
+        args.add(offset);
+        return jdbcTemplate.queryForList(sql.toString(), args.toArray());
     }
 
     public Map<String, Object> findOrderById(Long orderId) {
@@ -321,7 +386,7 @@ public class BiesseScanRepository {
                 jdbcTemplate.queryForList(
                         """
                         SELECT orderid, ordername, bookingcode, fechacreacion, estado_escaneo, fecha_completado,
-                               partes_escaneadas, partes_totales, porcentaje_completado
+                               partes_escaneadas, partes_totales, porcentaje_completado, observaciones
                         FROM ordenes
                         WHERE orderid = ?
                         """,
