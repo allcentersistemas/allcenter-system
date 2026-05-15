@@ -1,0 +1,43 @@
+{
+  "groups": [
+    {
+      "name": "app.cors",
+      "type": "com.allcenter.security.AppCorsProperties",
+      "sourceType": "com.allcenter.security.AppCorsProperties"
+    },
+    {
+      "name": "app.security",
+      "type": "com.allcenter.security.AppSecurityProperties",
+      "sourceType": "com.allcenter.security.AppSecurityProperties"
+    }
+  ],
+  "properties": [
+    {
+      "name": "app.cors.allowed-origins",
+      "type": "java.util.List<java.lang.String>",
+      "sourceType": "com.allcenter.security.AppCorsProperties"
+    },
+    {
+      "name": "app.security.api-auth-enabled",
+      "type": "java.lang.Boolean",
+      "sourceType": "com.allcenter.security.AppSecurityProperties",
+      "defaultValue": false
+    },
+    {
+      "name": "app.security.headers-enabled",
+      "type": "java.lang.Boolean",
+      "sourceType": "com.allcenter.security.AppSecurityProperties",
+      "defaultValue": false
+    },
+    {
+      "name": "app.security.validate-secrets-on-startup",
+      "type": "java.lang.Boolean",
+      "sourceType": "com.allcenter.security.AppSecurityProperties",
+      "defaultValue": false
+    }
+  ],
+  "hints": [],
+  "ignored": {
+    "properties": []
+  }
+}
