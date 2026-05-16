@@ -1,0 +1,112 @@
+package com.allcenter.modulesystem.dto;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+public final class OrderDtos {
+    private OrderDtos() {
+    }
+
+    public record ProyectoPayload(
+            String nombre,
+            String cliente,
+            String referencia,
+            String descripcion
+    ) {
+    }
+
+    public record OrdenPayload(
+            String codigo,
+            String descripcion
+    ) {
+    }
+
+    public record DetallePayload(
+            String tablero,
+            String cantidad,
+            String largoVeta,
+            String ancho,
+            String l1,
+            String l2,
+            String a1,
+            String a2,
+            String perforacionCantidad,
+            String perforacionLado1,
+            String perforacionLado2,
+            String ranuraDist,
+            String ranuraProf,
+            String ranuraEs,
+            boolean observado,
+            String observacion
+    ) {
+    }
+
+    public record OrdenCompuestaPayload(
+            String codigo,
+            String descripcion,
+            List<DetallePayload> detalles
+    ) {
+    }
+
+    public record ProyectoCompuestoPayload(
+            ProyectoPayload project,
+            List<OrdenCompuestaPayload> orders
+    ) {
+    }
+
+    public record ProyectoResponse(
+            Long id,
+            Long codigoProyecto,
+            String nombre,
+            String cliente,
+            String referencia,
+            String descripcion,
+            LocalDateTime fechaCreacion
+    ) {
+    }
+
+    public record OrdenResponse(
+            Long id,
+            Long proyectoId,
+            String codigo,
+            String descripcion
+    ) {
+    }
+
+    public record DetalleResponse(
+            Long id,
+            Long ordenId,
+            String tablero,
+            String cantidad,
+            String largoVeta,
+            String ancho,
+            String l1,
+            String l2,
+            String a1,
+            String a2,
+            String perforacionCantidad,
+            String perforacionLado1,
+            String perforacionLado2,
+            String ranuraDist,
+            String ranuraProf,
+            String ranuraEs,
+            boolean observado,
+            String observacion
+    ) {
+    }
+
+    public record OrdenConDetallesResponse(
+            Long id,
+            Long proyectoId,
+            String codigo,
+            String descripcion,
+            List<DetalleResponse> detalles
+    ) {
+    }
+
+    public record ProyectoConOrdenesResponse(
+            ProyectoResponse project,
+            List<OrdenConDetallesResponse> orders
+    ) {
+    }
+}

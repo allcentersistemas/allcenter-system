@@ -1,0 +1,9 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="ModuleBiesseApplication" type="SpringBootApplicationConfigurationType" factoryName="Spring Boot">
+    <module name="module-biesse" />
+    <option name="SPRING_BOOT_MAIN_CLASS" value="com.allcenter.modulebiesse.ModuleBiesseApplication" />
+    <method v="2">
+      <option name="Make" enabled="true" />
+    </method>
+  </configuration>
+</component>

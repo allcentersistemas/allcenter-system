@@ -1,0 +1,62 @@
+package com.allcenter.modulesystem.dto;
+
+import com.allcenter.modulesystem.model.ContractType;
+import com.allcenter.modulesystem.model.DirectorySource;
+import com.allcenter.modulesystem.model.DocumentType;
+import com.allcenter.modulesystem.model.Gender;
+import com.allcenter.modulesystem.model.MaritalStatus;
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.List;
+
+public record EmployeeAdminPatchRequest(
+        String email,
+        String newPassword,
+        Boolean active,
+        String employeeCode,
+        String firstName,
+        String secondLastName,
+        String lastName,
+        LocalDate birthDate,
+        Gender gender,
+        MaritalStatus maritalStatus,
+        DocumentType documentType,
+        String documentNumber,
+        String nationality,
+        String phone,
+        String mobilePhone,
+        String personalEmail,
+        String addressLine1,
+        String addressLine2,
+        String city,
+        String provinceOrState,
+        String postalCode,
+        String country,
+        String jobTitle,
+        String department,
+        LocalDate hireDate,
+        LocalDate terminationDate,
+        LocalDate probationEndDate,
+        ContractType contractType,
+        String workLocation,
+        String workScheduleDescription,
+        Integer workHoursPerWeek,
+        String taxId,
+        String socialSecurityNumber,
+        BigDecimal baseSalaryMonthly,
+        String salaryCurrency,
+        String emergencyContactName,
+        String emergencyContactRelation,
+        String emergencyContactPhone,
+        Long managerId,
+        Long branchId,
+        String notes,
+        DirectorySource directorySource,
+        String externalDirectoryId,
+        String securityIdentifier,
+        String samAccountName,
+        String userPrincipalName,
+        String distinguishedName,
+        LocalDateTime lastDirectorySyncAt,
+        List<Long> roleIds) {}
