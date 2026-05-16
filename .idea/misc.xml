@@ -4,27 +4,11 @@
   <component name="MavenProjectsManager">
     <option name="originalFiles">
       <list>
-        <option value="$PROJECT_DIR$/module-employee/pom.xml" />
-        <option value="$PROJECT_DIR$/module-osi/pom.xml" />
-        <option value="$PROJECT_DIR$/module-client/pom.xml" />
-        <option value="$PROJECT_DIR$/module-optimization/pom.xml" />
-        <option value="$PROJECT_DIR$/module-order/pom.xml" />
-        <option value="$PROJECT_DIR$/module-biesse/pom.xml" />
-        <option value="$PROJECT_DIR$/module-transport/pom.xml" />
-        <option value="$PROJECT_DIR$/module-inventory/pom.xml" />
-        <option value="$PROJECT_DIR$/module-location/pom.xml" />
-        <option value="$PROJECT_DIR$/module-pale/pom.xml" />
         <option value="$PROJECT_DIR$/pom.xml" />
-        <option value="$PROJECT_DIR$/module-rm/pom.xml" />
       </list>
     </option>
-    <option name="ignoredFiles">
-      <set>
-        <option value="$PROJECT_DIR$/module-optimization/pom.xml" />
-      </set>
-    </option>
   </component>
-  <component name="ProjectRootManager" version="2" project-jdk-name="corretto-25" project-jdk-type="JavaSDK">
+  <component name="ProjectRootManager" version="2" languageLevel="JDK_25" project-jdk-name="corretto-25" project-jdk-type="JavaSDK">
     <output url="file://$PROJECT_DIR$/out" />
   </component>
 </project>

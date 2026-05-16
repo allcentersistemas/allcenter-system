@@ -3,67 +3,19 @@
   <component name="CompilerConfiguration">
     <annotationProcessing>
       <profile default="true" name="Default" enabled="true" />
-      <profile name="Annotation profile for module-employee" enabled="true">
-        <sourceOutputDir name="target/generated-sources/annotations" />
-        <sourceTestOutputDir name="target/generated-test-sources/test-annotations" />
-        <outputRelativeToContentRoot value="true" />
-        <processorPath useClasspath="false">
-          <entry name="$MAVEN_REPOSITORY$/org/springframework/boot/spring-boot-configuration-processor/4.0.6/spring-boot-configuration-processor-4.0.6.jar" />
-          <entry name="$MAVEN_REPOSITORY$/org/projectlombok/lombok/1.18.46/lombok-1.18.46.jar" />
-        </processorPath>
-        <module name="module-employee" />
-      </profile>
-      <profile name="Annotation profile for module-client" enabled="true">
-        <sourceOutputDir name="target/generated-sources/annotations" />
-        <sourceTestOutputDir name="target/generated-test-sources/test-annotations" />
-        <outputRelativeToContentRoot value="true" />
-        <processorPath useClasspath="false">
-          <entry name="$MAVEN_REPOSITORY$/org/springframework/boot/spring-boot-configuration-processor/4.0.6/spring-boot-configuration-processor-4.0.6.jar" />
-          <entry name="$MAVEN_REPOSITORY$/org/projectlombok/lombok/1.18.46/lombok-1.18.46.jar" />
-        </processorPath>
-        <module name="module-client" />
-      </profile>
       <profile name="Maven default annotation processors profile" enabled="true">
         <sourceOutputDir name="target/generated-sources/annotations" />
         <sourceTestOutputDir name="target/generated-test-sources/test-annotations" />
         <outputRelativeToContentRoot value="true" />
-        <module name="module-common-security" />
-        <module name="module-eureka" />
-      </profile>
-      <profile name="Annotation profile for allcenter-system" enabled="true">
-        <sourceOutputDir name="target/generated-sources/annotations" />
-        <sourceTestOutputDir name="target/generated-test-sources/test-annotations" />
-        <outputRelativeToContentRoot value="true" />
-        <processorPath useClasspath="false">
-          <entry name="$MAVEN_REPOSITORY$/org/projectlombok/lombok/1.18.46/lombok-1.18.46.jar" />
-        </processorPath>
-        <module name="module-rm" />
-        <module name="module-inventory" />
-        <module name="module-transport" />
-        <module name="module-location" />
-        <module name="module-pale" />
-        <module name="module-order" />
-        <module name="module-biesse" />
       </profile>
     </annotationProcessing>
-    <bytecodeTargetLevel>
-      <module name="module-optimization" target="25" />
-    </bytecodeTargetLevel>
+    <bytecodeTargetLevel target="25" />
   </component>
   <component name="JavacSettings">
     <option name="ADDITIONAL_OPTIONS_OVERRIDE">
       <module name="module-biesse" options="-parameters" />
-      <module name="module-client" options="-parameters" />
       <module name="module-common-security" options="-parameters" />
-      <module name="module-employee" options="-parameters" />
-      <module name="module-eureka" options="-parameters" />
-      <module name="module-inventory" options="-parameters" />
-      <module name="module-location" options="-parameters" />
-      <module name="module-optimization" options="-parameters" />
-      <module name="module-order" options="-parameters" />
-      <module name="module-pale" options="-parameters" />
-      <module name="module-rm" options="-parameters" />
-      <module name="module-transport" options="-parameters" />
+      <module name="module-system" options="-parameters" />
     </option>
   </component>
 </project>

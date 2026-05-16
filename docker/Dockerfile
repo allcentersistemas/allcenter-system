@@ -1,5 +1,6 @@
-# Build: docker build --build-arg MODULE=module-employee -f docker/Dockerfile .
-ARG MODULE=module-employee
+# Build: docker build --build-arg MODULE=module-system -f docker/Dockerfile .
+#        docker build --build-arg MODULE=module-biesse -f docker/Dockerfile .
+ARG MODULE=module-system
 
 FROM maven:3.9-eclipse-temurin-25 AS build
 WORKDIR /build
@@ -7,16 +8,8 @@ ARG MODULE
 
 COPY pom.xml .
 COPY module-common-security module-common-security
-COPY module-eureka module-eureka
-COPY module-employee module-employee
-COPY module-client module-client
-COPY module-order module-order
-COPY module-transport module-transport
+COPY module-system module-system
 COPY module-biesse module-biesse
-COPY module-pale module-pale
-COPY module-location module-location
-COPY module-inventory module-inventory
-COPY module-rm module-rm
 
 RUN mvn -pl "${MODULE}" -am clean package -DskipTests -q
 

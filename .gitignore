@@ -1,2 +1,14 @@
-# Project exclude paths
-/module-eureka/target/
+# Maven
+**/target/
+!.mvn/wrapper/maven-wrapper.jar
+
+# IDE
+.idea/workspace.xml
+.idea/dataSources/
+.idea/dataSources.local.xml
+.idea/shelf/
+*.iml
+
+# Local config
+.env
+.env.local

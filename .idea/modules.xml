@@ -2,8 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/module-order/module-order.iml" filepath="$PROJECT_DIR$/module-order/module-order.iml" />
-      <module fileurl="file://$PROJECT_DIR$/module-transport/module-transport.iml" filepath="$PROJECT_DIR$/module-transport/module-transport.iml" />
+      <module fileurl="file://$PROJECT_DIR$/pom.xml" filepath="$PROJECT_DIR$/pom.xml" />
     </modules>
   </component>
 </project>
