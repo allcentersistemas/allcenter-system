@@ -2,6 +2,7 @@ package com.allcenter.modulesystem.security;
 
 import com.allcenter.modulesystem.model.Employee;
 import com.allcenter.modulesystem.model.Role;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Set;
@@ -22,7 +23,16 @@ public class EmployeeUserDetails implements UserDetails {
         if (roles == null || roles.isEmpty()) {
             return List.of(SpringSecurityRoles.asGrantedAuthority("USER"));
         }
-        return roles.stream().map(r -> SpringSecurityRoles.asGrantedAuthority(r.getName())).toList();
+        List<GrantedAuthority> authorities = new ArrayList<>(roles.size());
+        for (Role role : roles) {
+            if (role != null && role.getName() != null && !role.getName().isBlank()) {
+                authorities.add(SpringSecurityRoles.asGrantedAuthority(role.getName()));
+            }
+        }
+        if (authorities.isEmpty()) {
+            return List.of(SpringSecurityRoles.asGrantedAuthority("USER"));
+        }
+        return authorities;
     }
 
     @Override

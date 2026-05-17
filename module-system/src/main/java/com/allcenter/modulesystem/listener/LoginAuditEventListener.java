@@ -5,7 +5,6 @@ import com.allcenter.modulesystem.service.AuditService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.event.EventListener;
 import org.springframework.security.authentication.event.AbstractAuthenticationFailureEvent;
-import org.springframework.security.authentication.event.AuthenticationSuccessEvent;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -14,13 +13,7 @@ public class LoginAuditEventListener {
 
     private final AuditService auditService;
 
-    @EventListener
-    public void onLoginSuccess(AuthenticationSuccessEvent event) {
-        if (event.getAuthentication().getPrincipal() instanceof EmployeeUserDetails principal) {
-            auditService.recordLoginSuccess(
-                    principal.getEmployee().getId(), principal.getEmployee().getEmail());
-        }
-    }
+    /** El login de empleados audita en {@link com.allcenter.modulesystem.service.EmployeeAuthService}. */
 
     @EventListener
     public void onLoginFailure(AbstractAuthenticationFailureEvent event) {

@@ -79,7 +79,7 @@ public class GlobalExceptionHandler {
                                 request,
                                 HttpStatus.UNAUTHORIZED,
                                 "INVALID_CREDENTIALS",
-                                "Correo o contraseña incorrectos"));
+                                "Usuario o contraseña incorrectos"));
     }
 
     @ExceptionHandler(UsernameNotFoundException.class)
@@ -222,6 +222,19 @@ public class GlobalExceptionHandler {
                                 HttpStatus.BAD_REQUEST,
                                 "INVALID_ARGUMENT",
                                 ex.getMessage() != null ? ex.getMessage() : "Argumento inválido"));
+    }
+
+    @ExceptionHandler(StackOverflowError.class)
+    public ResponseEntity<ApiErrorResponse> handleStackOverflow(
+            StackOverflowError ex, HttpServletRequest request) {
+        log.error("[API] StackOverflowError en {} {}", request.getMethod(), request.getRequestURI(), ex);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(
+                        ApiErrorResponse.build(
+                                request,
+                                HttpStatus.INTERNAL_SERVER_ERROR,
+                                "STACK_OVERFLOW",
+                                "Error interno al procesar la petición; contacte al administrador"));
     }
 
     @ExceptionHandler(Exception.class)

@@ -72,12 +72,20 @@ public class EmployeeService {
 
     @Transactional
     public EmployeeResponse createByAdmin(AdminCreateEmployeeRequest request) {
+        String username = request.username().trim();
+        if (username.length() < 2) {
+            throw new BadRequestException("El usuario debe tener al menos 2 caracteres");
+        }
+        if (employeeRepository.existsBySamAccountNameIgnoreCase(username)) {
+            throw new ConflictException("El usuario \"" + username + "\" ya está en uso");
+        }
         String email = request.email().trim().toLowerCase();
         if (employeeRepository.existsByEmailIgnoreCase(email)) {
             throw new ConflictException("El correo " + email + " ya está registrado");
         }
         Employee employee = new Employee();
         employee.setEmployeeCode(generateUniqueEmployeeCode());
+        employee.setSamAccountName(username);
         employee.setEmail(email);
         employee.setDirectorySource(DirectorySource.LOCAL);
         employee.setPassword(passwordEncoder.encode(request.password()));

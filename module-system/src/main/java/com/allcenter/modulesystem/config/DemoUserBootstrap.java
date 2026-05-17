@@ -36,6 +36,7 @@ public class DemoUserBootstrap implements ApplicationRunner {
         }
         Employee admin = new Employee();
         admin.setEmployeeCode("EMP-DEMO-ADMIN");
+        admin.setSamAccountName("admin");
         admin.setEmail("admin@allcenter.local");
         admin.setDirectorySource(DirectorySource.LOCAL);
         admin.setPassword(passwordEncoder.encode("changeMe"));
@@ -58,6 +59,6 @@ public class DemoUserBootstrap implements ApplicationRunner {
         admin.setActive(true);
         employeeRepository.save(admin);
         log.warn(
-                "Demo admin created: admin@allcenter.local / changeMe — disable app.bootstrap-demo-user after first login");
+                "Demo admin created: usuario admin / changeMe — disable app.bootstrap-demo-user after first login");
     }
 }

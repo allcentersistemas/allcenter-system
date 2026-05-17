@@ -16,7 +16,7 @@ import com.allcenter.modulesystem.repository.ClientUserRepository;
 import com.allcenter.modulesystem.security.ClientUserDetails;
 import com.allcenter.modulesystem.security.JwtProperties;
 import com.allcenter.modulesystem.security.JwtService;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -25,7 +25,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
-@RequiredArgsConstructor
 public class ClientAuthService {
 
     private final ClientUserRepository clientUserRepository;
@@ -36,12 +35,29 @@ public class ClientAuthService {
     private final ClientRefreshTokenService refreshTokenService;
     private final AuthenticationManager authenticationManager;
 
+    public ClientAuthService(
+            ClientUserRepository clientUserRepository,
+            PasswordEncoder passwordEncoder,
+            JwtService jwtService,
+            JwtProperties jwtProperties,
+            AuthEndpointProperties authEndpointProperties,
+            ClientRefreshTokenService refreshTokenService,
+            @Qualifier("clientAuthenticationManager") AuthenticationManager authenticationManager) {
+        this.clientUserRepository = clientUserRepository;
+        this.passwordEncoder = passwordEncoder;
+        this.jwtService = jwtService;
+        this.jwtProperties = jwtProperties;
+        this.authEndpointProperties = authEndpointProperties;
+        this.refreshTokenService = refreshTokenService;
+        this.authenticationManager = authenticationManager;
+    }
+
     @Transactional
     public ClientAuthSessionResponse login(LoginRequest request) {
         Authentication auth =
                 authenticationManager.authenticate(
                         new UsernamePasswordAuthenticationToken(
-                                request.email().trim(), request.password()));
+                                request.username().trim(), request.password()));
         ClientUserDetails principal = (ClientUserDetails) auth.getPrincipal();
         String refresh = refreshTokenService.issue(principal.getClientUser().getId());
         return buildSession(principal, refresh);

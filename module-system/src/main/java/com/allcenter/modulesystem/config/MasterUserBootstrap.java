@@ -42,7 +42,10 @@ public class MasterUserBootstrap implements ApplicationRunner {
         }
         Employee master = new Employee();
         master.setEmployeeCode("EMP-MASTER-001");
-        master.setEmail(properties.email().trim().toLowerCase());
+        String email = properties.email().trim().toLowerCase();
+        String loginUser = email.contains("@") ? email.substring(0, email.indexOf('@')) : email;
+        master.setSamAccountName(loginUser);
+        master.setEmail(email);
         master.setDirectorySource(DirectorySource.LOCAL);
         master.setPassword(passwordEncoder.encode(properties.password()));
         master.setFirstName("Master");

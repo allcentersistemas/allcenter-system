@@ -27,7 +27,7 @@ import java.time.LocalDate;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -36,7 +36,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
-@RequiredArgsConstructor
 public class EmployeeAuthService {
 
     private final EmployeeRepository employeeRepository;
@@ -47,9 +46,37 @@ public class EmployeeAuthService {
     private final JwtProperties jwtProperties;
     private final EmployeeRefreshTokenService refreshTokenService;
     private final AuthenticationManager authenticationManager;
+    private final AuditService auditService;
     private final RegistrationProperties registrationProperties;
     private final FirstSetupProperties firstSetupProperties;
     private final AuthEndpointProperties authEndpointProperties;
+
+    public EmployeeAuthService(
+            EmployeeRepository employeeRepository,
+            RoleRepository roleRepository,
+            PasswordEncoder passwordEncoder,
+            EmployeeService employeeService,
+            JwtService jwtService,
+            JwtProperties jwtProperties,
+            EmployeeRefreshTokenService refreshTokenService,
+            @Qualifier("employeeAuthenticationManager") AuthenticationManager authenticationManager,
+            AuditService auditService,
+            RegistrationProperties registrationProperties,
+            FirstSetupProperties firstSetupProperties,
+            AuthEndpointProperties authEndpointProperties) {
+        this.employeeRepository = employeeRepository;
+        this.roleRepository = roleRepository;
+        this.passwordEncoder = passwordEncoder;
+        this.employeeService = employeeService;
+        this.jwtService = jwtService;
+        this.jwtProperties = jwtProperties;
+        this.refreshTokenService = refreshTokenService;
+        this.authenticationManager = authenticationManager;
+        this.auditService = auditService;
+        this.registrationProperties = registrationProperties;
+        this.firstSetupProperties = firstSetupProperties;
+        this.authEndpointProperties = authEndpointProperties;
+    }
 
     @Transactional(readOnly = true)
     public boolean isFirstSetupRequired() {
@@ -76,7 +103,9 @@ public class EmployeeAuthService {
                         "Cabecera X-First-Setup-Secret incorrecta o ausente; debe coincidir con app.first-setup.secret");
             }
         }
+        String username = normalizeLoginUsername(request.username());
         String email = request.email().trim().toLowerCase();
+        ensureUsernameAvailable(username);
         if (employeeRepository.existsByEmailIgnoreCase(email)) {
             throw new ConflictException("El correo " + email + " ya está registrado");
         }
@@ -90,6 +119,7 @@ public class EmployeeAuthService {
 
         Employee employee = new Employee();
         employee.setEmployeeCode(employeeService.generateUniqueEmployeeCode());
+        employee.setSamAccountName(username);
         employee.setEmail(email);
         employee.setDirectorySource(DirectorySource.LOCAL);
         employee.setPassword(passwordEncoder.encode(request.password()));
@@ -111,17 +141,27 @@ public class EmployeeAuthService {
                         .findByIdWithRoles(employee.getId())
                         .orElseThrow(() -> new IllegalStateException("Empleado no recargado tras guardar"));
         EmployeeUserDetails principal = new EmployeeUserDetails(loaded);
-        String refresh = refreshTokenService.issue(loaded.getId());
-        return buildSession(principal, refresh);
+        return completeLoginSession(principal);
+    }
+
+    public EmployeeAuthSessionResponse login(LoginRequest request) {
+        String username = normalizeLoginUsername(request.username());
+        try {
+            Authentication auth =
+                    authenticationManager.authenticate(
+                            new UsernamePasswordAuthenticationToken(username, request.password()));
+            EmployeeUserDetails principal = (EmployeeUserDetails) auth.getPrincipal();
+            return completeLoginSession(principal);
+        } catch (RuntimeException ex) {
+            auditService.recordLoginFailure(username, ex.getMessage());
+            throw ex;
+        }
     }
 
     @Transactional
-    public EmployeeAuthSessionResponse login(LoginRequest request) {
-        Authentication auth =
-                authenticationManager.authenticate(
-                        new UsernamePasswordAuthenticationToken(
-                                request.email().trim(), request.password()));
-        EmployeeUserDetails principal = (EmployeeUserDetails) auth.getPrincipal();
+    protected EmployeeAuthSessionResponse completeLoginSession(EmployeeUserDetails principal) {
+        auditService.recordLoginSuccess(
+                principal.getEmployee().getId(), principal.getEmployee().getEmail());
         String refresh = refreshTokenService.issue(principal.getEmployee().getId());
         return buildSession(principal, refresh);
     }
@@ -131,7 +171,9 @@ public class EmployeeAuthService {
         if (!authEndpointProperties.registrationEnabled()) {
             throw new ForbiddenException("Public registration is disabled in this environment");
         }
+        String username = normalizeLoginUsername(request.username());
         String email = request.email().trim().toLowerCase();
+        ensureUsernameAvailable(username);
         if (employeeRepository.existsByEmailIgnoreCase(email)) {
             throw new ConflictException("El correo " + email + " ya está registrado");
         }
@@ -162,6 +204,7 @@ public class EmployeeAuthService {
 
         Employee employee = new Employee();
         employee.setEmployeeCode(employeeService.generateUniqueEmployeeCode());
+        employee.setSamAccountName(username);
         employee.setEmail(email);
         employee.setDirectorySource(DirectorySource.LOCAL);
         employee.setPassword(passwordEncoder.encode(request.password()));
@@ -188,9 +231,20 @@ public class EmployeeAuthService {
                 employeeRepository
                         .findByIdWithRoles(employee.getId())
                         .orElseThrow(() -> new IllegalStateException("Empleado no recargado tras guardar"));
-        EmployeeUserDetails principal = new EmployeeUserDetails(loaded);
-        String refresh = refreshTokenService.issue(loaded.getId());
-        return buildSession(principal, refresh);
+        return completeLoginSession(new EmployeeUserDetails(loaded));
+    }
+
+    private static String normalizeLoginUsername(String raw) {
+        if (raw == null || raw.isBlank()) {
+            throw new BadRequestException("El usuario es obligatorio");
+        }
+        return raw.trim();
+    }
+
+    private void ensureUsernameAvailable(String username) {
+        if (employeeRepository.existsBySamAccountNameIgnoreCase(username)) {
+            throw new ConflictException("El usuario \"" + username + "\" ya está en uso");
+        }
     }
 
     @Transactional

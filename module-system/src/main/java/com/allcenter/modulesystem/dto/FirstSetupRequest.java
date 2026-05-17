@@ -11,6 +11,7 @@ import jakarta.validation.constraints.Size;
  * login.
  */
 public record FirstSetupRequest(
+        @NotBlank @Size(min = 2, max = 128) String username,
         @NotBlank @Email String email,
         @NotBlank @Size(min = 8, max = 128) String password,
         @NotBlank @Size(max = 120) String firstName,

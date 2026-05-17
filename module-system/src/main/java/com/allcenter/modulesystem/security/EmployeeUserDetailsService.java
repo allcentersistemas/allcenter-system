@@ -17,10 +17,10 @@ public class EmployeeUserDetailsService implements UserDetailsService {
     @Override
     @Transactional(readOnly = true)
     public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
+        String login = username == null ? "" : username.trim();
         return employeeRepository
-                .findByEmailIgnoreCase(username)
-                .or(() -> employeeRepository.findByUserPrincipalNameIgnoreCase(username))
+                .findByLoginIdentifier(login)
                 .map(EmployeeUserDetails::new)
-                .orElseThrow(() -> new UsernameNotFoundException("Employee not found: " + username));
+                .orElseThrow(() -> new UsernameNotFoundException("Usuario no encontrado: " + login));
     }
 }

@@ -1,7 +1,6 @@
 FROM maven:3.9-eclipse-temurin-25 AS build
 WORKDIR /build
 COPY pom.xml .
-COPY module-common-security module-common-security
 COPY module-system module-system
 # El pom padre declara module-biesse; Maven exige que exista en el reactor
 COPY module-biesse module-biesse

@@ -1,8 +1,0 @@
-/Users/arturoruizromero/Documents/appscanner/allcenter-system/module-common-security/src/main/java/com/allcenter/security/ApiJwtAuthFilter.java
-/Users/arturoruizromero/Documents/appscanner/allcenter-system/module-common-security/src/main/java/com/allcenter/security/AppCorsAutoConfiguration.java
-/Users/arturoruizromero/Documents/appscanner/allcenter-system/module-common-security/src/main/java/com/allcenter/security/AppCorsProperties.java
-/Users/arturoruizromero/Documents/appscanner/allcenter-system/module-common-security/src/main/java/com/allcenter/security/AppCorsSupport.java
-/Users/arturoruizromero/Documents/appscanner/allcenter-system/module-common-security/src/main/java/com/allcenter/security/AppSecurityProperties.java
-/Users/arturoruizromero/Documents/appscanner/allcenter-system/module-common-security/src/main/java/com/allcenter/security/ProductionSecretsValidator.java
-/Users/arturoruizromero/Documents/appscanner/allcenter-system/module-common-security/src/main/java/com/allcenter/security/SecurityHeadersFilter.java
-/Users/arturoruizromero/Documents/appscanner/allcenter-system/module-common-security/src/main/java/com/allcenter/security/SharedJwtValidator.java

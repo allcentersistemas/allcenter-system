@@ -11,6 +11,7 @@ import java.time.LocalDate;
 import java.util.List;
 
 public record EmployeeRegisterRequest(
+        @NotBlank @Size(min = 2, max = 128) String username,
         @NotBlank @Email String email,
         @NotBlank @Size(min = 8, max = 128) String password,
         @NotBlank @Size(max = 120) String firstName,

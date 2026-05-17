@@ -8,13 +8,13 @@ Backend AllCenter en **monolito modular** (`module-system`) más integración **
 |--------|--------|-------------|
 | `module-system` | 8080 | API principal: empleados, auth, pales, transporte, órdenes, ubicaciones, inventario, RM, portal clientes |
 | `module-biesse` | 8086 | Escaneo OSI / piezas (BD `obras`) |
-| `module-common-security` | — | Librería: CORS, cabeceras HTTP, validación JWT en APIs |
+| `com.allcenter.security` (en `module-system` y `module-biesse`) | — | CORS, cabeceras HTTP, validación JWT en APIs |
 
 ## Arranque local
 
 ```bash
 # Desde esta carpeta (allcenter-system)
-mvn -pl module-common-security,module-system -am package -DskipTests
+mvn -pl module-system -am package -DskipTests
 java -jar module-system/target/module-system-0.0.1-SNAPSHOT.jar
 
 # Biesse (otra terminal)

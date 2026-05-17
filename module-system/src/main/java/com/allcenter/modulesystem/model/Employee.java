@@ -42,7 +42,7 @@ public class Employee {
     @Column(nullable = false, unique = true, name = "employee_code", length = 32)
     private String employeeCode;
 
-    /** Correo corporativo (login; suele coincidir con mail de AD) */
+    /** Correo corporativo (contacto; el login usa {@link #samAccountName} o {@link #employeeCode}) */
     @Column(nullable = false, unique = true, length = 255)
     private String email;
 
@@ -65,7 +65,7 @@ public class Employee {
     @Column(name = "security_identifier", length = 128)
     private String securityIdentifier;
 
-    /** sAMAccountName (logon corto tipo DOMINIO\\usuario). */
+    /** Usuario de inicio de sesión (sAMAccountName / logon corto). */
     @Column(name = "sam_account_name", length = 128)
     private String samAccountName;
 

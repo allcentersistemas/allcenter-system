@@ -1,8 +1,0 @@
-com/allcenter/security/AppCorsSupport.class
-com/allcenter/security/ProductionSecretsValidator.class
-com/allcenter/security/AppSecurityProperties.class
-com/allcenter/security/AppCorsAutoConfiguration.class
-com/allcenter/security/ApiJwtAuthFilter.class
-com/allcenter/security/SecurityHeadersFilter.class
-com/allcenter/security/SharedJwtValidator.class
-com/allcenter/security/AppCorsProperties.class

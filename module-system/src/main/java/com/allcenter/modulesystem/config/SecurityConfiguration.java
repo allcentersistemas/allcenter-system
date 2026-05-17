@@ -9,12 +9,10 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpMethod;
-import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.authorization.AuthorizationDecision;
 import org.springframework.security.config.Customizer;
-import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -133,23 +131,16 @@ public class SecurityConfiguration {
                 .httpStrictTransportSecurity(s -> s.includeSubDomains(true).maxAgeInSeconds(31536000));
     }
 
-    @Bean
-    AuthenticationProvider employeeAuthenticationProvider() {
+    private AuthenticationProvider employeeAuthenticationProvider() {
         DaoAuthenticationProvider provider = new DaoAuthenticationProvider(employeeUserDetailsService);
         provider.setPasswordEncoder(passwordEncoder());
         return provider;
     }
 
-    @Bean
-    AuthenticationProvider clientAuthenticationProvider() {
+    private AuthenticationProvider clientAuthenticationProvider() {
         DaoAuthenticationProvider provider = new DaoAuthenticationProvider(clientUserDetailsService);
         provider.setPasswordEncoder(passwordEncoder());
         return provider;
-    }
-
-    @Bean
-    AuthenticationManager authenticationManager(AuthenticationConfiguration configuration) throws Exception {
-        return configuration.getAuthenticationManager();
     }
 
     @Bean

@@ -22,6 +22,16 @@ public interface EmployeeRepository extends JpaRepository<Employee, Long> {
     @Query("SELECT DISTINCT e FROM Employee e LEFT JOIN FETCH e.roles WHERE LOWER(e.userPrincipalName) = LOWER(:upn)")
     Optional<Employee> findByUserPrincipalNameIgnoreCase(@Param("upn") String userPrincipalName);
 
+    @Query(
+            """
+            SELECT DISTINCT e FROM Employee e LEFT JOIN FETCH e.roles WHERE
+              (e.samAccountName IS NOT NULL AND LOWER(TRIM(e.samAccountName)) = LOWER(TRIM(:login)))
+              OR LOWER(TRIM(e.employeeCode)) = LOWER(TRIM(:login))
+            """)
+    Optional<Employee> findByLoginIdentifier(@Param("login") String login);
+
+    boolean existsBySamAccountNameIgnoreCase(String samAccountName);
+
     @Query("SELECT DISTINCT e FROM Employee e LEFT JOIN FETCH e.roles WHERE e.id = :id")
     Optional<Employee> findByIdWithRoles(@Param("id") Long id);
 

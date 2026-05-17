@@ -7,7 +7,6 @@ WORKDIR /build
 ARG MODULE
 
 COPY pom.xml .
-COPY module-common-security module-common-security
 COPY module-system module-system
 COPY module-biesse module-biesse
 
