@@ -3,6 +3,8 @@ WORKDIR /build
 COPY pom.xml .
 COPY module-common-security module-common-security
 COPY module-system module-system
+# El pom padre declara module-biesse; Maven exige que exista en el reactor
+COPY module-biesse module-biesse
 RUN mvn -pl module-system -am clean package -DskipTests -q
 
 FROM eclipse-temurin:25-jre
