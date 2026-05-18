@@ -1,3 +1,4 @@
+# Build desde allcenter-system/: docker build -f module-system/Dockerfile .
 FROM maven:3.9-eclipse-temurin-25 AS build
 WORKDIR /build
 COPY pom.xml .

@@ -36,11 +36,11 @@ Variables habituales: `SPRING_DATASOURCE_*` (PostgreSQL `app_db`), `BIESSE_DATAS
 Desde la raíz del repo (`appscanner/`):
 
 ```bash
-cp .env.docker.example .env
+cp .env.example .env   # editar POSTGRES_PASSWORD
 docker compose up -d --build
 ```
 
-Producción con Caddy: ver `deploy/deploy.sh` y `deploy/caddy/Caddyfile` (`/api-system`, `/api-biesse`).
+Un solo `.env` y `docker-compose.yml` en la raíz (BD `161.132.52.100`: `app_db` + `obras`).
 
 ## IntelliJ IDEA
 

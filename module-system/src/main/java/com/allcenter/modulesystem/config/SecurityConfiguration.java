@@ -4,10 +4,11 @@ import com.allcenter.modulesystem.security.ClientJwtAuthenticationFilter;
 import com.allcenter.modulesystem.security.ClientUserDetailsService;
 import com.allcenter.modulesystem.security.EmployeeJwtAuthenticationFilter;
 import com.allcenter.modulesystem.security.EmployeeUserDetailsService;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
+import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
@@ -27,7 +28,6 @@ import org.springframework.web.cors.CorsConfigurationSource;
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
-@RequiredArgsConstructor
 public class SecurityConfiguration {
 
     private final EmployeeUserDetailsService employeeUserDetailsService;
@@ -38,10 +38,31 @@ public class SecurityConfiguration {
     private final CorsConfigurationSource allcenterCorsConfigurationSource;
     private final AuthEndpointProperties authEndpointProperties;
 
+    public SecurityConfiguration(
+            EmployeeUserDetailsService employeeUserDetailsService,
+            ClientUserDetailsService clientUserDetailsService,
+            EmployeeJwtAuthenticationFilter employeeJwtAuthenticationFilter,
+            ClientJwtAuthenticationFilter clientJwtAuthenticationFilter,
+            JwtAuthEntryPoint jwtAuthEntryPoint,
+            CorsConfigurationSource allcenterCorsConfigurationSource,
+            AuthEndpointProperties authEndpointProperties) {
+        this.employeeUserDetailsService = employeeUserDetailsService;
+        this.clientUserDetailsService = clientUserDetailsService;
+        this.employeeJwtAuthenticationFilter = employeeJwtAuthenticationFilter;
+        this.clientJwtAuthenticationFilter = clientJwtAuthenticationFilter;
+        this.jwtAuthEntryPoint = jwtAuthEntryPoint;
+        this.allcenterCorsConfigurationSource = allcenterCorsConfigurationSource;
+        this.authEndpointProperties = authEndpointProperties;
+    }
+
     @Bean
     @Order(1)
-    SecurityFilterChain clientSecurityFilterChain(HttpSecurity http) throws Exception {
+    SecurityFilterChain clientSecurityFilterChain(
+            HttpSecurity http,
+            @Qualifier("clientAuthenticationManager") AuthenticationManager clientAuthenticationManager)
+            throws Exception {
         http.securityMatcher("/api/clients/**", "/api/client/**")
+                .authenticationManager(clientAuthenticationManager)
                 .csrf(AbstractHttpConfigurer::disable)
                 .cors(c -> c.configurationSource(allcenterCorsConfigurationSource))
                 .headers(this::applySecurityHeaders)
@@ -75,8 +96,12 @@ public class SecurityConfiguration {
 
     @Bean
     @Order(2)
-    SecurityFilterChain employeeSecurityFilterChain(HttpSecurity http) throws Exception {
-        http.csrf(AbstractHttpConfigurer::disable)
+    SecurityFilterChain employeeSecurityFilterChain(
+            HttpSecurity http,
+            @Qualifier("employeeAuthenticationManager") AuthenticationManager employeeAuthenticationManager)
+            throws Exception {
+        http.authenticationManager(employeeAuthenticationManager)
+                .csrf(AbstractHttpConfigurer::disable)
                 .cors(c -> c.configurationSource(allcenterCorsConfigurationSource))
                 .headers(this::applySecurityHeaders)
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
