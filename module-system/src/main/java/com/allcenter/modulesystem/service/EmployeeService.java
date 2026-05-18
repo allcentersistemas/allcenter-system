@@ -32,6 +32,7 @@ public class EmployeeService {
     private final EmployeeRepository employeeRepository;
     private final RoleRepository roleRepository;
     private final PasswordEncoder passwordEncoder;
+    private final MailService mailService;
 
     @Transactional(readOnly = true)
     public EmployeeResponse getById(Long id) {
@@ -42,8 +43,14 @@ public class EmployeeService {
     }
 
     @Transactional(readOnly = true)
-    public List<EmployeeResponse> findAll() {
-        return employeeRepository.findAllWithRoles().stream().map(EmployeeResponse::from).toList();
+    public List<EmployeeResponse> findAll(boolean activeOnly, String search) {
+        String q = search == null ? null : search.trim();
+        if (q != null && q.isEmpty()) {
+            q = null;
+        }
+        return employeeRepository.findAllWithRolesFiltered(activeOnly, q).stream()
+                .map(EmployeeResponse::from)
+                .toList();
     }
 
     /** Empleados activos con un rol dado (p. ej. CHOFER), para desplegables en apps de campo. */
@@ -379,6 +386,40 @@ public class EmployeeService {
                         .orElseThrow(() -> new NotFoundException("No existe un empleado con id " + id));
         e.setActive(false);
         employeeRepository.save(e);
+    }
+
+    @Transactional
+    public void resetPasswordByAdmin(Long id, String newPassword, boolean notifyByEmail) {
+        Employee e =
+                employeeRepository
+                        .findById(id)
+                        .orElseThrow(() -> new NotFoundException("No existe un empleado con id " + id));
+        if (newPassword == null || newPassword.isBlank()) {
+            throw new BadRequestException("La nueva contraseña es obligatoria");
+        }
+        if (newPassword.length() < 8) {
+            throw new BadRequestException("La contraseña debe tener al menos 8 caracteres");
+        }
+        e.setPassword(passwordEncoder.encode(newPassword.trim()));
+        employeeRepository.save(e);
+        if (notifyByEmail && e.getEmail() != null && !e.getEmail().isBlank()) {
+            mailService.sendHtml(
+                    e.getEmail(),
+                    "Contraseña restablecida — AllCenter",
+                    """
+                    <p>Hola %s,</p>
+                    <p>Un administrador ha restablecido la contraseña de tu cuenta en AllCenter.</p>
+                    <p>Tu nueva contraseña temporal es: <strong>%s</strong></p>
+                    <p>Cámbiala en cuanto inicies sesión.</p>
+                    """
+                            .formatted(
+                                    buildDisplayName(e),
+                                    escapeHtml(newPassword.trim())));
+        }
+    }
+
+    private static String escapeHtml(String value) {
+        return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
     private void assignRoles(Employee employee, List<Long> roleIds) {

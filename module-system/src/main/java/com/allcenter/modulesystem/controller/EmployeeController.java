@@ -2,6 +2,7 @@ package com.allcenter.modulesystem.controller;
 
 import com.allcenter.modulesystem.exception.ForbiddenException;
 import com.allcenter.modulesystem.dto.AdminCreateEmployeeRequest;
+import com.allcenter.modulesystem.dto.AdminResetPasswordRequest;
 import com.allcenter.modulesystem.dto.EmployeeAdminPatchRequest;
 import com.allcenter.modulesystem.dto.EmployeeCatalogItem;
 import com.allcenter.modulesystem.dto.EmployeeResponse;
@@ -24,6 +25,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -71,8 +73,19 @@ public class EmployeeController {
 
     @GetMapping
     @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
-    public ResponseEntity<List<EmployeeResponse>> list() {
-        return ResponseEntity.ok(employeeService.findAll());
+    public ResponseEntity<List<EmployeeResponse>> list(
+            @RequestParam(defaultValue = "true") boolean activeOnly,
+            @RequestParam(required = false) String q) {
+        return ResponseEntity.ok(employeeService.findAll(activeOnly, q));
+    }
+
+    @PostMapping("/{id}/reset-password")
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
+    public ResponseEntity<Void> resetPassword(
+            @PathVariable Long id, @Valid @RequestBody AdminResetPasswordRequest request) {
+        boolean notify = Boolean.TRUE.equals(request.notifyByEmail());
+        employeeService.resetPasswordByAdmin(id, request.newPassword(), notify);
+        return ResponseEntity.noContent().build();
     }
 
     @PostMapping

@@ -48,6 +48,24 @@ public interface EmployeeRepository extends JpaRepository<Employee, Long> {
     @Query("SELECT DISTINCT e FROM Employee e LEFT JOIN FETCH e.roles")
     List<Employee> findAllWithRoles();
 
+    @Query(
+            """
+            SELECT DISTINCT e FROM Employee e LEFT JOIN FETCH e.roles
+            WHERE (:activeOnly = false OR e.active = true)
+              AND (
+                :q IS NULL OR TRIM(:q) = '' OR
+                LOWER(e.email) LIKE LOWER(CONCAT('%', TRIM(:q), '%')) OR
+                LOWER(COALESCE(e.firstName, '')) LIKE LOWER(CONCAT('%', TRIM(:q), '%')) OR
+                LOWER(COALESCE(e.lastName, '')) LIKE LOWER(CONCAT('%', TRIM(:q), '%')) OR
+                LOWER(COALESCE(e.secondLastName, '')) LIKE LOWER(CONCAT('%', TRIM(:q), '%')) OR
+                LOWER(e.employeeCode) LIKE LOWER(CONCAT('%', TRIM(:q), '%')) OR
+                LOWER(COALESCE(e.samAccountName, '')) LIKE LOWER(CONCAT('%', TRIM(:q), '%'))
+              )
+            ORDER BY e.lastName ASC NULLS LAST, e.firstName ASC NULLS LAST, e.id ASC
+            """)
+    List<Employee> findAllWithRolesFiltered(
+            @Param("activeOnly") boolean activeOnly, @Param("q") String q);
+
     @Query("SELECT COUNT(DISTINCT e.id) FROM Employee e JOIN e.roles r WHERE r.id = :roleId")
     long countEmployeesWithRole(@Param("roleId") Long roleId);
 
