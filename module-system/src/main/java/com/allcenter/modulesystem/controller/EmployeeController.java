@@ -72,7 +72,7 @@ public class EmployeeController {
     }
 
     @GetMapping
-    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN','ADMIN_PRODUCCION')")
     public ResponseEntity<List<EmployeeResponse>> list(
             @RequestParam(defaultValue = "true") boolean activeOnly,
             @RequestParam(required = false) String q) {
@@ -80,7 +80,7 @@ public class EmployeeController {
     }
 
     @PostMapping("/{id}/reset-password")
-    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN','ADMIN_PRODUCCION')")
     public ResponseEntity<Void> resetPassword(
             @PathVariable Long id, @Valid @RequestBody AdminResetPasswordRequest request) {
         boolean notify = Boolean.TRUE.equals(request.notifyByEmail());
@@ -89,28 +89,28 @@ public class EmployeeController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN','ADMIN_PRODUCCION')")
     public ResponseEntity<EmployeeResponse> create(@Valid @RequestBody AdminCreateEmployeeRequest request) {
         EmployeeResponse body = employeeService.createByAdmin(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(body);
     }
 
     @PatchMapping("/{id}")
-    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN','ADMIN_PRODUCCION')")
     public ResponseEntity<EmployeeResponse> patchAdmin(
             @PathVariable Long id, @Valid @RequestBody EmployeeAdminPatchRequest request) {
         return ResponseEntity.ok(employeeService.patchAdmin(id, request));
     }
 
     @PutMapping("/{id}/roles")
-    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN','ADMIN_PRODUCCION')")
     public ResponseEntity<EmployeeResponse> replaceRoles(
             @PathVariable Long id, @Valid @RequestBody EmployeeRolesRequest request) {
         return ResponseEntity.ok(employeeService.replaceRoles(id, request.roleIds()));
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN','ADMIN_PRODUCCION')")
     public ResponseEntity<Void> softDelete(@PathVariable Long id) {
         employeeService.softDelete(id);
         return ResponseEntity.noContent().build();
