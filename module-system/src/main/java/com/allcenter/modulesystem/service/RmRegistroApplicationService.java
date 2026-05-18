@@ -147,7 +147,7 @@ public class RmRegistroApplicationService {
         entradaDetalleRepository.saveAll(ent.getDetalles());
 
         Long vehiculoId = null;
-        if (Boolean.TRUE.equals(payload.generarRegistroVehiculo())) {
+        if (payload.generarRegistroVehiculo() == null || Boolean.TRUE.equals(payload.generarRegistroVehiculo())) {
             validateEntradaVehiculoSidecar(payload);
             List<RmPayloadModels.VehiculoProducto> productos = new ArrayList<>();
             for (RmPayloadModels.EntradaDetalle d : payload.detalles()) {

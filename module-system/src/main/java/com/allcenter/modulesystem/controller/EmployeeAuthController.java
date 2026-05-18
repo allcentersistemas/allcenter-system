@@ -106,6 +106,9 @@ public class EmployeeAuthController {
     public ResponseEntity<Void> verifyPassword(
             @AuthenticationPrincipal EmployeeUserDetails principal,
             @Valid @RequestBody VerifyPasswordRequest request) {
+        if (principal == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
         authService.verifyCurrentPassword(principal.getEmployee().getId(), request.password());
         return ResponseEntity.noContent().build();
     }
