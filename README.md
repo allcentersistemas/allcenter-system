@@ -40,7 +40,7 @@ cp .env.example .env   # editar POSTGRES_PASSWORD
 docker compose up -d --build
 ```
 
-Un solo `.env` y `docker-compose.yml` en la raíz (BD `161.132.52.100`: `app_db` + `obras`).
+Un solo `.env` y `docker-compose.yml` en la raíz. Producción: `https://app.allcenter.pe` (Caddy + Let's Encrypt).
 
 ## IntelliJ IDEA
 

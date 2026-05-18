@@ -119,16 +119,11 @@ public class SecurityConfiguration {
                                                 (a, ctx) ->
                                                         new AuthorizationDecision(
                                                                 authEndpointProperties.registrationEnabled()))
+                                        // Sin JWT; EmployeeAuthService valida flag, BD vacía y secret opcional
                                         .requestMatchers(HttpMethod.POST, "/api/auth/first-setup")
-                                        .access(
-                                                (a, ctx) ->
-                                                        new AuthorizationDecision(
-                                                                authEndpointProperties.firstSetupEnabled()))
+                                        .permitAll()
                                         .requestMatchers(HttpMethod.GET, "/api/auth/first-setup/status")
-                                        .access(
-                                                (a, ctx) ->
-                                                        new AuthorizationDecision(
-                                                                authEndpointProperties.firstSetupEnabled()))
+                                        .permitAll()
                                         .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**")
                                         .permitAll()
                                         .requestMatchers(HttpMethod.GET, "/actuator/info")
