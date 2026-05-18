@@ -21,6 +21,7 @@ import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 @Slf4j
 @RestControllerAdvice
@@ -33,6 +34,20 @@ public class GlobalExceptionHandler {
                 .body(
                         ApiErrorResponse.build(
                                 request, ex.getStatus(), ex.getCode(), ex.getMessage()));
+    }
+
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<ApiErrorResponse> handleMaxUpload(
+            MaxUploadSizeExceededException ex, HttpServletRequest request) {
+        logApiError(HttpStatus.PAYLOAD_TOO_LARGE, ex, request, false);
+        return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)
+                .body(
+                        ApiErrorResponse.build(
+                                request,
+                                HttpStatus.PAYLOAD_TOO_LARGE,
+                                "PAYLOAD_TOO_LARGE",
+                                "El envío supera el tamaño máximo permitido (demasiadas fotos o muy pesadas). "
+                                        + "Use menos fotos o vuelva a tomarlas con menor resolución."));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

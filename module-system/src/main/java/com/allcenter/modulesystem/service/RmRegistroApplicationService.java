@@ -50,6 +50,7 @@ public class RmRegistroApplicationService {
     private final RmRegistroSalidaDetalleRepository salidaDetalleRepository;
     private final RmRegistroVehiculoRepository vehiculoRepository;
     private final RmActaConformidadRepository actaRepository;
+    private final EmployeeAuthService employeeAuthService;
 
     @PostConstruct
     void initStorage() throws IOException {
@@ -61,6 +62,10 @@ public class RmRegistroApplicationService {
             byte[] dataJsonBytes, List<MultipartFile> photos, String createdByEmail) {
         RmPayloadModels.EntradaPayload payload = readJson(dataJsonBytes, RmPayloadModels.EntradaPayload.class);
         validateEntradaPayload(payload);
+        if (Boolean.TRUE.equals(payload.recepcionConformidadCerrada())) {
+            requireChoferValidacionPassword(
+                    payload.choferValidacionEmpleadoId(), payload.confirmPassword(), "recepción");
+        }
         List<MultipartFile> plist = RmMultipartUtil.normalizePhotos(photos);
         int cabCount =
                 payload.cabeceraVehiculoFotosCount() == null ? 0 : payload.cabeceraVehiculoFotosCount();
@@ -202,6 +207,10 @@ public class RmRegistroApplicationService {
             byte[] dataJsonBytes, List<MultipartFile> photos, String createdByEmail) {
         RmPayloadModels.SalidaPayload payload = readJson(dataJsonBytes, RmPayloadModels.SalidaPayload.class);
         validateSalidaPayload(payload);
+        if (Boolean.TRUE.equals(payload.salidaConformidadCerrada())) {
+            requireChoferValidacionPassword(
+                    payload.choferValidacionEmpleadoId(), payload.confirmPassword(), "salida");
+        }
         List<MultipartFile> plist = RmMultipartUtil.normalizePhotos(photos);
         int expected = payload.cabeceraFotosCount()
                 + payload.detalles().stream().mapToInt(RmPayloadModels.SalidaDetalle::fotosCount).sum();
@@ -460,6 +469,18 @@ public class RmRegistroApplicationService {
         } catch (Exception e) {
             throw new ResponseStatusException(BAD_REQUEST, "JSON invalido en parte data");
         }
+    }
+
+    /** Valida la contraseña del chofer seleccionado en conformidad (rol CHOFER en catálogo). */
+    private void requireChoferValidacionPassword(Long choferEmpleadoId, String confirmPassword, String flowLabel) {
+        if (choferEmpleadoId == null || choferEmpleadoId <= 0) {
+            throw new ResponseStatusException(BAD_REQUEST, "Chofer que valida (empleado) obligatorio");
+        }
+        if (confirmPassword == null || confirmPassword.isBlank()) {
+            throw new ResponseStatusException(
+                    BAD_REQUEST, "La contraseña del chofer que valida es obligatoria para cerrar la " + flowLabel);
+        }
+        employeeAuthService.verifyCurrentPassword(choferEmpleadoId, confirmPassword);
     }
 
     private static void validateEntradaPayload(RmPayloadModels.EntradaPayload payload) {

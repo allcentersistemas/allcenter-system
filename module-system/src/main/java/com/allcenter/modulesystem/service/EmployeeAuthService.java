@@ -29,6 +29,7 @@ import java.util.List;
 import java.util.Set;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -296,9 +297,24 @@ public class EmployeeAuthService {
             throw new BadRequestException(
                     "Esta cuenta no tiene contraseña local; use el acceso corporativo o contacte a un administrador.");
         }
-        if (!passwordEncoder.matches(password.trim(), e.getPassword())) {
+        String login = resolveLoginIdentifier(e);
+        String raw = password == null ? "" : password;
+        try {
+            authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(login, raw));
+        } catch (BadCredentialsException ex) {
             throw new BadRequestException("La contraseña no es correcta");
         }
+    }
+
+    /** Mismo identificador que usa el login (samAccountName, código EMP o email). */
+    private static String resolveLoginIdentifier(Employee e) {
+        if (e.getSamAccountName() != null && !e.getSamAccountName().isBlank()) {
+            return e.getSamAccountName().trim();
+        }
+        if (e.getEmployeeCode() != null && !e.getEmployeeCode().isBlank()) {
+            return e.getEmployeeCode().trim();
+        }
+        return e.getEmail().trim();
     }
 
     private EmployeeAuthSessionResponse buildSession(EmployeeUserDetails principal, String refreshTokenRaw) {

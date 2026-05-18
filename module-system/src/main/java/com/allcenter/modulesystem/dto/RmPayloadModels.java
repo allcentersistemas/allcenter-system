@@ -33,7 +33,9 @@ public final class RmPayloadModels {
             List<EntradaDetalle> detalles,
             Boolean generarRegistroVehiculo,
             String vehiculoMarca,
-            String vehiculoPlaca) {}
+            String vehiculoPlaca,
+            /** Contraseña del chofer que valida (choferValidacionEmpleadoId); obligatoria si recepcionConformidadCerrada. */
+            String confirmPassword) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record SalidaDetalle(
@@ -59,7 +61,9 @@ public final class RmPayloadModels {
             Boolean salidaConformidadCerrada,
             Long choferValidacionEmpleadoId,
             String choferValidacionNombre,
-            List<SalidaDetalle> detalles) {}
+            List<SalidaDetalle> detalles,
+            /** Contraseña del chofer que valida (choferValidacionEmpleadoId); obligatoria si salidaConformidadCerrada. */
+            String confirmPassword) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record VehiculoProducto(String materialProducto, String cantidad, String unidad) {}
