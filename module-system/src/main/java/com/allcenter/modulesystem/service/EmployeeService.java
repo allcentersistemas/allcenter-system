@@ -44,13 +44,12 @@ public class EmployeeService {
 
     @Transactional(readOnly = true)
     public List<EmployeeResponse> findAll(boolean activeOnly, String search) {
-        String q = search == null ? null : search.trim();
-        if (q != null && q.isEmpty()) {
-            q = null;
-        }
-        return employeeRepository.findAllWithRolesFiltered(activeOnly, q).stream()
-                .map(EmployeeResponse::from)
-                .toList();
+        String q = search == null ? "" : search.trim();
+        List<Employee> rows =
+                q.isEmpty()
+                        ? employeeRepository.findAllWithRolesActiveOnly(activeOnly)
+                        : employeeRepository.searchWithRoles(activeOnly, q);
+        return rows.stream().map(EmployeeResponse::from).toList();
     }
 
     /** Empleados activos con un rol dado (p. ej. CHOFER), para desplegables en apps de campo. */
