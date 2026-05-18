@@ -82,6 +82,9 @@ public class EmployeeAuthController {
 
     @GetMapping("/me")
     public ResponseEntity<EmployeeResponse> me(@AuthenticationPrincipal EmployeeUserDetails principal) {
+        if (principal == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
         return employeeRepository
                 .findByIdWithRoles(principal.getEmployee().getId())
                 .map(EmployeeResponse::from)

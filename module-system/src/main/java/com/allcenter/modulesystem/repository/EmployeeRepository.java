@@ -30,6 +30,16 @@ public interface EmployeeRepository extends JpaRepository<Employee, Long> {
             """)
     Optional<Employee> findByLoginIdentifier(@Param("login") String login);
 
+    /** Login en UI (usuario/código) o subject del JWT (email corporativo). */
+    @Query(
+            """
+            SELECT DISTINCT e FROM Employee e LEFT JOIN FETCH e.roles WHERE
+              (e.samAccountName IS NOT NULL AND LOWER(TRIM(e.samAccountName)) = LOWER(TRIM(:login)))
+              OR LOWER(TRIM(e.employeeCode)) = LOWER(TRIM(:login))
+              OR LOWER(TRIM(e.email)) = LOWER(TRIM(:login))
+            """)
+    Optional<Employee> findByLoginIdentifierOrEmail(@Param("login") String login);
+
     boolean existsBySamAccountNameIgnoreCase(String samAccountName);
 
     @Query("SELECT DISTINCT e FROM Employee e LEFT JOIN FETCH e.roles WHERE e.id = :id")

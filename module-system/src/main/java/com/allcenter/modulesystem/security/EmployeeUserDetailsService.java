@@ -19,7 +19,7 @@ public class EmployeeUserDetailsService implements UserDetailsService {
     public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
         String login = username == null ? "" : username.trim();
         return employeeRepository
-                .findByLoginIdentifier(login)
+                .findByLoginIdentifierOrEmail(login)
                 .map(EmployeeUserDetails::new)
                 .orElseThrow(() -> new UsernameNotFoundException("Usuario no encontrado: " + login));
     }
