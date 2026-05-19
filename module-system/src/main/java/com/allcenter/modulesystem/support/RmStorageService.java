@@ -20,9 +20,12 @@ import static org.springframework.http.HttpStatus.NOT_FOUND;
 public class RmStorageService {
 
     private final Path root;
+    private final Path legacyRoot;
 
     public RmStorageService(@Value("${app.rm.media-dir:./var/rm-media}") String mediaDir) {
         this.root = Paths.get(mediaDir).toAbsolutePath().normalize();
+        Path legacy = Paths.get("./var/rm-media").toAbsolutePath().normalize();
+        this.legacyRoot = legacy.equals(this.root) ? null : legacy;
     }
 
     public void ensureReady() throws IOException {
@@ -52,12 +55,23 @@ public class RmStorageService {
 
     public Path resolveExisting(String kind, long recordId, String filename) {
         assertSafeFilename(filename);
-        Path p = root.resolve(kind).resolve(Long.toString(recordId)).resolve(filename).normalize();
-        if (!p.startsWith(root)) {
-            throw new ResponseStatusException(BAD_REQUEST, "Ruta invalida");
+        Path p = resolveUnderRoot(root, kind, recordId, filename);
+        if (Files.isRegularFile(p)) {
+            return p;
         }
-        if (!Files.isRegularFile(p)) {
-            throw new ResponseStatusException(NOT_FOUND, "Archivo no encontrado");
+        if (legacyRoot != null) {
+            Path legacy = resolveUnderRoot(legacyRoot, kind, recordId, filename);
+            if (Files.isRegularFile(legacy)) {
+                return legacy;
+            }
+        }
+        throw new ResponseStatusException(NOT_FOUND, "Archivo no encontrado");
+    }
+
+    private static Path resolveUnderRoot(Path base, String kind, long recordId, String filename) {
+        Path p = base.resolve(kind).resolve(Long.toString(recordId)).resolve(filename).normalize();
+        if (!p.startsWith(base)) {
+            throw new ResponseStatusException(BAD_REQUEST, "Ruta invalida");
         }
         return p;
     }

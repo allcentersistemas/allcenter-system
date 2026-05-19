@@ -455,9 +455,32 @@ public class RmRegistroApplicationService {
                                     .getPhotoFilenamesJson());
                     default -> throw new ResponseStatusException(BAD_REQUEST, "Tipo de media no soportado");
                 };
-        if (!allowed.contains(filename)) {
+        if (!filenameAllowed(allowed, filename)) {
             throw new ResponseStatusException(NOT_FOUND, "Archivo no asociado al registro");
         }
+    }
+
+    private static boolean filenameAllowed(List<String> allowed, String filename) {
+        String requested = mediaBasename(filename);
+        for (String entry : allowed) {
+            if (entry != null && mediaBasename(entry).equals(requested)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String mediaBasename(String value) {
+        if (value == null || value.isBlank()) {
+            return "";
+        }
+        String t = value.trim();
+        int q = t.indexOf('?');
+        if (q >= 0) {
+            t = t.substring(0, q);
+        }
+        int slash = Math.max(t.lastIndexOf('/'), t.lastIndexOf('\\'));
+        return slash >= 0 ? t.substring(slash + 1) : t;
     }
 
     private String savePhoto(String kind, long recordId, MultipartFile file) {

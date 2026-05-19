@@ -179,11 +179,42 @@ public class RmApiController {
     /** Ruta relativa al API (el portal la prefija con /api-system). */
     private static String mediaApiPath(String kind, long recordId, String filename) {
         String k = RmMediaKinds.normalize(kind);
-        return "/api/rm/media/" + k + "/" + recordId + "/" + filename;
+        return "/api/rm/media/" + k + "/" + recordId + "/" + basename(filename);
+    }
+
+    /**
+     * Acepta nombres de archivo, rutas relativas {@code /api/rm/media/...} o URLs absolutas guardadas
+     * en registros antiguos.
+     */
+    private static String toPhotoUrl(String kind, long recordId, String stored) {
+        if (stored == null || stored.isBlank()) {
+            return null;
+        }
+        String t = stored.trim();
+        int marker = t.indexOf("/api/rm/media/");
+        if (marker >= 0) {
+            String path = t.substring(marker);
+            int q = path.indexOf('?');
+            return q >= 0 ? path.substring(0, q) : path;
+        }
+        return mediaApiPath(kind, recordId, t);
+    }
+
+    private static String basename(String value) {
+        if (value == null || value.isBlank()) {
+            return value;
+        }
+        String t = value.trim();
+        int q = t.indexOf('?');
+        if (q >= 0) {
+            t = t.substring(0, q);
+        }
+        int slash = Math.max(t.lastIndexOf('/'), t.lastIndexOf('\\'));
+        return slash >= 0 ? t.substring(slash + 1) : t;
     }
 
     private List<String> photoUrls(String kind, long id, List<String> names) {
-        return names.stream().map(n -> mediaApiPath(kind, id, n)).toList();
+        return names.stream().map(n -> toPhotoUrl(kind, id, n)).filter(java.util.Objects::nonNull).toList();
     }
 
     private RmApiModels.RegistroEntradaResponse toEntradaResponse(RmRegistroEntrada e, HttpServletRequest request) {
