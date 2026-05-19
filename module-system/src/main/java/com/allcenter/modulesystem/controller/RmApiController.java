@@ -19,6 +19,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -34,6 +35,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.multipart.MultipartHttpServletRequest;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import static org.springframework.http.HttpStatus.BAD_REQUEST;
@@ -47,6 +49,12 @@ public class RmApiController {
     private final PhotoFilenameCodec photoFilenameCodec;
     private final RmStorageService storageService;
     private final ObjectMapper objectMapper;
+
+    /**
+     * Base pública del API (p. ej. https://app.allcenter.pe/api-system). Si está vacía, se infiere del request.
+     */
+    @Value("${app.public-api-base-url:}")
+    private String publicApiBaseUrl;
 
     @PostMapping(value = "/registros-entrada", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public RmApiModels.CreatedEntrada postEntrada(MultipartHttpServletRequest request) throws IOException {
@@ -182,32 +190,21 @@ public class RmApiController {
     }
 
     private String mediaUrl(HttpServletRequest request, String kind, long recordId, String filename) {
-        String origin =
-                request.getScheme()
-                        + "://"
-                        + request.getServerName()
-                        + formatPort(request);
-        String ctx = request.getContextPath() == null ? "" : request.getContextPath();
-        String base = origin + ctx;
-        return UriComponentsBuilder.fromUriString(base)
-                .pathSegment("api", "rm", "media", kind, Long.toString(recordId), filename)
-                .build()
+        String k = RmMediaKinds.normalize(kind);
+        String configured = publicApiBaseUrl == null ? "" : publicApiBaseUrl.trim();
+        if (!configured.isBlank()) {
+            return UriComponentsBuilder.fromUriString(configured.replaceAll("/+$", ""))
+                    .pathSegment("api", "rm", "media", k, Long.toString(recordId), filename)
+                    .build()
+                    .encode(StandardCharsets.UTF_8)
+                    .toUriString();
+        }
+        return ServletUriComponentsBuilder.fromRequestUri(request)
+                .replacePath(null)
+                .path("/api/rm/media/{kind}/{recordId}/{filename}")
+                .buildAndExpand(k, recordId, filename)
                 .encode(StandardCharsets.UTF_8)
                 .toUriString();
-    }
-
-    private static String formatPort(HttpServletRequest request) {
-        int port = request.getServerPort();
-        if (port <= 0) {
-            return "";
-        }
-        if (request.isSecure() && port == 443) {
-            return "";
-        }
-        if (!request.isSecure() && port == 80) {
-            return "";
-        }
-        return ":" + port;
     }
 
     private List<String> photoUrls(HttpServletRequest request, String kind, long id, List<String> names) {
