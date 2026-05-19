@@ -22,6 +22,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.server.ResponseStatusException;
 
 @Slf4j
 @RestControllerAdvice
@@ -224,6 +225,24 @@ public class GlobalExceptionHandler {
                                 HttpStatus.INTERNAL_SERVER_ERROR,
                                 "INTERNAL_STATE_ERROR",
                                 ex.getMessage() != null ? ex.getMessage() : "Estado interno inválido"));
+    }
+
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<ApiErrorResponse> handleResponseStatus(
+            ResponseStatusException ex, HttpServletRequest request) {
+        HttpStatus status = HttpStatus.resolve(ex.getStatusCode().value());
+        if (status == null) {
+            status = HttpStatus.INTERNAL_SERVER_ERROR;
+        }
+        String reason = ex.getReason();
+        logApiError(status, ex, request, status.is5xxServerError());
+        return ResponseEntity.status(status)
+                .body(
+                        ApiErrorResponse.build(
+                                request,
+                                status,
+                                status.name(),
+                                reason != null ? reason : status.getReasonPhrase()));
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

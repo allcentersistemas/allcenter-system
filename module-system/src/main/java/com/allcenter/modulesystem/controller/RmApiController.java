@@ -16,10 +16,8 @@ import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -35,8 +33,6 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.multipart.MultipartHttpServletRequest;
 import org.springframework.web.server.ResponseStatusException;
-import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
-import org.springframework.web.util.UriComponentsBuilder;
 
 import static org.springframework.http.HttpStatus.BAD_REQUEST;
 
@@ -49,12 +45,6 @@ public class RmApiController {
     private final PhotoFilenameCodec photoFilenameCodec;
     private final RmStorageService storageService;
     private final ObjectMapper objectMapper;
-
-    /**
-     * Base pública del API (p. ej. https://app.allcenter.pe/api-system). Si está vacía, se infiere del request.
-     */
-    @Value("${app.public-api-base-url:}")
-    private String publicApiBaseUrl;
 
     @PostMapping(value = "/registros-entrada", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public RmApiModels.CreatedEntrada postEntrada(MultipartHttpServletRequest request) throws IOException {
@@ -160,11 +150,8 @@ public class RmApiController {
     public ResponseEntity<Resource> getMedia(
             @PathVariable String kind,
             @PathVariable long recordId,
-            @PathVariable String filename,
-            HttpServletRequest request) {
-        String k = RmMediaKinds.normalize(kind);
-        registroService.assertMediaAllowed(k, recordId, filename);
-        Resource body = storageService.load(k, recordId, filename);
+            @PathVariable String filename) {
+        Resource body = registroService.loadMediaFile(kind, recordId, filename);
         MediaType contentType = probeMediaType(filename);
         return ResponseEntity.ok()
                 .contentType(contentType)
@@ -189,26 +176,14 @@ public class RmApiController {
         return t.isEmpty() ? null : t.substring(0, Math.min(320, t.length()));
     }
 
-    private String mediaUrl(HttpServletRequest request, String kind, long recordId, String filename) {
+    /** Ruta relativa al API (el portal la prefija con /api-system). */
+    private static String mediaApiPath(String kind, long recordId, String filename) {
         String k = RmMediaKinds.normalize(kind);
-        String configured = publicApiBaseUrl == null ? "" : publicApiBaseUrl.trim();
-        if (!configured.isBlank()) {
-            return UriComponentsBuilder.fromUriString(configured.replaceAll("/+$", ""))
-                    .pathSegment("api", "rm", "media", k, Long.toString(recordId), filename)
-                    .build()
-                    .encode(StandardCharsets.UTF_8)
-                    .toUriString();
-        }
-        return ServletUriComponentsBuilder.fromRequestUri(request)
-                .replacePath(null)
-                .path("/api/rm/media/{kind}/{recordId}/{filename}")
-                .buildAndExpand(k, recordId, filename)
-                .encode(StandardCharsets.UTF_8)
-                .toUriString();
+        return "/api/rm/media/" + k + "/" + recordId + "/" + filename;
     }
 
-    private List<String> photoUrls(HttpServletRequest request, String kind, long id, List<String> names) {
-        return names.stream().map(n -> mediaUrl(request, kind, id, n)).toList();
+    private List<String> photoUrls(String kind, long id, List<String> names) {
+        return names.stream().map(n -> mediaApiPath(kind, id, n)).toList();
     }
 
     private RmApiModels.RegistroEntradaResponse toEntradaResponse(RmRegistroEntrada e, HttpServletRequest request) {
@@ -232,7 +207,7 @@ public class RmApiController {
                 e.getChoferValidacionNombre(),
                 e.getCreatedAt(),
                 e.getCreatedByEmail(),
-                photoUrls(request, RmMediaKinds.ENTRADA_CABECERA_VEHICULO, e.getId(), cabVehNames),
+                photoUrls(RmMediaKinds.ENTRADA_CABECERA_VEHICULO, e.getId(), cabVehNames),
                 detalles);
     }
 
@@ -247,7 +222,7 @@ public class RmApiController {
                 d.getColorModelo(),
                 d.getCantidadRecibida(),
                 d.getUnidad(),
-                photoUrls(request, RmMediaKinds.ENTRADA_DETALLE, d.getId(), names));
+                photoUrls(RmMediaKinds.ENTRADA_DETALLE, d.getId(), names));
     }
 
     private RmApiModels.RegistroSalidaResponse toSalidaResponse(RmRegistroSalida s, HttpServletRequest request) {
@@ -268,7 +243,7 @@ public class RmApiController {
                 s.getChoferValidacionNombre(),
                 s.getCreatedAt(),
                 s.getCreatedByEmail(),
-                photoUrls(request, RmMediaKinds.SALIDA_CABECERA, s.getId(), cabNames),
+                photoUrls(RmMediaKinds.SALIDA_CABECERA, s.getId(), cabNames),
                 detalles);
     }
 
@@ -285,7 +260,7 @@ public class RmApiController {
                 d.getUnidad(),
                 d.getRecibeFirma(),
                 d.getEntregaRci(),
-                photoUrls(request, RmMediaKinds.SALIDA_DETALLE, d.getId(), names));
+                photoUrls(RmMediaKinds.SALIDA_DETALLE, d.getId(), names));
     }
 
     private RmApiModels.RegistroVehiculoResponse toVehiculoResponse(RmRegistroVehiculo v, HttpServletRequest request) {
@@ -320,7 +295,7 @@ public class RmApiController {
                 v.getCreatedAt(),
                 v.getCreatedByEmail(),
                 productos,
-                photoUrls(request, RmMediaKinds.VEHICULO, v.getId(), names));
+                photoUrls(RmMediaKinds.VEHICULO, v.getId(), names));
     }
 
     private RmApiModels.ActaConformidadResponse toActaResponse(RmActaConformidad a, HttpServletRequest request) {
@@ -349,7 +324,7 @@ public class RmApiController {
                 a.getObservacionesDecision(),
                 a.getCreatedAt(),
                 a.getCreatedByEmail(),
-                photoUrls(request, RmMediaKinds.ACTA, a.getId(), names));
+                photoUrls(RmMediaKinds.ACTA, a.getId(), names));
     }
 
     private static MediaType probeMediaType(String filename) {

@@ -27,7 +27,11 @@ public class PhotoFilenameCodec {
     }
 
     public String writeList(List<String> names) {
-        return objectMapper.writeValueAsString(names == null ? List.of() : names);
+        try {
+            return objectMapper.writeValueAsString(names == null ? List.of() : names);
+        } catch (Exception ex) {
+            return "[]";
+        }
     }
 
     public List<String> mutableCopy(List<String> names) {

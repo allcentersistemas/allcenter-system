@@ -27,6 +27,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import lombok.RequiredArgsConstructor;
+import org.springframework.core.io.Resource;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -408,6 +409,13 @@ public class RmRegistroApplicationService {
         return actaRepository
                 .findById(id)
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Acta no encontrada"));
+    }
+
+    @Transactional(readOnly = true)
+    public Resource loadMediaFile(String kind, long recordId, String filename) {
+        String k = RmMediaKinds.normalize(kind);
+        assertMediaAllowed(k, recordId, filename);
+        return storageService.load(k, recordId, filename);
     }
 
     @Transactional(readOnly = true)
