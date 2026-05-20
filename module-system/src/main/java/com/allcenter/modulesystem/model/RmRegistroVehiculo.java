@@ -1,14 +1,18 @@
 package com.allcenter.modulesystem.model;
 
+import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.OneToMany;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
@@ -48,9 +52,8 @@ public class RmRegistroVehiculo {
     @Column(columnDefinition = "TEXT")
     private String photoFilenamesJson;
 
-    /** Lista JSON de productos transportados (material, cantidad, unidad). */
-    @Column(columnDefinition = "TEXT")
-    private String productosJson;
+    @OneToMany(mappedBy = "registroVehiculo", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<RmRegistroEntrada> entradas = new ArrayList<>();
 
     @Column(nullable = false)
     private Instant createdAt;

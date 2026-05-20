@@ -43,11 +43,39 @@ public class RmApiController {
 
     private final RmRegistroApplicationService registroService;
     private final PhotoFilenameCodec photoFilenameCodec;
-    private final RmStorageService storageService;
     private final ObjectMapper objectMapper;
 
+    @PostMapping(value = "/registros-vehiculo", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public RmApiModels.Created postVehiculo(MultipartHttpServletRequest request) throws IOException {
+        MultipartFile data = requireDataPart(request);
+        List<MultipartFile> photos = request.getFiles("photos");
+        String user = trimHeaderEmail(request);
+        return registroService.createRegistroVehiculo(data.getBytes(), photos, user);
+    }
+
+    @GetMapping("/registros-vehiculo")
+    public Page<RmApiModels.VehiculoListRow> listVehiculos(@PageableDefault(size = 20) Pageable pageable) {
+        return registroService
+                .pageVehiculos(pageable)
+                .map(v -> new RmApiModels.VehiculoListRow(
+                        v.getId(), v.getFecha(), v.getPlaca(), v.getChofer(), v.getMarca(), v.getCreatedAt()));
+    }
+
+    @GetMapping("/registros-vehiculo/{id}")
+    public RmApiModels.RegistroVehiculoResponse getVehiculo(@PathVariable long id) {
+        RmRegistroVehiculo v = registroService.getVehiculo(id);
+        List<RmApiModels.EntradaListRow> entradas =
+                registroService.listEntradasByVehiculo(id).stream().map(this::toEntradaListRow).toList();
+        return toVehiculoResponse(v, entradas);
+    }
+
+    @GetMapping("/registros-vehiculo/{id}/entradas")
+    public List<RmApiModels.EntradaListRow> listEntradasByVehiculo(@PathVariable long id) {
+        return registroService.listEntradasByVehiculo(id).stream().map(this::toEntradaListRow).toList();
+    }
+
     @PostMapping(value = "/registros-entrada", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public RmApiModels.CreatedEntrada postEntrada(MultipartHttpServletRequest request) throws IOException {
+    public RmApiModels.Created postEntrada(MultipartHttpServletRequest request) throws IOException {
         MultipartFile data = requireDataPart(request);
         List<MultipartFile> photos = request.getFiles("photos");
         String user = trimHeaderEmail(request);
@@ -55,23 +83,13 @@ public class RmApiController {
     }
 
     @GetMapping("/registros-entrada")
-    public Page<RmApiModels.EntradaListRow> listEntradas(
-            @PageableDefault(size = 20) Pageable pageable, HttpServletRequest request) {
-        return registroService
-                .pageEntradas(pageable)
-                .map(e -> new RmApiModels.EntradaListRow(
-                        e.getId(),
-                        e.getFecha(),
-                        e.getHora(),
-                        e.getTransporteId(),
-                        e.getRecepcionEstado(),
-                        e.getCreatedAt(),
-                        e.getLineas()));
+    public Page<RmApiModels.EntradaListRow> listEntradas(@PageableDefault(size = 20) Pageable pageable) {
+        return registroService.pageEntradas(pageable).map(this::toEntradaListRow);
     }
 
     @GetMapping("/registros-entrada/{id}")
-    public RmApiModels.RegistroEntradaResponse getEntrada(@PathVariable long id, HttpServletRequest request) {
-        return toEntradaResponse(registroService.getEntrada(id), request);
+    public RmApiModels.RegistroEntradaResponse getEntrada(@PathVariable long id) {
+        return toEntradaResponse(registroService.getEntrada(id));
     }
 
     @PostMapping(value = "/registros-salida", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -83,8 +101,7 @@ public class RmApiController {
     }
 
     @GetMapping("/registros-salida")
-    public Page<RmApiModels.SalidaListRow> listSalidas(
-            @PageableDefault(size = 20) Pageable pageable, HttpServletRequest request) {
+    public Page<RmApiModels.SalidaListRow> listSalidas(@PageableDefault(size = 20) Pageable pageable) {
         return registroService
                 .pageSalidas(pageable)
                 .map(s -> new RmApiModels.SalidaListRow(
@@ -98,30 +115,8 @@ public class RmApiController {
     }
 
     @GetMapping("/registros-salida/{id}")
-    public RmApiModels.RegistroSalidaResponse getSalida(@PathVariable long id, HttpServletRequest request) {
-        return toSalidaResponse(registroService.getSalida(id), request);
-    }
-
-    @PostMapping(value = "/registros-vehiculo", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public RmApiModels.Created postVehiculo(MultipartHttpServletRequest request) throws IOException {
-        MultipartFile data = requireDataPart(request);
-        List<MultipartFile> photos = request.getFiles("photos");
-        String user = trimHeaderEmail(request);
-        return registroService.createRegistroVehiculo(data.getBytes(), photos, user);
-    }
-
-    @GetMapping("/registros-vehiculo")
-    public Page<RmApiModels.VehiculoListRow> listVehiculos(
-            @PageableDefault(size = 20) Pageable pageable, HttpServletRequest request) {
-        return registroService
-                .pageVehiculos(pageable)
-                .map(v -> new RmApiModels.VehiculoListRow(
-                        v.getId(), v.getFecha(), v.getPlaca(), v.getChofer(), v.getMarca(), v.getCreatedAt()));
-    }
-
-    @GetMapping("/registros-vehiculo/{id}")
-    public RmApiModels.RegistroVehiculoResponse getVehiculo(@PathVariable long id, HttpServletRequest request) {
-        return toVehiculoResponse(registroService.getVehiculo(id), request);
+    public RmApiModels.RegistroSalidaResponse getSalida(@PathVariable long id) {
+        return toSalidaResponse(registroService.getSalida(id));
     }
 
     @PostMapping(value = "/actas-conformidad", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -133,8 +128,7 @@ public class RmApiController {
     }
 
     @GetMapping("/actas-conformidad")
-    public Page<RmApiModels.ActaListRow> listActas(
-            @PageableDefault(size = 20) Pageable pageable, HttpServletRequest request) {
+    public Page<RmApiModels.ActaListRow> listActas(@PageableDefault(size = 20) Pageable pageable) {
         return registroService
                 .pageActas(pageable)
                 .map(a -> new RmApiModels.ActaListRow(
@@ -142,8 +136,8 @@ public class RmApiController {
     }
 
     @GetMapping("/actas-conformidad/{id}")
-    public RmApiModels.ActaConformidadResponse getActa(@PathVariable long id, HttpServletRequest request) {
-        return toActaResponse(registroService.getActa(id), request);
+    public RmApiModels.ActaConformidadResponse getActa(@PathVariable long id) {
+        return toActaResponse(registroService.getActa(id));
     }
 
     @GetMapping("/media/{kind}/{recordId}/{filename:.+}")
@@ -157,6 +151,21 @@ public class RmApiController {
                 .contentType(contentType)
                 .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + filename + "\"")
                 .body(body);
+    }
+
+    private RmApiModels.EntradaListRow toEntradaListRow(RmRegistroEntrada e) {
+        Long vehiculoId = e.getRegistroVehiculo() == null ? null : e.getRegistroVehiculo().getId();
+        return new RmApiModels.EntradaListRow(
+                e.getId(),
+                vehiculoId,
+                e.getFecha(),
+                e.getHora(),
+                e.getTipoDocumento(),
+                e.getOcNumero(),
+                e.getGuiaNumero(),
+                e.getRecepcionEstado(),
+                e.getCreatedAt(),
+                e.getLineas());
     }
 
     private static MultipartFile requireDataPart(MultipartHttpServletRequest request) {
@@ -176,16 +185,11 @@ public class RmApiController {
         return t.isEmpty() ? null : t.substring(0, Math.min(320, t.length()));
     }
 
-    /** Ruta relativa al API (el portal la prefija con /api-system). */
     private static String mediaApiPath(String kind, long recordId, String filename) {
         String k = RmMediaKinds.normalize(kind);
         return "/api/rm/media/" + k + "/" + recordId + "/" + basename(filename);
     }
 
-    /**
-     * Acepta nombres de archivo, rutas relativas {@code /api/rm/media/...} o URLs absolutas guardadas
-     * en registros antiguos.
-     */
     private static String toPhotoUrl(String kind, long recordId, String stored) {
         if (stored == null || stored.isBlank()) {
             return null;
@@ -217,20 +221,19 @@ public class RmApiController {
         return names.stream().map(n -> toPhotoUrl(kind, id, n)).filter(java.util.Objects::nonNull).toList();
     }
 
-    private RmApiModels.RegistroEntradaResponse toEntradaResponse(RmRegistroEntrada e, HttpServletRequest request) {
-        List<String> cabVehNames = photoFilenameCodec.readList(e.getCabeceraVehiculoPhotoFilenamesJson());
+    private RmApiModels.RegistroEntradaResponse toEntradaResponse(RmRegistroEntrada e) {
+        List<String> docNames = photoFilenameCodec.readList(e.getDocumentoPhotoFilenamesJson());
+        Long vehiculoId = e.getRegistroVehiculo() == null ? null : e.getRegistroVehiculo().getId();
         List<RmApiModels.EntradaDetalleResponse> detalles =
-                e.getDetalles().stream()
-                        .map(d -> toEntradaDetalle(d, request))
-                        .toList();
+                e.getDetalles().stream().map(this::toEntradaDetalle).toList();
         return new RmApiModels.RegistroEntradaResponse(
                 e.getId(),
+                vehiculoId,
                 e.getFecha(),
                 e.getHora(),
-                e.getTransporteId(),
-                e.getChoferIngresoEmpleadoId(),
-                e.getChoferIngresoNombre(),
-                e.getKilometrajeIngreso(),
+                e.getTipoDocumento(),
+                e.getOcNumero(),
+                e.getGuiaNumero(),
                 e.getRecepcionEstado(),
                 e.getValidadoAt(),
                 e.getValidadoPorEmail(),
@@ -238,17 +241,15 @@ public class RmApiController {
                 e.getChoferValidacionNombre(),
                 e.getCreatedAt(),
                 e.getCreatedByEmail(),
-                photoUrls(RmMediaKinds.ENTRADA_CABECERA_VEHICULO, e.getId(), cabVehNames),
+                photoUrls(RmMediaKinds.ENTRADA_DOCUMENTO, e.getId(), docNames),
                 detalles);
     }
 
-    private RmApiModels.EntradaDetalleResponse toEntradaDetalle(RmRegistroEntradaDetalle d, HttpServletRequest request) {
+    private RmApiModels.EntradaDetalleResponse toEntradaDetalle(RmRegistroEntradaDetalle d) {
         List<String> names = photoFilenameCodec.readList(d.getPhotoFilenamesJson());
         return new RmApiModels.EntradaDetalleResponse(
                 d.getId(),
                 d.getProveedor(),
-                d.getOcNumero(),
-                d.getGuiaNumero(),
                 d.getMaterial(),
                 d.getColorModelo(),
                 d.getCantidadRecibida(),
@@ -256,10 +257,10 @@ public class RmApiController {
                 photoUrls(RmMediaKinds.ENTRADA_DETALLE, d.getId(), names));
     }
 
-    private RmApiModels.RegistroSalidaResponse toSalidaResponse(RmRegistroSalida s, HttpServletRequest request) {
+    private RmApiModels.RegistroSalidaResponse toSalidaResponse(RmRegistroSalida s) {
         List<String> cabNames = photoFilenameCodec.readList(s.getCabeceraPhotoFilenamesJson());
         List<RmApiModels.SalidaDetalleResponse> detalles =
-                s.getDetalles().stream().map(d -> toSalidaDetalle(d, request)).toList();
+                s.getDetalles().stream().map(this::toSalidaDetalle).toList();
         return new RmApiModels.RegistroSalidaResponse(
                 s.getId(),
                 s.getFecha(),
@@ -278,7 +279,7 @@ public class RmApiController {
                 detalles);
     }
 
-    private RmApiModels.SalidaDetalleResponse toSalidaDetalle(RmRegistroSalidaDetalle d, HttpServletRequest request) {
+    private RmApiModels.SalidaDetalleResponse toSalidaDetalle(RmRegistroSalidaDetalle d) {
         List<String> names = photoFilenameCodec.readList(d.getPhotoFilenamesJson());
         return new RmApiModels.SalidaDetalleResponse(
                 d.getId(),
@@ -294,26 +295,9 @@ public class RmApiController {
                 photoUrls(RmMediaKinds.SALIDA_DETALLE, d.getId(), names));
     }
 
-    private RmApiModels.RegistroVehiculoResponse toVehiculoResponse(RmRegistroVehiculo v, HttpServletRequest request) {
+    private RmApiModels.RegistroVehiculoResponse toVehiculoResponse(
+            RmRegistroVehiculo v, List<RmApiModels.EntradaListRow> entradas) {
         List<String> names = photoFilenameCodec.readList(v.getPhotoFilenamesJson());
-        List<RmApiModels.VehiculoProductoResponse> productos;
-        try {
-            List<RmPayloadModels.VehiculoProducto> raw =
-                    objectMapper.readValue(
-                            v.getProductosJson() == null || v.getProductosJson().isBlank()
-                                    ? "[]"
-                                    : v.getProductosJson(),
-                            new TypeReference<>() {});
-            productos =
-                    raw.stream()
-                            .map(
-                                    x ->
-                                            new RmApiModels.VehiculoProductoResponse(
-                                                    x.materialProducto(), x.cantidad(), x.unidad()))
-                            .toList();
-        } catch (Exception ex) {
-            productos = List.of();
-        }
         return new RmApiModels.RegistroVehiculoResponse(
                 v.getId(),
                 v.getFecha(),
@@ -325,14 +309,14 @@ public class RmApiController {
                 v.getHoraSalida(),
                 v.getCreatedAt(),
                 v.getCreatedByEmail(),
-                productos,
-                photoUrls(RmMediaKinds.VEHICULO, v.getId(), names));
+                photoUrls(RmMediaKinds.VEHICULO, v.getId(), names),
+                entradas);
     }
 
-    private RmApiModels.ActaConformidadResponse toActaResponse(RmActaConformidad a, HttpServletRequest request) {
+    private RmApiModels.ActaConformidadResponse toActaResponse(RmActaConformidad a) {
         List<RmApiModels.NcTipoResponse> tipos;
         try {
-            List<com.allcenter.modulesystem.dto.RmPayloadModels.NcTipo> raw =
+            List<RmPayloadModels.NcTipo> raw =
                     objectMapper.readValue(a.getTiposJson(), new TypeReference<>() {});
             tipos =
                     raw.stream()

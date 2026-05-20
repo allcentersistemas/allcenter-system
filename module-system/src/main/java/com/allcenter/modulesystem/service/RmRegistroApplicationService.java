@@ -59,7 +59,7 @@ public class RmRegistroApplicationService {
     }
 
     @Transactional
-    public RmApiModels.CreatedEntrada createRegistroEntrada(
+    public RmApiModels.Created createRegistroEntrada(
             byte[] dataJsonBytes, List<MultipartFile> photos, String createdByEmail) {
         RmPayloadModels.EntradaPayload payload = readJson(dataJsonBytes, RmPayloadModels.EntradaPayload.class);
         validateEntradaPayload(payload);
@@ -67,27 +67,34 @@ public class RmRegistroApplicationService {
             requireChoferValidacionPassword(
                     payload.choferValidacionEmpleadoId(), payload.confirmPassword(), "recepción");
         }
+        RmRegistroVehiculo vehiculo = vehiculoRepository
+                .findById(payload.registroVehiculoId())
+                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Registro de vehiculo no encontrado"));
+
         List<MultipartFile> plist = RmMultipartUtil.normalizePhotos(photos);
-        int cabCount =
-                payload.cabeceraVehiculoFotosCount() == null ? 0 : payload.cabeceraVehiculoFotosCount();
-        if (cabCount < 0) {
-            throw new ResponseStatusException(BAD_REQUEST, "cabeceraVehiculoFotosCount invalido");
-        }
+        int docCount = payload.documentoFotosCount();
         int expected =
-                cabCount + payload.detalles().stream().mapToInt(RmPayloadModels.EntradaDetalle::fotosCount).sum();
+                docCount + payload.detalles().stream().mapToInt(RmPayloadModels.EntradaDetalle::fotosCount).sum();
         if (expected != plist.size()) {
             throw new ResponseStatusException(
-                    BAD_REQUEST, "El numero de fotos no coincide con cabeceraVehiculoFotosCount y fotosCount");
+                    BAD_REQUEST, "El numero de fotos no coincide con documentoFotosCount y fotosCount");
         }
 
+        String tipoDoc = normalizeTipoDocumento(payload.tipoDocumento());
         RmRegistroEntrada ent = new RmRegistroEntrada();
-        ent.setFecha(LocalDate.parse(payload.fecha().trim()));
-        ent.setHora(trimMax(payload.hora(), 16));
-        ent.setTransporteId(payload.transporteId());
+        ent.setRegistroVehiculo(vehiculo);
+        ent.setFecha(resolveEntradaFecha(payload, vehiculo));
+        ent.setHora(resolveEntradaHora(payload, vehiculo));
+        ent.setTipoDocumento(tipoDoc);
+        if ("OC".equals(tipoDoc)) {
+            ent.setOcNumero(trimMax(payload.ocNumero(), 128));
+            ent.setGuiaNumero(null);
+        } else {
+            ent.setGuiaNumero(trimMax(payload.guiaNumero(), 128));
+            ent.setOcNumero(null);
+        }
         ent.setCreatedByEmail(trimMaxNullable(createdByEmail, 320));
-        ent.setChoferIngresoEmpleadoId(payload.choferIngresoEmpleadoId());
-        ent.setChoferIngresoNombre(trimMaxNullable(payload.choferIngresoNombre(), 256));
-        ent.setKilometrajeIngreso(trimMaxNullable(payload.kilometrajeIngreso(), 32));
+        ent.setDocumentoPhotoFilenamesJson("[]");
 
         if (Boolean.TRUE.equals(payload.recepcionConformidadCerrada())) {
             if (createdByEmail == null || createdByEmail.isBlank()) {
@@ -99,20 +106,12 @@ public class RmRegistroApplicationService {
             ent.setValidadoPorEmail(trimMaxNullable(createdByEmail, 320));
             ent.setChoferValidacionEmpleadoId(payload.choferValidacionEmpleadoId());
             ent.setChoferValidacionNombre(trimMaxNullable(payload.choferValidacionNombre(), 256));
-        } else {
-            ent.setRecepcionEstado(null);
-            ent.setValidadoAt(null);
-            ent.setValidadoPorEmail(null);
-            ent.setChoferValidacionEmpleadoId(null);
-            ent.setChoferValidacionNombre(null);
         }
 
         for (RmPayloadModels.EntradaDetalle d : payload.detalles()) {
             RmRegistroEntradaDetalle row = new RmRegistroEntradaDetalle();
             row.setRegistroEntrada(ent);
             row.setProveedor(trimMax(d.proveedor(), 512));
-            row.setOcNumero(trimMaxNullable(d.ocNumero(), 128));
-            row.setGuiaNumero(trimMaxNullable(d.guiaNumero(), 128));
             row.setMaterial(trimMax(d.material(), 512));
             row.setColorModelo(trimMaxNullable(d.colorModelo(), 256));
             row.setCantidadRecibida(trimMaxNullable(d.cantidadRecibida(), 64));
@@ -124,15 +123,15 @@ public class RmRegistroApplicationService {
         entradaRepository.saveAndFlush(ent);
 
         int pi = 0;
-        if (cabCount > 0) {
-            List<String> cabNames = new ArrayList<>();
-            for (int c = 0; c < cabCount; c++) {
-                cabNames.add(savePhoto(RmMediaKinds.ENTRADA_CABECERA_VEHICULO, ent.getId(), plist.get(pi++)));
+        if (docCount > 0) {
+            List<String> docNames = new ArrayList<>();
+            for (int c = 0; c < docCount; c++) {
+                docNames.add(savePhoto(RmMediaKinds.ENTRADA_DOCUMENTO, ent.getId(), plist.get(pi++)));
             }
             try {
-                ent.setCabeceraVehiculoPhotoFilenamesJson(photoFilenameCodec.writeList(cabNames));
+                ent.setDocumentoPhotoFilenamesJson(photoFilenameCodec.writeList(docNames));
             } catch (RuntimeException e) {
-                throw new ResponseStatusException(BAD_REQUEST, "No se pudo serializar fotos del vehiculo");
+                throw new ResponseStatusException(BAD_REQUEST, "No se pudo serializar fotos del documento");
             }
             entradaRepository.save(ent);
         }
@@ -147,48 +146,20 @@ public class RmRegistroApplicationService {
             try {
                 row.setPhotoFilenamesJson(photoFilenameCodec.writeList(names));
             } catch (RuntimeException e) {
-                throw new ResponseStatusException(BAD_REQUEST, "No se pudo serializar fotos");
+                throw new ResponseStatusException(BAD_REQUEST, "No se pudo serializar fotos de producto");
             }
         }
         entradaDetalleRepository.saveAll(ent.getDetalles());
 
-        Long vehiculoId = null;
-        if (payload.generarRegistroVehiculo() == null || Boolean.TRUE.equals(payload.generarRegistroVehiculo())) {
-            validateEntradaVehiculoSidecar(payload);
-            List<RmPayloadModels.VehiculoProducto> productos = new ArrayList<>();
-            for (RmPayloadModels.EntradaDetalle d : payload.detalles()) {
-                String label = entradaMaterialAsProductLabel(d);
-                String qty = trimMaxNullable(d.cantidadRecibida(), 64);
-                if (qty == null || qty.isBlank()) {
-                    qty = "1";
-                }
-                String uni = trimMaxNullable(d.unidad(), 64);
-                if (uni == null || uni.isBlank()) {
-                    uni = "UND";
-                }
-                productos.add(
-                        new RmPayloadModels.VehiculoProducto(trimMax(label, 512), trimMax(qty, 64), trimMax(uni, 64)));
-            }
-            RmRegistroVehiculo v = new RmRegistroVehiculo();
-            v.setFecha(ent.getFecha());
-            v.setHoraIngreso(trimMaxNullable(payload.hora(), 16));
-            v.setMarca(trimMax(payload.vehiculoMarca(), 128));
-            v.setPlaca(trimMax(payload.vehiculoPlaca(), 32).toUpperCase(Locale.ROOT));
-            v.setChofer(trimMax(payload.choferIngresoNombre(), 256));
-            v.setKilometraje(trimMaxNullable(payload.kilometrajeIngreso(), 32));
-            v.setHoraSalida(null);
-            v.setCreatedByEmail(trimMaxNullable(createdByEmail, 320));
-            v.setPhotoFilenamesJson("[]");
-            try {
-                v.setProductosJson(objectMapper.writeValueAsString(productos));
-            } catch (RuntimeException e) {
-                throw new ResponseStatusException(BAD_REQUEST, "No se pudo serializar productos del vehiculo");
-            }
-            vehiculoRepository.saveAndFlush(v);
-            vehiculoId = v.getId();
-        }
+        return new RmApiModels.Created(ent.getId());
+    }
 
-        return new RmApiModels.CreatedEntrada(ent.getId(), vehiculoId);
+    @Transactional(readOnly = true)
+    public List<RmRegistroEntrada> listEntradasByVehiculo(long registroVehiculoId) {
+        if (!vehiculoRepository.existsById(registroVehiculoId)) {
+            throw new ResponseStatusException(NOT_FOUND, "Registro de vehiculo no encontrado");
+        }
+        return entradaRepository.findByRegistroVehiculoIdOrderByCreatedAtDesc(registroVehiculoId);
     }
 
     @Transactional(readOnly = true)
@@ -325,12 +296,6 @@ public class RmRegistroApplicationService {
         v.setHoraSalida(trimMaxNullable(payload.horaSalida(), 16));
         v.setCreatedByEmail(trimMaxNullable(createdByEmail, 320));
         v.setPhotoFilenamesJson("[]");
-        try {
-            v.setProductosJson(
-                    objectMapper.writeValueAsString(payload.productos() == null ? List.of() : payload.productos()));
-        } catch (RuntimeException e) {
-            throw new ResponseStatusException(BAD_REQUEST, "No se pudo serializar productos");
-        }
         vehiculoRepository.saveAndFlush(v);
 
         List<String> names = new ArrayList<>();
@@ -428,11 +393,11 @@ public class RmRegistroApplicationService {
                                     .findById(recordId)
                                     .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Detalle no encontrado"))
                                     .getPhotoFilenamesJson());
-                    case RmMediaKinds.ENTRADA_CABECERA_VEHICULO -> photoFilenameCodec.readList(
+                    case RmMediaKinds.ENTRADA_DOCUMENTO -> photoFilenameCodec.readList(
                             entradaRepository
                                     .findById(recordId)
                                     .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Entrada no encontrada"))
-                                    .getCabeceraVehiculoPhotoFilenamesJson());
+                                    .getDocumentoPhotoFilenamesJson());
                     case RmMediaKinds.SALIDA_CABECERA -> photoFilenameCodec.readList(
                             salidaRepository
                                     .findById(recordId)
@@ -515,32 +480,31 @@ public class RmRegistroApplicationService {
     }
 
     private static void validateEntradaPayload(RmPayloadModels.EntradaPayload payload) {
+        if (payload.registroVehiculoId() == null || payload.registroVehiculoId() <= 0) {
+            throw new ResponseStatusException(BAD_REQUEST, "registroVehiculoId obligatorio");
+        }
         if (payload.detalles() == null || payload.detalles().isEmpty()) {
-            throw new ResponseStatusException(BAD_REQUEST, "Debe haber al menos un detalle");
+            throw new ResponseStatusException(BAD_REQUEST, "Debe haber al menos un producto (detalle)");
         }
-        if (payload.fecha() == null || payload.fecha().isBlank()) {
-            throw new ResponseStatusException(BAD_REQUEST, "Fecha obligatoria");
+        String tipo = normalizeTipoDocumento(payload.tipoDocumento());
+        if ("OC".equals(tipo)) {
+            if (payload.ocNumero() == null || payload.ocNumero().isBlank()) {
+                throw new ResponseStatusException(BAD_REQUEST, "ocNumero obligatorio para documento OC");
+            }
+        } else if ("NG".equals(tipo)) {
+            if (payload.guiaNumero() == null || payload.guiaNumero().isBlank()) {
+                throw new ResponseStatusException(BAD_REQUEST, "guiaNumero obligatorio para documento NG");
+            }
+        } else {
+            throw new ResponseStatusException(BAD_REQUEST, "tipoDocumento debe ser OC o NG");
         }
-        if (payload.hora() == null || payload.hora().isBlank()) {
-            throw new ResponseStatusException(BAD_REQUEST, "Hora obligatoria");
-        }
-        if (payload.transporteId() == null) {
-            throw new ResponseStatusException(BAD_REQUEST, "Debe indicar transporteId del vehículo registrado");
-        }
-        if (payload.choferIngresoEmpleadoId() == null || payload.choferIngresoEmpleadoId() <= 0) {
-            throw new ResponseStatusException(BAD_REQUEST, "Chofer de ingreso (empleado) obligatorio");
-        }
-        if (payload.choferIngresoNombre() == null || payload.choferIngresoNombre().isBlank()) {
-            throw new ResponseStatusException(BAD_REQUEST, "Nombre de chofer de ingreso obligatorio");
-        }
-        int cab = payload.cabeceraVehiculoFotosCount() == null ? 0 : payload.cabeceraVehiculoFotosCount();
-        if (cab < 0) {
-            throw new ResponseStatusException(BAD_REQUEST, "cabeceraVehiculoFotosCount invalido");
+        if (payload.documentoFotosCount() < 0) {
+            throw new ResponseStatusException(BAD_REQUEST, "documentoFotosCount invalido");
         }
         if (Boolean.TRUE.equals(payload.recepcionConformidadCerrada())) {
-            if (cab < 1) {
+            if (payload.documentoFotosCount() < 1) {
                 throw new ResponseStatusException(
-                        BAD_REQUEST, "Debe incluir al menos una foto del vehiculo (cabeceraVehiculoFotosCount >= 1)");
+                        BAD_REQUEST, "Debe incluir al menos una foto del documento (documentoFotosCount >= 1)");
             }
             if (payload.choferValidacionEmpleadoId() == null || payload.choferValidacionEmpleadoId() <= 0) {
                 throw new ResponseStatusException(BAD_REQUEST, "Chofer que valida (empleado) obligatorio");
@@ -551,39 +515,52 @@ public class RmRegistroApplicationService {
         }
         for (RmPayloadModels.EntradaDetalle d : payload.detalles()) {
             if (d.proveedor() == null || d.proveedor().isBlank()) {
-                throw new ResponseStatusException(BAD_REQUEST, "Proveedor obligatorio en cada linea");
+                throw new ResponseStatusException(BAD_REQUEST, "Proveedor obligatorio en cada producto");
             }
             if (d.material() == null || d.material().isBlank()) {
-                throw new ResponseStatusException(BAD_REQUEST, "Material obligatorio en cada linea");
+                throw new ResponseStatusException(BAD_REQUEST, "Material obligatorio en cada producto");
             }
             if (d.fotosCount() < 0) {
                 throw new ResponseStatusException(BAD_REQUEST, "fotosCount invalido");
             }
             if (d.fotosCount() > 4) {
-                throw new ResponseStatusException(BAD_REQUEST, "Cada linea admite como maximo 4 fotos");
+                throw new ResponseStatusException(BAD_REQUEST, "Cada producto admite como maximo 4 fotos");
             }
         }
     }
 
-    private static void validateEntradaVehiculoSidecar(RmPayloadModels.EntradaPayload payload) {
-        if (payload.vehiculoMarca() == null || payload.vehiculoMarca().isBlank()) {
-            throw new ResponseStatusException(BAD_REQUEST, "Marca del vehiculo obligatoria para generar formato 4");
+    private static String normalizeTipoDocumento(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return "";
         }
-        if (payload.vehiculoPlaca() == null || payload.vehiculoPlaca().isBlank()) {
-            throw new ResponseStatusException(BAD_REQUEST, "Placa del vehiculo obligatoria para generar formato 4");
+        String t = raw.trim().toUpperCase(Locale.ROOT);
+        if ("OC".equals(t) || "ORDEN_COMPRA".equals(t) || "ORDEN DE COMPRA".equals(t)) {
+            return "OC";
         }
-        if (payload.choferIngresoNombre() == null || payload.choferIngresoNombre().isBlank()) {
-            throw new ResponseStatusException(BAD_REQUEST, "Chofer obligatorio para generar formato 4");
+        if ("NG".equals(t) || "GUIA".equals(t) || "GUÍA".equals(t) || "NUMERO_GUIA".equals(t)) {
+            return "NG";
         }
+        return t;
     }
 
-    private static String entradaMaterialAsProductLabel(RmPayloadModels.EntradaDetalle d) {
-        String base = trimMax(d.material(), 512);
-        String color = trimMaxNullable(d.colorModelo(), 256);
-        if (color == null) {
-            return base;
+    private static LocalDate resolveEntradaFecha(RmPayloadModels.EntradaPayload payload, RmRegistroVehiculo vehiculo) {
+        if (payload.fecha() != null && !payload.fecha().isBlank()) {
+            return LocalDate.parse(payload.fecha().trim());
         }
-        return base + " · " + color;
+        if (vehiculo.getFecha() != null) {
+            return vehiculo.getFecha();
+        }
+        throw new ResponseStatusException(BAD_REQUEST, "Fecha obligatoria si el vehiculo no tiene fecha");
+    }
+
+    private static String resolveEntradaHora(RmPayloadModels.EntradaPayload payload, RmRegistroVehiculo vehiculo) {
+        if (payload.hora() != null && !payload.hora().isBlank()) {
+            return trimMax(payload.hora(), 16);
+        }
+        if (vehiculo.getHoraIngreso() != null && !vehiculo.getHoraIngreso().isBlank()) {
+            return trimMax(vehiculo.getHoraIngreso(), 16);
+        }
+        throw new ResponseStatusException(BAD_REQUEST, "Hora obligatoria si el vehiculo no tiene hora de ingreso");
     }
 
     private static void validateSalidaPayload(RmPayloadModels.SalidaPayload payload) {
@@ -658,22 +635,8 @@ public class RmRegistroApplicationService {
         if (p.chofer() == null || p.chofer().isBlank()) {
             throw new ResponseStatusException(BAD_REQUEST, "Chofer obligatorio");
         }
-        if (p.fotosCount() < 0) {
-            throw new ResponseStatusException(BAD_REQUEST, "fotosCount invalido");
-        }
-        if (p.productos() == null || p.productos().isEmpty()) {
-            throw new ResponseStatusException(BAD_REQUEST, "Debe indicar al menos un producto transportado");
-        }
-        for (RmPayloadModels.VehiculoProducto pr : p.productos()) {
-            if (pr.materialProducto() == null || pr.materialProducto().isBlank()) {
-                throw new ResponseStatusException(BAD_REQUEST, "Cada producto requiere material / descripcion");
-            }
-            if (pr.cantidad() == null || pr.cantidad().isBlank()) {
-                throw new ResponseStatusException(BAD_REQUEST, "Cada producto requiere cantidad");
-            }
-            if (pr.unidad() == null || pr.unidad().isBlank()) {
-                throw new ResponseStatusException(BAD_REQUEST, "Cada producto requiere unidad");
-            }
+        if (p.fotosCount() < 1) {
+            throw new ResponseStatusException(BAD_REQUEST, "Debe incluir al menos una foto del vehiculo (fotosCount >= 1)");
         }
     }
 

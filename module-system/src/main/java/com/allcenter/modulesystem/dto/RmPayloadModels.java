@@ -10,31 +10,28 @@ public final class RmPayloadModels {
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record EntradaDetalle(
             String proveedor,
-            String ocNumero,
-            String guiaNumero,
             String material,
             String colorModelo,
             String cantidadRecibida,
             String unidad,
             int fotosCount) {}
 
+    /** Documento (OC o NG) asociado a un {@link com.allcenter.modulesystem.model.RmRegistroVehiculo} ya registrado. */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record EntradaPayload(
+            Long registroVehiculoId,
             String fecha,
             String hora,
-            Long transporteId,
-            Integer cabeceraVehiculoFotosCount,
-            Long choferIngresoEmpleadoId,
-            String choferIngresoNombre,
-            String kilometrajeIngreso,
+            /** OC o NG */
+            String tipoDocumento,
+            String ocNumero,
+            String guiaNumero,
+            int documentoFotosCount,
             Boolean recepcionConformidadCerrada,
             Long choferValidacionEmpleadoId,
             String choferValidacionNombre,
             List<EntradaDetalle> detalles,
-            Boolean generarRegistroVehiculo,
-            String vehiculoMarca,
-            String vehiculoPlaca,
-            /** Contraseña del chofer que valida (choferValidacionEmpleadoId); obligatoria si recepcionConformidadCerrada. */
+            /** Contraseña del chofer que valida; obligatoria si recepcionConformidadCerrada. */
             String confirmPassword) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -62,12 +59,9 @@ public final class RmPayloadModels {
             Long choferValidacionEmpleadoId,
             String choferValidacionNombre,
             List<SalidaDetalle> detalles,
-            /** Contraseña del chofer que valida (choferValidacionEmpleadoId); obligatoria si salidaConformidadCerrada. */
             String confirmPassword) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    public record VehiculoProducto(String materialProducto, String cantidad, String unidad) {}
-
+    /** Registro de ingreso del vehiculo (paso 1 del flujo de entradas). */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record VehiculoPayload(
             String fecha,
@@ -77,7 +71,6 @@ public final class RmPayloadModels {
             String chofer,
             String kilometraje,
             String horaSalida,
-            List<VehiculoProducto> productos,
             int fotosCount) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)

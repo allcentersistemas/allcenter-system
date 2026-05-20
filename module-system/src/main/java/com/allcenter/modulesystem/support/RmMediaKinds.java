@@ -6,8 +6,11 @@ import java.util.Set;
 public final class RmMediaKinds {
 
     public static final String ENTRADA_DETALLE = "entrada-detalle";
-    /** Fotos del vehículo al ingreso (cabecera del registro de entrada RM). */
-    public static final String ENTRADA_CABECERA_VEHICULO = "entrada-cabecera-vehiculo";
+    /** Fotos del documento OC/NG (registro de entrada RM). */
+    public static final String ENTRADA_DOCUMENTO = "entrada-documento";
+    /** Alias legacy (misma ruta de almacenamiento que {@link #ENTRADA_DOCUMENTO}). */
+    @Deprecated
+    public static final String ENTRADA_CABECERA_VEHICULO = ENTRADA_DOCUMENTO;
     public static final String SALIDA_CABECERA = "salida-cabecera";
     public static final String SALIDA_DETALLE = "salida-detalle";
     public static final String ACTA = "acta";
@@ -16,7 +19,7 @@ public final class RmMediaKinds {
     private static final Set<String> ALL =
             Set.of(
                     ENTRADA_DETALLE,
-                    ENTRADA_CABECERA_VEHICULO,
+                    ENTRADA_DOCUMENTO,
                     SALIDA_CABECERA,
                     SALIDA_DETALLE,
                     ACTA,
@@ -35,6 +38,10 @@ public final class RmMediaKinds {
         if (kind == null) {
             return "";
         }
-        return kind.trim().toLowerCase(Locale.ROOT);
+        String k = kind.trim().toLowerCase(Locale.ROOT);
+        if ("entrada-cabecera-vehiculo".equals(k)) {
+            return ENTRADA_DOCUMENTO;
+        }
+        return k;
     }
 }

@@ -31,11 +31,7 @@ public class RmRegistroEntradaDetalle {
     @Column(nullable = false, length = 512)
     private String proveedor;
 
-    @Column(length = 128)
-    private String ocNumero;
 
-    @Column(length = 128)
-    private String guiaNumero;
 
     @Column(nullable = false, length = 512)
     private String material;

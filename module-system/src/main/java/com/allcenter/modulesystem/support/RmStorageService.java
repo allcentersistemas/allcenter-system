@@ -59,6 +59,12 @@ public class RmStorageService {
         if (Files.isRegularFile(p)) {
             return p;
         }
+        if (RmMediaKinds.ENTRADA_DOCUMENTO.equals(kind)) {
+            Path legacyKind = resolveUnderRoot(root, "entrada-cabecera-vehiculo", recordId, filename);
+            if (Files.isRegularFile(legacyKind)) {
+                return legacyKind;
+            }
+        }
         if (legacyRoot != null) {
             Path legacy = resolveUnderRoot(legacyRoot, kind, recordId, filename);
             if (Files.isRegularFile(legacy)) {

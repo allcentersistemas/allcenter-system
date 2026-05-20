@@ -12,13 +12,14 @@ public final class RmApiModels {
 
     public record Created(long id) {}
 
-    public record CreatedEntrada(long id, Long vehiculoId) {}
-
     public record EntradaListRow(
             Long id,
+            Long registroVehiculoId,
             LocalDate fecha,
             String hora,
-            Long transporteId,
+            String tipoDocumento,
+            String ocNumero,
+            String guiaNumero,
             String recepcionEstado,
             Instant createdAt,
             long lineas) {}
@@ -40,8 +41,6 @@ public final class RmApiModels {
     public record EntradaDetalleResponse(
             Long id,
             String proveedor,
-            String ocNumero,
-            String guiaNumero,
             String material,
             String colorModelo,
             String cantidadRecibida,
@@ -50,12 +49,12 @@ public final class RmApiModels {
 
     public record RegistroEntradaResponse(
             Long id,
+            Long registroVehiculoId,
             LocalDate fecha,
             String hora,
-            Long transporteId,
-            Long choferIngresoEmpleadoId,
-            String choferIngresoNombre,
-            String kilometrajeIngreso,
+            String tipoDocumento,
+            String ocNumero,
+            String guiaNumero,
             String recepcionEstado,
             Instant validadoAt,
             String validadoPorEmail,
@@ -63,7 +62,7 @@ public final class RmApiModels {
             String choferValidacionNombre,
             Instant createdAt,
             String createdByEmail,
-            List<String> cabeceraVehiculoPhotoUrls,
+            List<String> documentoPhotoUrls,
             List<EntradaDetalleResponse> detalles) {}
 
     public record SalidaDetalleResponse(
@@ -107,10 +106,8 @@ public final class RmApiModels {
             String horaSalida,
             Instant createdAt,
             String createdByEmail,
-            List<VehiculoProductoResponse> productos,
-            List<String> photoUrls) {}
-
-    public record VehiculoProductoResponse(String materialProducto, String cantidad, String unidad) {}
+            List<String> photoUrls,
+            List<EntradaListRow> entradas) {}
 
     public record NcTipoResponse(String tipo, boolean marcado, String detalle) {}
 
