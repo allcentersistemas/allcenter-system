@@ -82,6 +82,15 @@ public class RmApiController {
         return registroService.createRegistroEntrada(data.getBytes(), photos, user);
     }
 
+    /** Vehículo en borrador + documento (OC y guía) en una sola transacción. */
+    @PostMapping(value = "/registros-ingreso-completo", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public RmApiModels.Created postIngresoCompleto(MultipartHttpServletRequest request) throws IOException {
+        MultipartFile data = requireDataPart(request);
+        List<MultipartFile> photos = request.getFiles("photos");
+        String user = trimHeaderEmail(request);
+        return registroService.createIngresoCompleto(data.getBytes(), photos, user);
+    }
+
     @GetMapping("/registros-entrada")
     public Page<RmApiModels.EntradaListRow> listEntradas(@PageableDefault(size = 20) Pageable pageable) {
         return registroService.pageEntradas(pageable).map(this::toEntradaListRow);

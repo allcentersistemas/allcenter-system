@@ -305,6 +305,127 @@ public class RmRegistroApplicationService {
         return new RmApiModels.Created(v.getId());
     }
 
+    /** Registra vehículo y entrada (OC + guía) en una transacción; fotos: vehículo, documento, productos. */
+    @Transactional
+    public RmApiModels.Created createIngresoCompleto(
+            byte[] dataJsonBytes, List<MultipartFile> photos, String createdByEmail) {
+        RmPayloadModels.IngresoCompletoPayload full =
+                readJson(dataJsonBytes, RmPayloadModels.IngresoCompletoPayload.class);
+        if (full.vehiculo() == null || full.entrada() == null) {
+            throw new ResponseStatusException(BAD_REQUEST, "vehiculo y entrada son obligatorios");
+        }
+        RmPayloadModels.VehiculoPayload veh = full.vehiculo();
+        RmPayloadModels.EntradaPayload entPayload = full.entrada();
+        validateVehiculoPayload(veh);
+        validateEntradaPayloadSinVehiculo(entPayload);
+        if (Boolean.TRUE.equals(entPayload.recepcionConformidadCerrada())) {
+            requireChoferValidacionPassword(
+                    entPayload.choferValidacionEmpleadoId(), entPayload.confirmPassword(), "recepción");
+        }
+
+        List<MultipartFile> plist = RmMultipartUtil.normalizePhotos(photos);
+        int vehFotos = veh.fotosCount();
+        int docCount = entPayload.documentoFotosCount();
+        int detFotos =
+                entPayload.detalles().stream().mapToInt(RmPayloadModels.EntradaDetalle::fotosCount).sum();
+        int expected = vehFotos + docCount + detFotos;
+        if (expected != plist.size()) {
+            throw new ResponseStatusException(
+                    BAD_REQUEST,
+                    "El numero de fotos no coincide (vehiculo + documento + productos)");
+        }
+
+        RmRegistroVehiculo v = new RmRegistroVehiculo();
+        v.setFecha(LocalDate.parse(veh.fecha().trim()));
+        v.setHoraIngreso(trimMaxNullable(veh.horaIngreso(), 16));
+        v.setMarca(trimMax(veh.marca(), 128));
+        v.setPlaca(trimMax(veh.placa(), 32).toUpperCase(Locale.ROOT));
+        v.setChofer(trimMax(veh.chofer(), 256));
+        v.setKilometraje(trimMaxNullable(veh.kilometraje(), 32));
+        v.setHoraSalida(trimMaxNullable(veh.horaSalida(), 16));
+        v.setCreatedByEmail(trimMaxNullable(createdByEmail, 320));
+        v.setPhotoFilenamesJson("[]");
+        vehiculoRepository.saveAndFlush(v);
+
+        int pi = 0;
+        List<String> vehNames = new ArrayList<>();
+        for (int c = 0; c < vehFotos; c++) {
+            vehNames.add(savePhoto(RmMediaKinds.VEHICULO, v.getId(), plist.get(pi++)));
+        }
+        try {
+            v.setPhotoFilenamesJson(photoFilenameCodec.writeList(vehNames));
+        } catch (RuntimeException e) {
+            throw new ResponseStatusException(BAD_REQUEST, "No se pudo serializar fotos del vehiculo");
+        }
+        vehiculoRepository.save(v);
+
+        RmRegistroEntrada ent = new RmRegistroEntrada();
+        ent.setRegistroVehiculo(v);
+        ent.setFecha(resolveEntradaFecha(entPayload, v));
+        ent.setHora(resolveEntradaHora(entPayload, v));
+        ent.setTipoDocumento("AMBOS");
+        ent.setOcNumero(trimMax(entPayload.ocNumero(), 128));
+        ent.setGuiaNumero(trimMax(entPayload.guiaNumero(), 128));
+        ent.setCreatedByEmail(trimMaxNullable(createdByEmail, 320));
+        ent.setDocumentoPhotoFilenamesJson("[]");
+
+        if (Boolean.TRUE.equals(entPayload.recepcionConformidadCerrada())) {
+            if (createdByEmail == null || createdByEmail.isBlank()) {
+                throw new ResponseStatusException(
+                        BAD_REQUEST, "Se requiere usuario autenticado (cabecera X-User-Email) para validar la recepcion");
+            }
+            ent.setRecepcionEstado("VALIDADO");
+            ent.setValidadoAt(Instant.now());
+            ent.setValidadoPorEmail(trimMaxNullable(createdByEmail, 320));
+            ent.setChoferValidacionEmpleadoId(entPayload.choferValidacionEmpleadoId());
+            ent.setChoferValidacionNombre(trimMaxNullable(entPayload.choferValidacionNombre(), 256));
+        }
+
+        for (RmPayloadModels.EntradaDetalle d : entPayload.detalles()) {
+            RmRegistroEntradaDetalle row = new RmRegistroEntradaDetalle();
+            row.setRegistroEntrada(ent);
+            row.setProveedor(trimMax(d.proveedor(), 512));
+            row.setMaterial(trimMax(d.material(), 512));
+            row.setColorModelo(trimMaxNullable(d.colorModelo(), 256));
+            row.setCantidadRecibida(trimMaxNullable(d.cantidadRecibida(), 64));
+            row.setUnidad(trimMaxNullable(d.unidad(), 64));
+            row.setPhotoFilenamesJson("[]");
+            ent.getDetalles().add(row);
+        }
+
+        entradaRepository.saveAndFlush(ent);
+
+        if (docCount > 0) {
+            List<String> docNames = new ArrayList<>();
+            for (int c = 0; c < docCount; c++) {
+                docNames.add(savePhoto(RmMediaKinds.ENTRADA_DOCUMENTO, ent.getId(), plist.get(pi++)));
+            }
+            try {
+                ent.setDocumentoPhotoFilenamesJson(photoFilenameCodec.writeList(docNames));
+            } catch (RuntimeException e) {
+                throw new ResponseStatusException(BAD_REQUEST, "No se pudo serializar fotos del documento");
+            }
+            entradaRepository.save(ent);
+        }
+
+        for (int i = 0; i < ent.getDetalles().size(); i++) {
+            RmRegistroEntradaDetalle row = ent.getDetalles().get(i);
+            RmPayloadModels.EntradaDetalle spec = entPayload.detalles().get(i);
+            List<String> names = new ArrayList<>();
+            for (int k = 0; k < spec.fotosCount(); k++) {
+                names.add(savePhoto(RmMediaKinds.ENTRADA_DETALLE, row.getId(), plist.get(pi++)));
+            }
+            try {
+                row.setPhotoFilenamesJson(photoFilenameCodec.writeList(names));
+            } catch (RuntimeException e) {
+                throw new ResponseStatusException(BAD_REQUEST, "No se pudo serializar fotos de producto");
+            }
+        }
+        entradaDetalleRepository.saveAll(ent.getDetalles());
+
+        return new RmApiModels.Created(ent.getId());
+    }
+
     @Transactional(readOnly = true)
     public Page<RmRegistroVehiculo> pageVehiculos(Pageable pageable) {
         return vehiculoRepository.findAllByOrderByCreatedAtDesc(pageable);
@@ -477,6 +598,10 @@ public class RmRegistroApplicationService {
         if (payload.registroVehiculoId() == null || payload.registroVehiculoId() <= 0) {
             throw new ResponseStatusException(BAD_REQUEST, "registroVehiculoId obligatorio");
         }
+        validateEntradaPayloadSinVehiculo(payload);
+    }
+
+    private static void validateEntradaPayloadSinVehiculo(RmPayloadModels.EntradaPayload payload) {
         if (payload.detalles() == null || payload.detalles().isEmpty()) {
             throw new ResponseStatusException(BAD_REQUEST, "Debe haber al menos un producto (detalle)");
         }

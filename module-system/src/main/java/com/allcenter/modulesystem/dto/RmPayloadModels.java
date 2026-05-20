@@ -16,7 +16,13 @@ public final class RmPayloadModels {
             String unidad,
             int fotosCount) {}
 
-    /** Documento (OC + guía) asociado a un {@link com.allcenter.modulesystem.model.RmRegistroVehiculo} ya registrado. */
+    /** Vehículo en borrador + documento; un solo envío al validar (Android). */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record IngresoCompletoPayload(
+            VehiculoPayload vehiculo,
+            EntradaPayload entrada) {}
+
+    /** Documento (OC + guía) asociado a un {@link com.allcenter.modulesystem.model.RmRegistroVehiculo}. */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record EntradaPayload(
             Long registroVehiculoId,
