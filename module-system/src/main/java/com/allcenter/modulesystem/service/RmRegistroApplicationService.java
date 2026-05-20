@@ -80,19 +80,13 @@ public class RmRegistroApplicationService {
                     BAD_REQUEST, "El numero de fotos no coincide con documentoFotosCount y fotosCount");
         }
 
-        String tipoDoc = normalizeTipoDocumento(payload.tipoDocumento());
         RmRegistroEntrada ent = new RmRegistroEntrada();
         ent.setRegistroVehiculo(vehiculo);
         ent.setFecha(resolveEntradaFecha(payload, vehiculo));
         ent.setHora(resolveEntradaHora(payload, vehiculo));
-        ent.setTipoDocumento(tipoDoc);
-        if ("OC".equals(tipoDoc)) {
-            ent.setOcNumero(trimMax(payload.ocNumero(), 128));
-            ent.setGuiaNumero(null);
-        } else {
-            ent.setGuiaNumero(trimMax(payload.guiaNumero(), 128));
-            ent.setOcNumero(null);
-        }
+        ent.setTipoDocumento("AMBOS");
+        ent.setOcNumero(trimMax(payload.ocNumero(), 128));
+        ent.setGuiaNumero(trimMax(payload.guiaNumero(), 128));
         ent.setCreatedByEmail(trimMaxNullable(createdByEmail, 320));
         ent.setDocumentoPhotoFilenamesJson("[]");
 
@@ -486,17 +480,11 @@ public class RmRegistroApplicationService {
         if (payload.detalles() == null || payload.detalles().isEmpty()) {
             throw new ResponseStatusException(BAD_REQUEST, "Debe haber al menos un producto (detalle)");
         }
-        String tipo = normalizeTipoDocumento(payload.tipoDocumento());
-        if ("OC".equals(tipo)) {
-            if (payload.ocNumero() == null || payload.ocNumero().isBlank()) {
-                throw new ResponseStatusException(BAD_REQUEST, "ocNumero obligatorio para documento OC");
-            }
-        } else if ("NG".equals(tipo)) {
-            if (payload.guiaNumero() == null || payload.guiaNumero().isBlank()) {
-                throw new ResponseStatusException(BAD_REQUEST, "guiaNumero obligatorio para documento NG");
-            }
-        } else {
-            throw new ResponseStatusException(BAD_REQUEST, "tipoDocumento debe ser OC o NG");
+        if (payload.ocNumero() == null || payload.ocNumero().isBlank()) {
+            throw new ResponseStatusException(BAD_REQUEST, "ocNumero obligatorio");
+        }
+        if (payload.guiaNumero() == null || payload.guiaNumero().isBlank()) {
+            throw new ResponseStatusException(BAD_REQUEST, "guiaNumero obligatorio");
         }
         if (payload.documentoFotosCount() < 0) {
             throw new ResponseStatusException(BAD_REQUEST, "documentoFotosCount invalido");

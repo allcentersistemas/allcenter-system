@@ -16,14 +16,12 @@ public final class RmPayloadModels {
             String unidad,
             int fotosCount) {}
 
-    /** Documento (OC o NG) asociado a un {@link com.allcenter.modulesystem.model.RmRegistroVehiculo} ya registrado. */
+    /** Documento (OC + guía) asociado a un {@link com.allcenter.modulesystem.model.RmRegistroVehiculo} ya registrado. */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record EntradaPayload(
             Long registroVehiculoId,
             String fecha,
             String hora,
-            /** OC o NG */
-            String tipoDocumento,
             String ocNumero,
             String guiaNumero,
             int documentoFotosCount,
