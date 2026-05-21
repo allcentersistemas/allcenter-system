@@ -63,8 +63,9 @@ public class InventoryController {
     }
 
     @GetMapping("/guias/pales-escaneados")
-    public java.util.List<GuiaDtos.PaleEscaneadoRowDto> listPalesEscaneados() {
-        return guiaInventoryService.listPalesEscaneados();
+    public java.util.List<GuiaDtos.PaleEscaneadoRowDto> listPalesEscaneados(
+            @RequestParam(required = false) String q) {
+        return guiaInventoryService.listPalesEscaneados(q);
     }
 
     @GetMapping("/guias/{id}")

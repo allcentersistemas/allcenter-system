@@ -59,11 +59,12 @@ class GuiaInventoryIntegrationTest {
         assertThat(conPale.detalles()).hasSize(2);
         GuiaDetalleLineDto desdePale =
                 conPale.detalles().stream().filter(d -> d.paleId() != null).findFirst().orElseThrow();
-        assertThat(desdePale.descripcion()).isEqualTo("P-ESC-001 · OC-100, OC-101");
+        assertThat(desdePale.descripcion()).isEqualTo("OC-100, OC-101");
+        assertThat(desdePale.paleCodigo()).isEqualTo("P-ESC-001");
         assertThat(desdePale.unidadMedida()).isEqualTo("piezas");
         assertThat(desdePale.cantidad()).isEqualTo("8");
 
-        assertThat(guiaInventoryService.listPalesEscaneados())
+        assertThat(guiaInventoryService.listPalesEscaneados(null))
                 .extracting(p -> p.paleId())
                 .contains(paleEscaneado.getId());
 

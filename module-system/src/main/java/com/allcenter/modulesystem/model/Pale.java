@@ -29,8 +29,6 @@ public class Pale {
     @Column(name = "codigo", nullable = false, unique = true, length = 80)
     private String codigo;
 
-
-
     @Column(name = "estado", nullable = false, length = 40)
     private String estado;
 

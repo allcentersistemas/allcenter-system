@@ -170,12 +170,21 @@ public class GuiaInventoryService {
     }
 
     @Transactional(readOnly = true)
-    public List<PaleEscaneadoRowDto> listPalesEscaneados() {
+    public List<PaleEscaneadoRowDto> listPalesEscaneados(String codigoQuery) {
+        String q = trimOptional(codigoQuery);
         return paleRepository.findAll().stream()
                 .filter(p -> isEstadoEnvioEscaneado(p.getEstadoEnvio()))
+                .filter(p -> q == null || matchesCodigoQuery(p.getCodigo(), q))
                 .sorted((a, b) -> b.getFechaCreacion().compareTo(a.getFechaCreacion()))
                 .map(this::toPaleEscaneado)
                 .toList();
+    }
+
+    private static boolean matchesCodigoQuery(String codigo, String query) {
+        if (codigo == null) {
+            return false;
+        }
+        return codigo.toLowerCase(Locale.ROOT).contains(query.toLowerCase(Locale.ROOT));
     }
 
     private static boolean isEstadoEnvioEscaneado(String estadoEnvio) {
@@ -183,18 +192,15 @@ public class GuiaInventoryService {
     }
 
     private static String buildPaleDescripcion(Pale pale) {
-        String codigo = pale.getCodigo() != null ? pale.getCodigo().trim() : "";
         String resumen = pale.getOrdenesResumen() != null ? pale.getOrdenesResumen().trim() : "";
-        if (codigo.isEmpty() && resumen.isEmpty()) {
-            return "Pale " + pale.getId();
-        }
-        if (resumen.isEmpty()) {
-            return codigo;
-        }
-        if (codigo.isEmpty()) {
+        if (!resumen.isEmpty()) {
             return resumen;
         }
-        return codigo + " · " + resumen;
+        String codigo = pale.getCodigo() != null ? pale.getCodigo().trim() : "";
+        if (!codigo.isEmpty()) {
+            return codigo;
+        }
+        return "Pale " + pale.getId();
     }
 
     private void ensureEditable(Guia guia) {
@@ -273,9 +279,15 @@ public class GuiaInventoryService {
     }
 
     private GuiaDetalleLineDto toDetalleLine(Guiadetalle d) {
+        String paleCodigo = null;
+        if (d.getPaleId() != null) {
+            paleCodigo =
+                    paleRepository.findById(d.getPaleId()).map(Pale::getCodigo).orElse(null);
+        }
         return new GuiaDetalleLineDto(
                 d.getId(),
                 d.getPaleId(),
+                paleCodigo,
                 d.getDescripcion(),
                 d.getUnidadMedida(),
                 d.getCantidad(),

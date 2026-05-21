@@ -14,6 +14,7 @@ public final class GuiaDtos {
     public record GuiaDetalleLineDto(
             Long id,
             Long paleId,
+            String paleCodigo,
             String descripcion,
             String unidadMedida,
             String cantidad,
