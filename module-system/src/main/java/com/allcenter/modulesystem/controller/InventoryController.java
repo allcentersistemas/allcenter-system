@@ -108,7 +108,11 @@ public class InventoryController {
             GuiaDtos.CreateGuiaRequest body, HttpServletRequest request) {
         Long creadoPor = body.creadoPor();
         return new GuiaDtos.CreateGuiaRequest(
-                body.notas(), body.destinationBranchId(), body.destinationLocationId(), creadoPor);
+                body.notas(),
+                body.destinationBranchId(),
+                body.destinationLocationId(),
+                creadoPor,
+                body.paleIds());
     }
 
     private static String trimHeaderEmail(HttpServletRequest request) {

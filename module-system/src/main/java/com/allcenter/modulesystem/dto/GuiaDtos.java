@@ -38,7 +38,8 @@ public final class GuiaDtos {
             String notas,
             Long destinationBranchId,
             Long destinationLocationId,
-            Long creadoPor) {}
+            Long creadoPor,
+            List<Long> paleIds) {}
 
     public record UpdateGuiaRequest(String estado, String notas, Long destinationBranchId, Long destinationLocationId) {}
 

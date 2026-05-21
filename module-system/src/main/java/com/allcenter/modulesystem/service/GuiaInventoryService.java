@@ -21,8 +21,11 @@ import com.allcenter.modulesystem.repository.SucursalRepository;
 import com.allcenter.modulesystem.repository.UbicacionRepository;
 import com.allcenter.modulesystem.support.GuiaNumeroGenerator;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -63,6 +66,34 @@ public class GuiaInventoryService {
 
     @Transactional
     public GuiaResponse createGuia(CreateGuiaRequest request) {
+        List<Long> paleIds = request.paleIds() != null ? request.paleIds() : List.of();
+        if (paleIds.isEmpty()) {
+            throw new ResponseStatusException(BAD_REQUEST, "Agregue al menos un pale escaneado a la guia");
+        }
+        Set<Long> seen = new HashSet<>();
+        for (Long paleId : paleIds) {
+            if (paleId == null || paleId <= 0) {
+                throw new ResponseStatusException(BAD_REQUEST, "Pale invalido en la lista");
+            }
+            if (!seen.add(paleId)) {
+                throw new ResponseStatusException(CONFLICT, "No repita el mismo pale en la guia");
+            }
+        }
+        List<Pale> pales = new ArrayList<>();
+        for (Long paleId : paleIds) {
+            Pale pale =
+                    paleRepository
+                            .findById(paleId)
+                            .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Pale no encontrado"));
+            if (!isEstadoEnvioEscaneado(pale.getEstadoEnvio())) {
+                throw new ResponseStatusException(
+                        BAD_REQUEST,
+                        "Solo se pueden agregar pales con estado de envio ESCANEADO. Actual: "
+                                + pale.getEstadoEnvio());
+            }
+            pales.add(pale);
+        }
+
         long max = guiaRepository.findMaxCorrelativoSequence();
         String numero = GuiaNumeroGenerator.format(GuiaNumeroGenerator.nextSequence(max));
 
@@ -76,6 +107,15 @@ public class GuiaInventoryService {
         guia.setCreadoPor(request.creadoPor());
         guia.setFechaCreacion(LocalDateTime.now());
         guia = guiaRepository.save(guia);
+
+        for (Pale pale : pales) {
+            Guiadetalle row = buildDetalleFromPale(guia, pale);
+            detalleRepository.save(row);
+            if (guia.getDetalles() == null) {
+                guia.setDetalles(new ArrayList<>());
+            }
+            guia.getDetalles().add(row);
+        }
         return toResponse(guia);
     }
 
@@ -125,12 +165,17 @@ public class GuiaInventoryService {
                         .findByIdWithDetalles(guiaId)
                         .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Guia no encontrada"));
         ensureEditable(guia);
-        if (detalleRepository.existsByGuiaIdAndPaleId(guiaId, request.paleId())) {
+        attachPaleToGuia(guia, request.paleId());
+        return toResponse(guia);
+    }
+
+    private void attachPaleToGuia(Guia guia, long paleId) {
+        if (detalleRepository.existsByGuiaIdAndPaleId(guia.getId(), paleId)) {
             throw new ResponseStatusException(CONFLICT, "Ese pale ya esta en la guia");
         }
         Pale pale =
                 paleRepository
-                        .findById(request.paleId())
+                        .findById(paleId)
                         .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Pale no encontrado"));
         if (!isEstadoEnvioEscaneado(pale.getEstadoEnvio())) {
             throw new ResponseStatusException(
@@ -138,6 +183,15 @@ public class GuiaInventoryService {
                     "Solo se pueden agregar pales con estado de envio ESCANEADO. Actual: "
                             + pale.getEstadoEnvio());
         }
+        Guiadetalle row = buildDetalleFromPale(guia, pale);
+        detalleRepository.save(row);
+        if (guia.getDetalles() == null) {
+            guia.setDetalles(new ArrayList<>());
+        }
+        guia.getDetalles().add(row);
+    }
+
+    private Guiadetalle buildDetalleFromPale(Guia guia, Pale pale) {
         Guiadetalle row = new Guiadetalle();
         row.setGuia(guia);
         row.setPaleId(pale.getId());
@@ -145,9 +199,7 @@ public class GuiaInventoryService {
         row.setUnidadMedida(UNIDAD_PIEZAS);
         row.setCantidad(String.valueOf(pale.getCantidadPiezas() != null ? pale.getCantidadPiezas() : 0));
         row.setFechaRegistro(LocalDateTime.now());
-        detalleRepository.save(row);
-        guia.getDetalles().add(row);
-        return toResponse(guia);
+        return row;
     }
 
     @Transactional
