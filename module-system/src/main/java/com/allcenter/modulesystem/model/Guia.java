@@ -9,52 +9,51 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
-import com.allcenter.modulesystem.model.Sucursal;
-import com.allcenter.modulesystem.model.Ubicacion;
 import java.time.LocalDateTime;
 import lombok.Getter;
+import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 @Entity
-@Table(name = "pale")
+@Table(name = "guia")
 @Getter
 @Setter
-public class Pale {
+@NoArgsConstructor
+public class Guia {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    @Column(name = "paleeid")
+    @Column(name = "id")
     private Long id;
 
-    @Column(name = "codigo", nullable = false, unique = true, length = 80)
-    private String codigo;
+    @Column(name = "numero_guia", nullable = false, length = 128)
+    private String numeroGuia;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "transporte_id", nullable = false)
+    private Transporte transporte;
 
+    @Column(name = "chofer_nombre", nullable = false, length = 256)
+    private String choferNombre;
 
-    @Column(name = "estado", nullable = false, length = 40)
+    @Column(name = "chofer_documento", length = 64)
+    private String choferDocumento;
+
+    @Column(name = "estado", nullable = false, length = 32)
     private String estado;
-
-    @Column(name = "cantidad_piezas", nullable = false)
-    private Integer cantidadPiezas;
-
-    @Column(name = "cantidad_ordenes", nullable = false)
-    private Integer cantidadOrdenes;
-
-    @Column(name = "ordenes_resumen", columnDefinition = "TEXT")
-    private String ordenesResumen;
 
     @Column(name = "notas", columnDefinition = "TEXT")
     private String notas;
+
+    @Column(name = "fecha_salida")
+    private LocalDateTime fechaSalida;
+
+    @Column(name = "fecha_entrega")
+    private LocalDateTime fechaEntrega;
 
     @Column(name = "creado_por")
     private Long creadoPor;
 
     @Column(name = "fecha_creacion", nullable = false)
     private LocalDateTime fechaCreacion;
-
-    @Column(name = "fecha_cierre")
-    private LocalDateTime fechaCierre;
-
-    @Column(name = "estado_envio")
-    private String estadoEnvio;
 }

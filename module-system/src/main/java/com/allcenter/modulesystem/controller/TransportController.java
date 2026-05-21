@@ -1,13 +1,13 @@
 package com.allcenter.modulesystem.controller;
 
-import com.allcenter.modulesystem.dto.TransportDtos.AddTransporteCargaDetalleRequest;
+import com.allcenter.modulesystem.dto.TransportDtos.AddGuiaPaleRequest;
 import com.allcenter.modulesystem.dto.TransportDtos.ApiMessage;
-import com.allcenter.modulesystem.dto.TransportDtos.CreateTransporteCargaRequest;
+import com.allcenter.modulesystem.dto.TransportDtos.CreateGuiaRequest;
 import com.allcenter.modulesystem.dto.TransportDtos.CreateTransporteRequest;
-import com.allcenter.modulesystem.dto.TransportDtos.TransporteCargaHeaderDto;
-import com.allcenter.modulesystem.dto.TransportDtos.TransporteCargaResponse;
+import com.allcenter.modulesystem.dto.TransportDtos.GuiaHeaderDto;
+import com.allcenter.modulesystem.dto.TransportDtos.GuiaResponse;
 import com.allcenter.modulesystem.dto.TransportDtos.TransporteDto;
-import com.allcenter.modulesystem.dto.TransportDtos.UpdateTransporteCargaRequest;
+import com.allcenter.modulesystem.dto.TransportDtos.UpdateGuiaRequest;
 import com.allcenter.modulesystem.dto.TransportDtos.UpdateTransporteRequest;
 import com.allcenter.modulesystem.service.TransportService;
 import jakarta.validation.Valid;
@@ -52,39 +52,39 @@ public class TransportController {
         return ResponseEntity.ok(transportService.updateTransporte(id, request));
     }
 
-    @GetMapping("/cargas")
-    public ResponseEntity<List<TransporteCargaHeaderDto>> listCargas() {
-        return ResponseEntity.ok(transportService.listCargas());
+    @GetMapping("/guias")
+    public ResponseEntity<List<GuiaHeaderDto>> listGuias() {
+        return ResponseEntity.ok(transportService.listGuias());
     }
 
-    @GetMapping("/cargas/{id}")
-    public ResponseEntity<TransporteCargaResponse> getCarga(@PathVariable Long id) {
-        return ResponseEntity.ok(transportService.getCargaById(id));
+    @GetMapping("/guias/{id}")
+    public ResponseEntity<GuiaResponse> getGuia(@PathVariable Long id) {
+        return ResponseEntity.ok(transportService.getGuiaById(id));
     }
 
-    @PostMapping("/cargas")
-    public ResponseEntity<TransporteCargaResponse> createCarga(@Valid @RequestBody CreateTransporteCargaRequest request) {
-        return ResponseEntity.ok(transportService.createCarga(request));
+    @PostMapping("/guias")
+    public ResponseEntity<GuiaResponse> createGuia(@Valid @RequestBody CreateGuiaRequest request) {
+        return ResponseEntity.ok(transportService.createGuia(request));
     }
 
-    @PutMapping("/cargas/{id}")
-    public ResponseEntity<TransporteCargaResponse> updateCarga(
+    @PutMapping("/guias/{id}")
+    public ResponseEntity<GuiaResponse> updateGuia(
             @PathVariable Long id,
-            @RequestBody UpdateTransporteCargaRequest request) {
-        return ResponseEntity.ok(transportService.updateCarga(id, request));
+            @RequestBody UpdateGuiaRequest request) {
+        return ResponseEntity.ok(transportService.updateGuia(id, request));
     }
 
-    @PostMapping("/cargas/{id}/detalles")
-    public ResponseEntity<TransporteCargaResponse> addDetalle(
+    @PostMapping("/guias/{id}/pales")
+    public ResponseEntity<GuiaResponse> addPale(
             @PathVariable Long id,
-            @Valid @RequestBody AddTransporteCargaDetalleRequest request) {
-        return ResponseEntity.ok(transportService.addDetalle(id, request));
+            @Valid @RequestBody AddGuiaPaleRequest request) {
+        return ResponseEntity.ok(transportService.addPale(id, request));
     }
 
-    @DeleteMapping("/cargas/{id}/detalles/{detalleId}")
-    public ResponseEntity<ApiMessage> removeDetalle(
+    @DeleteMapping("/guias/{id}/pales/{guiaPaleId}")
+    public ResponseEntity<ApiMessage> removePale(
             @PathVariable Long id,
-            @PathVariable Long detalleId) {
-        return ResponseEntity.ok(transportService.removeDetalle(id, detalleId));
+            @PathVariable Long guiaPaleId) {
+        return ResponseEntity.ok(transportService.removePale(id, guiaPaleId));
     }
 }

@@ -44,7 +44,7 @@ public class TransportAuditEntry {
     private String entityId;
 
     /**
-     * Agrupa eventos de una misma carga (ID de {@code TransporteCarga}) para trazabilidad de punta a
+     * Agrupa eventos de una misma guía (ID de {@code Guia}) para trazabilidad de punta a
      * punta; en vehículos suele coincidir con {@code entityId}.
      */
     @Column(name = "correlation_id", length = 64)

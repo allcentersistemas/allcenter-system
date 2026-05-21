@@ -46,8 +46,9 @@ public class TransportDtos {
             Double capacidad,
             Boolean activo) {}
 
-    public record TransporteCargaHeaderDto(
-            Long transporteCargaId,
+    public record GuiaHeaderDto(
+            Long guiaId,
+            String numeroGuia,
             Long transporteId,
             String placa,
             String choferNombre,
@@ -59,27 +60,27 @@ public class TransportDtos {
             LocalDateTime fechaEntrega,
             LocalDateTime fechaCreacion) {}
 
-    public record TransporteCargaDetalleDto(
-            Long transporteCargaDetalleId,
-            Long paleEnvioId,
+    public record GuiaPaleLineDto(
+            Long guiaPaleId,
+            String codigo,
+            Long paleId,
             String paleCodigo,
             Integer cantidad,
             String observacion,
             LocalDateTime fechaRegistro) {}
 
-    public record TransporteCargaResponse(
-            TransporteCargaHeaderDto carga,
-            List<TransporteCargaDetalleDto> detalles) {}
+    public record GuiaResponse(GuiaHeaderDto guia, List<GuiaPaleLineDto> pales) {}
 
-    public record CreateTransporteCargaRequest(
+    public record CreateGuiaRequest(
             @NotNull Long transporteId,
+            @NotBlank String numeroGuia,
             @NotBlank String choferNombre,
             String choferDocumento,
             String notas,
             LocalDateTime fechaSalida,
             Long creadoPor) {}
 
-    public record UpdateTransporteCargaRequest(
+    public record UpdateGuiaRequest(
             String choferNombre,
             String choferDocumento,
             String estado,
@@ -87,8 +88,8 @@ public class TransportDtos {
             LocalDateTime fechaSalida,
             LocalDateTime fechaEntrega) {}
 
-    public record AddTransporteCargaDetalleRequest(
-            @NotNull Long paleEnvioId,
+    public record AddGuiaPaleRequest(
+            @NotNull Long paleId,
             String paleCodigo,
             @NotNull @Positive Integer cantidad,
             String observacion) {}

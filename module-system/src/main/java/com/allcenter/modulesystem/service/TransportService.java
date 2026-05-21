@@ -3,23 +3,26 @@ package com.allcenter.modulesystem.service;
 import com.allcenter.modulesystem.dto.PaleDtos.PaleDetailResponse;
 import com.allcenter.modulesystem.dto.PaleDtos.PaleHeaderDto;
 import com.allcenter.modulesystem.dto.TransportDtos.ApiMessage;
-import com.allcenter.modulesystem.dto.TransportDtos.AddTransporteCargaDetalleRequest;
-import com.allcenter.modulesystem.dto.TransportDtos.CreateTransporteCargaRequest;
+import com.allcenter.modulesystem.dto.TransportDtos.AddGuiaPaleRequest;
+import com.allcenter.modulesystem.dto.TransportDtos.CreateGuiaRequest;
 import com.allcenter.modulesystem.dto.TransportDtos.CreateTransporteRequest;
-import com.allcenter.modulesystem.dto.TransportDtos.TransporteCargaDetalleDto;
-import com.allcenter.modulesystem.dto.TransportDtos.TransporteCargaHeaderDto;
-import com.allcenter.modulesystem.dto.TransportDtos.TransporteCargaResponse;
+import com.allcenter.modulesystem.dto.TransportDtos.GuiaHeaderDto;
+import com.allcenter.modulesystem.dto.TransportDtos.GuiaPaleLineDto;
+import com.allcenter.modulesystem.dto.TransportDtos.GuiaResponse;
 import com.allcenter.modulesystem.dto.TransportDtos.TransporteDto;
-import com.allcenter.modulesystem.dto.TransportDtos.UpdateTransporteCargaRequest;
+import com.allcenter.modulesystem.dto.TransportDtos.UpdateGuiaRequest;
 import com.allcenter.modulesystem.dto.TransportDtos.UpdateTransporteRequest;
+import com.allcenter.modulesystem.model.Guia;
+import com.allcenter.modulesystem.model.GuiaPale;
+import com.allcenter.modulesystem.model.Pale;
 import com.allcenter.modulesystem.model.TransportAuditAction;
 import com.allcenter.modulesystem.model.TransportAuditEntityTypes;
 import com.allcenter.modulesystem.model.Transporte;
-import com.allcenter.modulesystem.model.TransporteCarga;
-import com.allcenter.modulesystem.model.TransporteCargaDetalle;
-import com.allcenter.modulesystem.repository.TransporteCargaDetalleRepository;
-import com.allcenter.modulesystem.repository.TransporteCargaRepository;
+import com.allcenter.modulesystem.repository.GuiaPaleRepository;
+import com.allcenter.modulesystem.repository.GuiaRepository;
+import com.allcenter.modulesystem.repository.PaleRepository;
 import com.allcenter.modulesystem.repository.TransporteRepository;
+import com.allcenter.modulesystem.support.GuiaPaleCodigo;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -44,8 +47,9 @@ public class TransportService {
     private static final String PALE_ESTADO_CERRADO = "CERRADO";
 
     private final TransporteRepository transporteRepository;
-    private final TransporteCargaRepository cargaRepository;
-    private final TransporteCargaDetalleRepository detalleRepository;
+    private final GuiaRepository guiaRepository;
+    private final GuiaPaleRepository guiaPaleRepository;
+    private final PaleRepository paleRepository;
     private final TransportAuditService transportAuditService;
     private final PaleService paleService;
 
@@ -142,169 +146,194 @@ public class TransportService {
         return toTransporteDto(transporte);
     }
 
-    public List<TransporteCargaHeaderDto> listCargas() {
-        return cargaRepository.findAllWithTransporte().stream()
-                .sorted((a, b) -> b.getFechaCreacion().compareTo(a.getFechaCreacion()))
-                .map(this::toCargaHeaderDto)
-                .toList();
+    public List<GuiaHeaderDto> listGuias() {
+        return guiaRepository.findAllWithTransporte().stream().map(this::toGuiaHeaderDto).toList();
     }
 
-    public TransporteCargaResponse getCargaById(Long id) {
-        TransporteCarga carga = cargaRepository.findByIdWithTransporte(id)
-                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Carga no encontrada"));
-        return toCargaResponse(carga);
+    public GuiaResponse getGuiaById(Long id) {
+        Guia guia =
+                guiaRepository
+                        .findByIdWithTransporte(id)
+                        .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Guia no encontrada"));
+        return toGuiaResponse(guia);
     }
 
     @Transactional
-    public TransporteCargaResponse createCarga(CreateTransporteCargaRequest request) {
-        Transporte transporte = transporteRepository.findById(request.transporteId())
-                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Transporte no encontrado"));
+    public GuiaResponse createGuia(CreateGuiaRequest request) {
+        Transporte transporte =
+                transporteRepository
+                        .findById(request.transporteId())
+                        .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Transporte no encontrado"));
         if (Boolean.FALSE.equals(transporte.getActivo())) {
             throw new ResponseStatusException(BAD_REQUEST, "El transporte seleccionado esta inactivo");
         }
 
-        TransporteCarga carga = new TransporteCarga();
-        carga.setTransporte(transporte);
-        carga.setChoferNombre(normalizeRequired(request.choferNombre(), "choferNombre"));
-        carga.setChoferDocumento(normalizeOptional(request.choferDocumento()));
-        carga.setEstado(ESTADO_BORRADOR);
-        carga.setNotas(normalizeOptional(request.notas()));
-        carga.setFechaSalida(request.fechaSalida());
-        carga.setFechaEntrega(null);
-        carga.setCreadoPor(request.creadoPor());
-        carga.setFechaCreacion(LocalDateTime.now());
-        carga = cargaRepository.save(carga);
+        String numeroGuia = GuiaPaleCodigo.normalizeNumeroGuia(normalizeRequired(request.numeroGuia(), "numeroGuia"));
+        if (guiaRepository.existsByNumeroGuiaIgnoreCase(numeroGuia)) {
+            throw new ResponseStatusException(CONFLICT, "Ya existe una guia con ese numero");
+        }
 
-        String cid = String.valueOf(carga.getId());
+        Guia guia = new Guia();
+        guia.setNumeroGuia(numeroGuia);
+        guia.setTransporte(transporte);
+        guia.setChoferNombre(normalizeRequired(request.choferNombre(), "choferNombre"));
+        guia.setChoferDocumento(normalizeOptional(request.choferDocumento()));
+        guia.setEstado(ESTADO_BORRADOR);
+        guia.setNotas(normalizeOptional(request.notas()));
+        guia.setFechaSalida(request.fechaSalida());
+        guia.setFechaEntrega(null);
+        guia.setCreadoPor(request.creadoPor());
+        guia.setFechaCreacion(LocalDateTime.now());
+        guia = guiaRepository.save(guia);
+
+        String cid = String.valueOf(guia.getId());
         transportAuditService.record(
                 TransportAuditAction.CREATE,
-                TransportAuditEntityTypes.TRANSPORTE_CARGA,
+                TransportAuditEntityTypes.GUIA,
                 cid,
                 cid,
-                "transporteId="
+                "numeroGuia="
+                        + guia.getNumeroGuia()
+                        + ";transporteId="
                         + transporte.getId()
                         + ";placa="
                         + transporte.getPlaca()
                         + ";chofer="
-                        + carga.getChoferNombre()
+                        + guia.getChoferNombre()
                         + ";estado="
-                        + carga.getEstado());
-        return toCargaResponse(carga);
+                        + guia.getEstado());
+        return toGuiaResponse(guia);
     }
 
     @Transactional
-    public TransporteCargaResponse updateCarga(Long id, UpdateTransporteCargaRequest request) {
-        TransporteCarga carga = cargaRepository.findByIdWithTransporte(id)
-                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Carga no encontrada"));
+    public GuiaResponse updateGuia(Long id, UpdateGuiaRequest request) {
+        Guia guia =
+                guiaRepository
+                        .findByIdWithTransporte(id)
+                        .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Guia no encontrada"));
 
-        String estadoPrevio = carga.getEstado();
+        String estadoPrevio = guia.getEstado();
 
         if (request.choferNombre() != null) {
-            carga.setChoferNombre(normalizeRequired(request.choferNombre(), "choferNombre"));
+            guia.setChoferNombre(normalizeRequired(request.choferNombre(), "choferNombre"));
         }
         if (request.choferDocumento() != null) {
-            carga.setChoferDocumento(normalizeOptional(request.choferDocumento()));
+            guia.setChoferDocumento(normalizeOptional(request.choferDocumento()));
         }
         if (request.notas() != null) {
-            carga.setNotas(normalizeOptional(request.notas()));
+            guia.setNotas(normalizeOptional(request.notas()));
         }
         if (request.fechaSalida() != null) {
-            carga.setFechaSalida(request.fechaSalida());
+            guia.setFechaSalida(request.fechaSalida());
         }
         if (request.fechaEntrega() != null) {
-            carga.setFechaEntrega(request.fechaEntrega());
+            guia.setFechaEntrega(request.fechaEntrega());
         }
         if (request.estado() != null) {
             String normalizedEstado = normalizeEstado(request.estado());
-            validateEstadoTransition(carga.getEstado(), normalizedEstado);
-            carga.setEstado(normalizedEstado);
-            if (ESTADO_ENTREGADA.equals(normalizedEstado) && carga.getFechaEntrega() == null) {
-                carga.setFechaEntrega(LocalDateTime.now());
+            validateEstadoTransition(guia.getEstado(), normalizedEstado);
+            guia.setEstado(normalizedEstado);
+            if (ESTADO_ENTREGADA.equals(normalizedEstado) && guia.getFechaEntrega() == null) {
+                guia.setFechaEntrega(LocalDateTime.now());
             }
         }
-        carga = cargaRepository.save(carga);
-        String cid = String.valueOf(carga.getId());
+        guia = guiaRepository.save(guia);
+        String cid = String.valueOf(guia.getId());
         StringBuilder detail = new StringBuilder();
-        if (request.estado() != null && estadoPrevio != null && !estadoPrevio.equals(carga.getEstado())) {
-            detail.append("estadoAnterior=").append(estadoPrevio).append(";estadoNuevo=").append(carga.getEstado());
+        if (request.estado() != null && estadoPrevio != null && !estadoPrevio.equals(guia.getEstado())) {
+            detail.append("estadoAnterior=").append(estadoPrevio).append(";estadoNuevo=").append(guia.getEstado());
         } else {
-            detail.append("estado=").append(carga.getEstado());
+            detail.append("estado=").append(guia.getEstado());
         }
-        detail.append(";chofer=").append(carga.getChoferNombre());
+        detail.append(";numeroGuia=").append(guia.getNumeroGuia()).append(";chofer=").append(guia.getChoferNombre());
         transportAuditService.record(
-                TransportAuditAction.UPDATE,
-                TransportAuditEntityTypes.TRANSPORTE_CARGA,
-                cid,
-                cid,
-                detail.toString());
-        return toCargaResponse(carga);
+                TransportAuditAction.UPDATE, TransportAuditEntityTypes.GUIA, cid, cid, detail.toString());
+        return toGuiaResponse(guia);
     }
 
     @Transactional
-    public TransporteCargaResponse addDetalle(Long cargaId, AddTransporteCargaDetalleRequest request) {
-        TransporteCarga carga = cargaRepository.findByIdWithTransporte(cargaId)
-                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Carga no encontrada"));
-        validateCargaEditableForDetails(carga);
+    public GuiaResponse addPale(Long guiaId, AddGuiaPaleRequest request) {
+        Guia guia =
+                guiaRepository
+                        .findByIdWithTransporte(guiaId)
+                        .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Guia no encontrada"));
+        validateGuiaEditableForPales(guia);
 
-        if (detalleRepository.existsByTransporteCargaIdAndPaleEnvioId(cargaId, request.paleEnvioId())) {
-            throw new ResponseStatusException(CONFLICT, "Ese pale ya fue agregado a la carga");
+        if (guiaPaleRepository.existsByGuiaIdAndPaleId(guiaId, request.paleId())) {
+            throw new ResponseStatusException(CONFLICT, "Ese pale ya fue agregado a la guia");
         }
 
-        PaleForTransport pale = fetchPalletFromPaleModule(request.paleEnvioId());
+        PaleForTransport pale = fetchPalletFromPaleModule(request.paleId());
         validatePalletReadyForTransport(pale);
+        resolvePaleCodigo(request.paleCodigo(), pale.codigo());
 
-        TransporteCargaDetalle detalle = new TransporteCargaDetalle();
-        detalle.setTransporteCarga(carga);
-        detalle.setPaleEnvioId(request.paleEnvioId());
-        detalle.setPaleCodigo(resolvePaleCodigo(request.paleCodigo(), pale.codigo()));
-        detalle.setCantidad(request.cantidad());
-        detalle.setObservacion(normalizeOptional(request.observacion()));
-        detalle.setFechaRegistro(LocalDateTime.now());
-        detalle = detalleRepository.save(detalle);
+        Pale paleEntity =
+                paleRepository
+                        .findById(request.paleId())
+                        .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "El pale no existe"));
 
-        String corr = String.valueOf(cargaId);
+        int lineIndex = Math.toIntExact(guiaPaleRepository.countByGuiaId(guiaId)) + 1;
+        String codigo = GuiaPaleCodigo.build(guia.getNumeroGuia(), lineIndex);
+        while (guiaPaleRepository.existsByCodigoIgnoreCase(codigo)) {
+            lineIndex++;
+            codigo = GuiaPaleCodigo.build(guia.getNumeroGuia(), lineIndex);
+        }
+
+        GuiaPale gp = new GuiaPale();
+        gp.setGuia(guia);
+        gp.setPale(paleEntity);
+        gp.setCodigo(codigo);
+        gp.setCantidad(request.cantidad());
+        gp.setObservacion(normalizeOptional(request.observacion()));
+        gp.setFechaRegistro(LocalDateTime.now());
+        gp = guiaPaleRepository.save(gp);
+
+        String corr = String.valueOf(guiaId);
         transportAuditService.record(
                 TransportAuditAction.CREATE,
-                TransportAuditEntityTypes.TRANSPORTE_CARGA_DETALLE,
-                String.valueOf(detalle.getId()),
+                TransportAuditEntityTypes.GUIA_PALE,
+                String.valueOf(gp.getId()),
                 corr,
-                "paleEnvioId="
-                        + request.paleEnvioId()
+                "codigo="
+                        + gp.getCodigo()
+                        + ";paleId="
+                        + request.paleId()
                         + ";paleCodigo="
-                        + detalle.getPaleCodigo()
+                        + pale.codigo()
                         + ";cantidad="
                         + request.cantidad());
-        return toCargaResponse(carga);
+        return toGuiaResponse(guia);
     }
 
     @Transactional
-    public ApiMessage removeDetalle(Long cargaId, Long detalleId) {
-        TransporteCarga carga = cargaRepository.findByIdWithTransporte(cargaId)
-                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Carga no encontrada"));
-        validateCargaEditableForDetails(carga);
+    public ApiMessage removePale(Long guiaId, Long guiaPaleId) {
+        Guia guia =
+                guiaRepository
+                        .findByIdWithTransporte(guiaId)
+                        .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Guia no encontrada"));
+        validateGuiaEditableForPales(guia);
 
-        TransporteCargaDetalle detalle = detalleRepository.findById(detalleId)
-                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Detalle no encontrado"));
-        if (!detalle.getTransporteCarga().getId().equals(cargaId)) {
-            throw new ResponseStatusException(BAD_REQUEST, "El detalle no pertenece a la carga indicada");
+        GuiaPale gp =
+                guiaPaleRepository
+                        .findByIdWithRelations(guiaPaleId)
+                        .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Linea de guia no encontrada"));
+        if (!gp.getGuia().getId().equals(guiaId)) {
+            throw new ResponseStatusException(BAD_REQUEST, "La linea no pertenece a la guia indicada");
         }
-        String corr = String.valueOf(cargaId);
+        String corr = String.valueOf(guiaId);
         transportAuditService.record(
                 TransportAuditAction.DELETE,
-                TransportAuditEntityTypes.TRANSPORTE_CARGA_DETALLE,
-                String.valueOf(detalleId),
+                TransportAuditEntityTypes.GUIA_PALE,
+                String.valueOf(guiaPaleId),
                 corr,
-                "paleEnvioId="
-                        + detalle.getPaleEnvioId()
-                        + ";paleCodigo="
-                        + detalle.getPaleCodigo());
-        detalleRepository.delete(detalle);
-        return new ApiMessage(true, "Detalle removido de la carga");
+                "codigo=" + gp.getCodigo() + ";paleId=" + gp.getPale().getId());
+        guiaPaleRepository.delete(gp);
+        return new ApiMessage(true, "Pale removido de la guia");
     }
 
-    private void validateCargaEditableForDetails(TransporteCarga carga) {
-        if (ESTADO_ENTREGADA.equals(carga.getEstado()) || ESTADO_CANCELADA.equals(carga.getEstado())) {
-            throw new ResponseStatusException(BAD_REQUEST, "No se pueden modificar detalles en una carga cerrada");
+    private void validateGuiaEditableForPales(Guia guia) {
+        if (ESTADO_ENTREGADA.equals(guia.getEstado()) || ESTADO_CANCELADA.equals(guia.getEstado())) {
+            throw new ResponseStatusException(BAD_REQUEST, "No se pueden modificar pales en una guia cerrada");
         }
     }
 
@@ -315,7 +344,7 @@ public class TransportService {
                 && !ESTADO_EN_RUTA.equals(normalized)
                 && !ESTADO_ENTREGADA.equals(normalized)
                 && !ESTADO_CANCELADA.equals(normalized)) {
-            throw new ResponseStatusException(BAD_REQUEST, "Estado de carga no valido");
+            throw new ResponseStatusException(BAD_REQUEST, "Estado de guia no valido");
         }
         return normalized;
     }
@@ -325,7 +354,7 @@ public class TransportService {
             return;
         }
         if (ESTADO_CANCELADA.equals(actual) || ESTADO_ENTREGADA.equals(actual)) {
-            throw new ResponseStatusException(BAD_REQUEST, "La carga ya esta finalizada y no acepta cambios de estado");
+            throw new ResponseStatusException(BAD_REQUEST, "La guia ya esta finalizada y no acepta cambios de estado");
         }
         if (ESTADO_BORRADOR.equals(actual) && ESTADO_ENTREGADA.equals(siguiente)) {
             throw new ResponseStatusException(BAD_REQUEST, "No se puede marcar entregada sin pasar por ruta");
@@ -377,40 +406,44 @@ public class TransportService {
         return value.toString().trim();
     }
 
-    private TransporteCargaResponse toCargaResponse(TransporteCarga carga) {
-        List<TransporteCargaDetalleDto> detalles =
-                detalleRepository.findByTransporteCargaIdOrderByFechaRegistroDesc(carga.getId()).stream()
-                        .map(this::toDetalleDto)
+    private GuiaResponse toGuiaResponse(Guia guia) {
+        List<GuiaPaleLineDto> pales =
+                guiaPaleRepository.findByGuiaIdWithPale(guia.getId()).stream()
+                        .map(this::toGuiaPaleLineDto)
                         .toList();
-        return new TransporteCargaResponse(toCargaHeaderDto(carga), detalles);
+        return new GuiaResponse(toGuiaHeaderDto(guia), pales);
     }
 
-    private TransporteCargaHeaderDto toCargaHeaderDto(TransporteCarga carga) {
-        Long transporteId = carga.getTransporte() == null ? null : carga.getTransporte().getId();
-        String placa = carga.getTransporte() == null ? null : carga.getTransporte().getPlaca();
-        Integer totalPales = Math.toIntExact(detalleRepository.countByTransporteCargaId(carga.getId()));
-        return new TransporteCargaHeaderDto(
-                carga.getId(),
+    private GuiaHeaderDto toGuiaHeaderDto(Guia guia) {
+        Long transporteId = guia.getTransporte() == null ? null : guia.getTransporte().getId();
+        String placa = guia.getTransporte() == null ? null : guia.getTransporte().getPlaca();
+        Integer totalPales = Math.toIntExact(guiaPaleRepository.countByGuiaId(guia.getId()));
+        return new GuiaHeaderDto(
+                guia.getId(),
+                guia.getNumeroGuia(),
                 transporteId,
                 placa,
-                carga.getChoferNombre(),
-                carga.getChoferDocumento(),
-                carga.getEstado(),
-                carga.getNotas(),
+                guia.getChoferNombre(),
+                guia.getChoferDocumento(),
+                guia.getEstado(),
+                guia.getNotas(),
                 totalPales,
-                carga.getFechaSalida(),
-                carga.getFechaEntrega(),
-                carga.getFechaCreacion());
+                guia.getFechaSalida(),
+                guia.getFechaEntrega(),
+                guia.getFechaCreacion());
     }
 
-    private TransporteCargaDetalleDto toDetalleDto(TransporteCargaDetalle detalle) {
-        return new TransporteCargaDetalleDto(
-                detalle.getId(),
-                detalle.getPaleEnvioId(),
-                detalle.getPaleCodigo(),
-                detalle.getCantidad(),
-                detalle.getObservacion(),
-                detalle.getFechaRegistro());
+    private GuiaPaleLineDto toGuiaPaleLineDto(GuiaPale gp) {
+        String paleCodigo = gp.getPale() == null ? null : gp.getPale().getCodigo();
+        Long paleId = gp.getPale() == null ? null : gp.getPale().getId();
+        return new GuiaPaleLineDto(
+                gp.getId(),
+                gp.getCodigo(),
+                paleId,
+                paleCodigo,
+                gp.getCantidad(),
+                gp.getObservacion(),
+                gp.getFechaRegistro());
     }
 
     private TransporteDto toTransporteDto(Transporte transporte) {

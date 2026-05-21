@@ -152,31 +152,9 @@ public class PaleService {
 
     @Transactional
     public PaleDetailResponse createPale(CreatePaleRequest req) {
-        Sucursal origin = sucursalRepository.findById(req.branchId())
+        sucursalRepository
+                .findById(req.branchId())
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Sucursal origen no encontrada"));
-        Ubicacion originLocation = null;
-        Sucursal destination = null;
-        Ubicacion destinationLocation = null;
-        if (req.destinationLocationId() != null) {
-            destinationLocation =
-                    ubicacionRepository
-                            .findById(req.destinationLocationId())
-                            .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Ubicacion destino no encontrada"));
-            if (req.destinationBranchId() != null) {
-                destination =
-                        sucursalRepository
-                                .findById(req.destinationBranchId())
-                                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Sucursal destino no encontrada"));
-            }
-        } else {
-            if (req.destinationBranchId() == null) {
-                throw new ResponseStatusException(BAD_REQUEST, "Indique sucursal destino u obra (ubicacion) destino");
-            }
-            destination =
-                    sucursalRepository
-                            .findById(req.destinationBranchId())
-                            .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Sucursal destino no encontrada"));
-        }
 
         String code = nextPaleCode();
         paleRepository.findByCodigoIgnoreCase(code).ifPresent(p ->
@@ -184,10 +162,6 @@ public class PaleService {
 
         Pale pale = new Pale();
         pale.setCodigo(code);
-        pale.setSucursalOrigen(origin);
-        pale.setSucursalDestino(destination);
-        pale.setUbicacionOrigen(originLocation);
-        pale.setUbicacionDestino(destinationLocation);
         pale.setEstado("ABIERTO");
         pale.setCantidadPiezas(0);
         pale.setCantidadOrdenes(0);
@@ -239,24 +213,9 @@ public class PaleService {
             }
         }
         if (req.branchId() != null) {
-            Sucursal origin = sucursalRepository.findById(req.branchId())
+            sucursalRepository
+                    .findById(req.branchId())
                     .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Sucursal origen no encontrada"));
-            pale.setSucursalOrigen(origin);
-        }
-        if (req.originLocationId() != null) {
-            Ubicacion originLocation = ubicacionRepository.findById(req.originLocationId())
-                    .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Ubicacion origen no encontrada"));
-            pale.setUbicacionOrigen(originLocation);
-        }
-        if (req.destinationBranchId() != null) {
-            Sucursal destination = sucursalRepository.findById(req.destinationBranchId())
-                    .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Sucursal destino no encontrada"));
-            pale.setSucursalDestino(destination);
-        }
-        if (req.destinationLocationId() != null) {
-            Ubicacion destinationLocation = ubicacionRepository.findById(req.destinationLocationId())
-                    .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Ubicacion destino no encontrada"));
-            pale.setUbicacionDestino(destinationLocation);
         }
         if (req.notes() != null) {
             pale.setNotas(req.notes().trim());
@@ -557,11 +516,6 @@ public class PaleService {
     }
 
     private PaleHeaderDto toHeader(Pale p) {
-        Long originBranchId = p.getSucursalOrigen() == null ? null : p.getSucursalOrigen().getId();
-        Long destinationBranchId = p.getSucursalDestino() == null ? null : p.getSucursalDestino().getId();
-        Long ubicOrigenId = p.getUbicacionOrigen() == null ? null : p.getUbicacionOrigen().getId();
-        Long ubicDestId = p.getUbicacionDestino() == null ? null : p.getUbicacionDestino().getId();
-        String ubicDestNombre = p.getUbicacionDestino() == null ? null : p.getUbicacionDestino().getNombre();
         return new PaleHeaderDto(
                 p.getId(),
                 p.getCodigo(),
@@ -570,13 +524,13 @@ public class PaleService {
                 p.getCantidadOrdenes(),
                 p.getOrdenesResumen(),
                 p.getNotas(),
-                originBranchId,
-                p.getSucursalOrigen() == null ? null : p.getSucursalOrigen().getNombre(),
-                destinationBranchId,
-                p.getSucursalDestino() == null ? null : p.getSucursalDestino().getNombre(),
-                ubicOrigenId,
-                ubicDestId,
-                ubicDestNombre,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
                 p.getFechaCreacion(),
                 p.getFechaCierre());
     }
