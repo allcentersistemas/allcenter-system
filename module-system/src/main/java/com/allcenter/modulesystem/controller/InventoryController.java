@@ -1,6 +1,8 @@
 package com.allcenter.modulesystem.controller;
 
+import com.allcenter.modulesystem.dto.GuiaDtos;
 import com.allcenter.modulesystem.dto.InventoryDtos;
+import com.allcenter.modulesystem.service.GuiaInventoryService;
 import com.allcenter.modulesystem.service.InventoryApplicationService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -9,9 +11,11 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -23,6 +27,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class InventoryController {
 
     private final InventoryApplicationService inventoryService;
+    private final GuiaInventoryService guiaInventoryService;
 
     @GetMapping("/items")
     public Page<InventoryDtos.ItemRow> listItems(
@@ -50,6 +55,59 @@ public class InventoryController {
             HttpServletRequest request) {
         long mid = inventoryService.addMovement(id, body, trimHeaderEmail(request));
         return ResponseEntity.ok(new InventoryDtos.Created(mid));
+    }
+
+    @GetMapping("/guias")
+    public java.util.List<GuiaDtos.GuiaHeaderDto> listGuias() {
+        return guiaInventoryService.listGuias();
+    }
+
+    @GetMapping("/guias/pales-escaneados")
+    public java.util.List<GuiaDtos.PaleEscaneadoRowDto> listPalesEscaneados() {
+        return guiaInventoryService.listPalesEscaneados();
+    }
+
+    @GetMapping("/guias/{id}")
+    public GuiaDtos.GuiaResponse getGuia(@PathVariable long id) {
+        return guiaInventoryService.getGuia(id);
+    }
+
+    @PostMapping("/guias")
+    public ResponseEntity<GuiaDtos.Created> createGuia(
+            @RequestBody GuiaDtos.CreateGuiaRequest body, HttpServletRequest request) {
+        GuiaDtos.GuiaResponse created = guiaInventoryService.createGuia(withCreadoPor(body, request));
+        return ResponseEntity.ok(new GuiaDtos.Created(created.guia().guiaId()));
+    }
+
+    @PutMapping("/guias/{id}")
+    public GuiaDtos.GuiaResponse updateGuia(
+            @PathVariable long id, @RequestBody GuiaDtos.UpdateGuiaRequest body) {
+        return guiaInventoryService.updateGuia(id, body);
+    }
+
+    @PostMapping("/guias/{id}/detalles")
+    public GuiaDtos.GuiaResponse addDetalleManual(
+            @PathVariable long id,
+            @Valid @RequestBody GuiaDtos.AddGuiaDetalleManualRequest body) {
+        return guiaInventoryService.addDetalleManual(id, body);
+    }
+
+    @PostMapping("/guias/{id}/detalles/pale")
+    public GuiaDtos.GuiaResponse addDetallePale(
+            @PathVariable long id, @Valid @RequestBody GuiaDtos.AddGuiaDetallePaleRequest body) {
+        return guiaInventoryService.addDetalleFromPale(id, body);
+    }
+
+    @DeleteMapping("/guias/{id}/detalles/{detalleId}")
+    public GuiaDtos.GuiaResponse removeDetalle(@PathVariable long id, @PathVariable long detalleId) {
+        return guiaInventoryService.removeDetalle(id, detalleId);
+    }
+
+    private static GuiaDtos.CreateGuiaRequest withCreadoPor(
+            GuiaDtos.CreateGuiaRequest body, HttpServletRequest request) {
+        Long creadoPor = body.creadoPor();
+        return new GuiaDtos.CreateGuiaRequest(
+                body.notas(), body.destinationBranchId(), body.destinationLocationId(), creadoPor);
     }
 
     private static String trimHeaderEmail(HttpServletRequest request) {

@@ -1,0 +1,309 @@
+package com.allcenter.modulesystem.service;
+
+import com.allcenter.modulesystem.dto.GuiaDtos;
+import com.allcenter.modulesystem.dto.GuiaDtos.AddGuiaDetalleManualRequest;
+import com.allcenter.modulesystem.dto.GuiaDtos.AddGuiaDetallePaleRequest;
+import com.allcenter.modulesystem.dto.GuiaDtos.CreateGuiaRequest;
+import com.allcenter.modulesystem.dto.GuiaDtos.GuiaDetalleLineDto;
+import com.allcenter.modulesystem.dto.GuiaDtos.GuiaHeaderDto;
+import com.allcenter.modulesystem.dto.GuiaDtos.GuiaResponse;
+import com.allcenter.modulesystem.dto.GuiaDtos.PaleEscaneadoRowDto;
+import com.allcenter.modulesystem.dto.GuiaDtos.UpdateGuiaRequest;
+import com.allcenter.modulesystem.model.Guia;
+import com.allcenter.modulesystem.model.Guiadetalle;
+import com.allcenter.modulesystem.model.Pale;
+import com.allcenter.modulesystem.model.Sucursal;
+import com.allcenter.modulesystem.model.Ubicacion;
+import com.allcenter.modulesystem.repository.GuiaRepository;
+import com.allcenter.modulesystem.repository.GuiadetalleRepository;
+import com.allcenter.modulesystem.repository.PaleRepository;
+import com.allcenter.modulesystem.repository.SucursalRepository;
+import com.allcenter.modulesystem.repository.UbicacionRepository;
+import com.allcenter.modulesystem.support.GuiaNumeroGenerator;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Locale;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
+
+import static org.springframework.http.HttpStatus.BAD_REQUEST;
+import static org.springframework.http.HttpStatus.CONFLICT;
+import static org.springframework.http.HttpStatus.NOT_FOUND;
+
+@Service
+@RequiredArgsConstructor
+public class GuiaInventoryService {
+
+    private static final String ESTADO_BORRADOR = "BORRADOR";
+    private static final String ESTADO_CERRADA = "CERRADA";
+    private static final String ESTADO_ENVIO_ESCANEADO = "ESCANEADO";
+    private static final String UNIDAD_PIEZAS = "piezas";
+
+    private final GuiaRepository guiaRepository;
+    private final GuiadetalleRepository detalleRepository;
+    private final PaleRepository paleRepository;
+    private final SucursalRepository sucursalRepository;
+    private final UbicacionRepository ubicacionRepository;
+
+    @Transactional(readOnly = true)
+    public List<GuiaHeaderDto> listGuias() {
+        return guiaRepository.findAllForList().stream().map(this::toHeader).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public GuiaResponse getGuia(long id) {
+        Guia guia =
+                guiaRepository
+                        .findByIdWithDetalles(id)
+                        .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Guia no encontrada"));
+        return toResponse(guia);
+    }
+
+    @Transactional
+    public GuiaResponse createGuia(CreateGuiaRequest request) {
+        long max = guiaRepository.findMaxCorrelativoSequence();
+        String numero = GuiaNumeroGenerator.format(GuiaNumeroGenerator.nextSequence(max));
+
+        Guia guia = new Guia();
+        guia.setNumeroGuia(numero);
+        guia.setEstado(ESTADO_BORRADOR);
+        guia.setNotas(trimOptional(request.notas()));
+        if (request.destinationBranchId() != null || request.destinationLocationId() != null) {
+            applyDestino(guia, request.destinationBranchId(), request.destinationLocationId());
+        }
+        guia.setCreadoPor(request.creadoPor());
+        guia.setFechaCreacion(LocalDateTime.now());
+        guia = guiaRepository.save(guia);
+        return toResponse(guia);
+    }
+
+    @Transactional
+    public GuiaResponse updateGuia(long id, UpdateGuiaRequest request) {
+        Guia guia =
+                guiaRepository
+                        .findByIdWithDetalles(id)
+                        .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Guia no encontrada"));
+        ensureEditable(guia);
+        if (request.estado() != null) {
+            guia.setEstado(normalizeEstado(request.estado()));
+        }
+        if (request.notas() != null) {
+            guia.setNotas(trimOptional(request.notas()));
+        }
+        if (request.destinationBranchId() != null || request.destinationLocationId() != null) {
+            applyDestino(guia, request.destinationBranchId(), request.destinationLocationId());
+        }
+        guia = guiaRepository.save(guia);
+        return toResponse(guia);
+    }
+
+    @Transactional
+    public GuiaResponse addDetalleManual(long guiaId, AddGuiaDetalleManualRequest request) {
+        Guia guia =
+                guiaRepository
+                        .findByIdWithDetalles(guiaId)
+                        .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Guia no encontrada"));
+        ensureEditable(guia);
+        Guiadetalle row = new Guiadetalle();
+        row.setGuia(guia);
+        row.setPaleId(null);
+        row.setDescripcion(trimRequired(request.descripcion(), "descripcion"));
+        row.setUnidadMedida(trimRequired(request.unidadMedida(), "unidadMedida"));
+        row.setCantidad(trimRequired(request.cantidad(), "cantidad"));
+        row.setFechaRegistro(LocalDateTime.now());
+        detalleRepository.save(row);
+        guia.getDetalles().add(row);
+        return toResponse(guia);
+    }
+
+    @Transactional
+    public GuiaResponse addDetalleFromPale(long guiaId, AddGuiaDetallePaleRequest request) {
+        Guia guia =
+                guiaRepository
+                        .findByIdWithDetalles(guiaId)
+                        .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Guia no encontrada"));
+        ensureEditable(guia);
+        if (detalleRepository.existsByGuiaIdAndPaleId(guiaId, request.paleId())) {
+            throw new ResponseStatusException(CONFLICT, "Ese pale ya esta en la guia");
+        }
+        Pale pale =
+                paleRepository
+                        .findById(request.paleId())
+                        .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Pale no encontrado"));
+        if (!isEstadoEnvioEscaneado(pale.getEstadoEnvio())) {
+            throw new ResponseStatusException(
+                    BAD_REQUEST,
+                    "Solo se pueden agregar pales con estado de envio ESCANEADO. Actual: "
+                            + pale.getEstadoEnvio());
+        }
+        Guiadetalle row = new Guiadetalle();
+        row.setGuia(guia);
+        row.setPaleId(pale.getId());
+        row.setDescripcion(buildPaleDescripcion(pale));
+        row.setUnidadMedida(UNIDAD_PIEZAS);
+        row.setCantidad(String.valueOf(pale.getCantidadPiezas() != null ? pale.getCantidadPiezas() : 0));
+        row.setFechaRegistro(LocalDateTime.now());
+        detalleRepository.save(row);
+        guia.getDetalles().add(row);
+        return toResponse(guia);
+    }
+
+    @Transactional
+    public GuiaResponse removeDetalle(long guiaId, long detalleId) {
+        Guia guia =
+                guiaRepository
+                        .findByIdWithDetalles(guiaId)
+                        .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Guia no encontrada"));
+        ensureEditable(guia);
+        Guiadetalle row =
+                detalleRepository
+                        .findById(detalleId)
+                        .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Linea no encontrada"));
+        if (!row.getGuia().getId().equals(guiaId)) {
+            throw new ResponseStatusException(BAD_REQUEST, "La linea no pertenece a la guia");
+        }
+        guia.getDetalles().remove(row);
+        detalleRepository.delete(row);
+        return toResponse(guia);
+    }
+
+    @Transactional(readOnly = true)
+    public List<PaleEscaneadoRowDto> listPalesEscaneados() {
+        return paleRepository.findAll().stream()
+                .filter(p -> isEstadoEnvioEscaneado(p.getEstadoEnvio()))
+                .sorted((a, b) -> b.getFechaCreacion().compareTo(a.getFechaCreacion()))
+                .map(this::toPaleEscaneado)
+                .toList();
+    }
+
+    private static boolean isEstadoEnvioEscaneado(String estadoEnvio) {
+        return estadoEnvio != null && ESTADO_ENVIO_ESCANEADO.equalsIgnoreCase(estadoEnvio.trim());
+    }
+
+    private static String buildPaleDescripcion(Pale pale) {
+        String codigo = pale.getCodigo() != null ? pale.getCodigo().trim() : "";
+        String resumen = pale.getOrdenesResumen() != null ? pale.getOrdenesResumen().trim() : "";
+        if (codigo.isEmpty() && resumen.isEmpty()) {
+            return "Pale " + pale.getId();
+        }
+        if (resumen.isEmpty()) {
+            return codigo;
+        }
+        if (codigo.isEmpty()) {
+            return resumen;
+        }
+        return codigo + " · " + resumen;
+    }
+
+    private void ensureEditable(Guia guia) {
+        if (ESTADO_CERRADA.equalsIgnoreCase(guia.getEstado())) {
+            throw new ResponseStatusException(BAD_REQUEST, "La guia esta cerrada y no admite cambios");
+        }
+    }
+
+    private void applyDestino(Guia guia, Long destinationBranchId, Long destinationLocationId) {
+        if (destinationLocationId != null) {
+            Ubicacion ubicacion =
+                    ubicacionRepository
+                            .findById(destinationLocationId)
+                            .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Ubicacion destino no encontrada"));
+            guia.setUbicacionDestino(ubicacion);
+            if (destinationBranchId != null) {
+                Sucursal sucursal =
+                        sucursalRepository
+                                .findById(destinationBranchId)
+                                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Sucursal destino no encontrada"));
+                guia.setSucursalDestino(sucursal);
+            } else {
+                guia.setSucursalDestino(null);
+            }
+            return;
+        }
+        if (destinationBranchId == null) {
+            guia.setSucursalDestino(null);
+            guia.setUbicacionDestino(null);
+            return;
+        }
+        Sucursal sucursal =
+                sucursalRepository
+                        .findById(destinationBranchId)
+                        .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Sucursal destino no encontrada"));
+        guia.setSucursalDestino(sucursal);
+        guia.setUbicacionDestino(null);
+    }
+
+    private String normalizeEstado(String estado) {
+        String e = trimRequired(estado, "estado").toUpperCase(Locale.ROOT);
+        if (!ESTADO_BORRADOR.equals(e) && !ESTADO_CERRADA.equals(e)) {
+            throw new ResponseStatusException(BAD_REQUEST, "Estado de guia no valido");
+        }
+        return e;
+    }
+
+    private GuiaResponse toResponse(Guia guia) {
+        List<GuiaDetalleLineDto> lines =
+                detalleRepository.findByGuiaIdOrderByIdAsc(guia.getId()).stream()
+                        .map(this::toDetalleLine)
+                        .toList();
+        return new GuiaResponse(toHeader(guia, lines.size()), lines);
+    }
+
+    private GuiaHeaderDto toHeader(Guia guia) {
+        return toHeader(guia, guia.getDetalles() != null ? guia.getDetalles().size() : 0);
+    }
+
+    private GuiaHeaderDto toHeader(Guia guia, int totalLineas) {
+        Long sucId = guia.getSucursalDestino() == null ? null : guia.getSucursalDestino().getId();
+        String sucNom = guia.getSucursalDestino() == null ? null : guia.getSucursalDestino().getNombre();
+        Long ubicId = guia.getUbicacionDestino() == null ? null : guia.getUbicacionDestino().getId();
+        String ubicNom = guia.getUbicacionDestino() == null ? null : guia.getUbicacionDestino().getNombre();
+        return new GuiaHeaderDto(
+                guia.getId(),
+                guia.getNumeroGuia(),
+                guia.getEstado(),
+                guia.getNotas(),
+                sucId,
+                sucNom,
+                ubicId,
+                ubicNom,
+                totalLineas,
+                guia.getFechaCreacion());
+    }
+
+    private GuiaDetalleLineDto toDetalleLine(Guiadetalle d) {
+        return new GuiaDetalleLineDto(
+                d.getId(),
+                d.getPaleId(),
+                d.getDescripcion(),
+                d.getUnidadMedida(),
+                d.getCantidad(),
+                d.getFechaRegistro());
+    }
+
+    private PaleEscaneadoRowDto toPaleEscaneado(Pale p) {
+        return new PaleEscaneadoRowDto(
+                p.getId(),
+                p.getCodigo(),
+                p.getEstado(),
+                p.getEstadoEnvio(),
+                p.getCantidadPiezas(),
+                p.getOrdenesResumen());
+    }
+
+    private static String trimRequired(String value, String field) {
+        if (value == null || value.isBlank()) {
+            throw new ResponseStatusException(BAD_REQUEST, field + " obligatorio");
+        }
+        return value.trim();
+    }
+
+    private static String trimOptional(String value) {
+        if (value == null) {
+            return null;
+        }
+        String t = value.trim();
+        return t.isEmpty() ? null : t;
+    }
+}

@@ -64,6 +64,14 @@ public class RmRegistroEntrada {
     @Column(length = 320)
     private String validadoPorEmail;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "sucursal_destino_id")
+    private Sucursal sucursalDestino;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "ubicacion_destino_id")
+    private Ubicacion ubicacionDestino;
+
     @Column(name = "chofer_validacion_empleado_id")
     private Long choferValidacionEmpleadoId;
 
