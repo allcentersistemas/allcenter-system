@@ -13,7 +13,11 @@ CREATE TABLE IF NOT EXISTS guia (
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_guia_numero ON guia (LOWER(numero_guia));
 
--- Quitar columnas legacy de transporte si existen
+-- Relajar NOT NULL antes de eliminar (PostgreSQL)
+ALTER TABLE guia ALTER COLUMN chofer_nombre DROP NOT NULL;
+ALTER TABLE guia ALTER COLUMN chofer_documento DROP NOT NULL;
+ALTER TABLE guia ALTER COLUMN transporte_id DROP NOT NULL;
+
 ALTER TABLE guia DROP COLUMN IF EXISTS transporte_id;
 ALTER TABLE guia DROP COLUMN IF EXISTS chofer_nombre;
 ALTER TABLE guia DROP COLUMN IF EXISTS chofer_documento;
