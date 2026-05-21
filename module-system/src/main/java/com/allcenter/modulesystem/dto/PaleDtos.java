@@ -32,14 +32,11 @@ public class PaleDtos {
             String departamento,
             String ciudad) {}
 
+    /** Destino de envío se define en la guía de transporte, no en el palé. */
     public record CreatePaleRequest(
             String code,
             @NotNull Long branchId,
             Long originLocationId,
-            /** Obligatorio si {@code destinationLocationId} es null. */
-            Long destinationBranchId,
-            /** Si viene, el destino es obra/ubicación (puede combinarse con sucursal o solo obra). */
-            Long destinationLocationId,
             String notes,
             Long createdBy) {}
 

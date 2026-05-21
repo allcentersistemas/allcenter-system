@@ -15,13 +15,17 @@ import com.allcenter.modulesystem.dto.TransportDtos.UpdateTransporteRequest;
 import com.allcenter.modulesystem.model.Guia;
 import com.allcenter.modulesystem.model.GuiaPale;
 import com.allcenter.modulesystem.model.Pale;
+import com.allcenter.modulesystem.model.Sucursal;
+import com.allcenter.modulesystem.model.Ubicacion;
 import com.allcenter.modulesystem.model.TransportAuditAction;
 import com.allcenter.modulesystem.model.TransportAuditEntityTypes;
 import com.allcenter.modulesystem.model.Transporte;
 import com.allcenter.modulesystem.repository.GuiaPaleRepository;
 import com.allcenter.modulesystem.repository.GuiaRepository;
 import com.allcenter.modulesystem.repository.PaleRepository;
+import com.allcenter.modulesystem.repository.SucursalRepository;
 import com.allcenter.modulesystem.repository.TransporteRepository;
+import com.allcenter.modulesystem.repository.UbicacionRepository;
 import com.allcenter.modulesystem.support.GuiaPaleCodigo;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -50,6 +54,8 @@ public class TransportService {
     private final GuiaRepository guiaRepository;
     private final GuiaPaleRepository guiaPaleRepository;
     private final PaleRepository paleRepository;
+    private final SucursalRepository sucursalRepository;
+    private final UbicacionRepository ubicacionRepository;
     private final TransportAuditService transportAuditService;
     private final PaleService paleService;
 
@@ -180,6 +186,7 @@ public class TransportService {
         guia.setChoferDocumento(normalizeOptional(request.choferDocumento()));
         guia.setEstado(ESTADO_BORRADOR);
         guia.setNotas(normalizeOptional(request.notas()));
+        applyDestino(guia, request.destinationBranchId(), request.destinationLocationId());
         guia.setFechaSalida(request.fechaSalida());
         guia.setFechaEntrega(null);
         guia.setCreadoPor(request.creadoPor());
@@ -222,6 +229,9 @@ public class TransportService {
         }
         if (request.notas() != null) {
             guia.setNotas(normalizeOptional(request.notas()));
+        }
+        if (request.destinationBranchId() != null || request.destinationLocationId() != null) {
+            applyDestino(guia, request.destinationBranchId(), request.destinationLocationId());
         }
         if (request.fechaSalida() != null) {
             guia.setFechaSalida(request.fechaSalida());
@@ -285,6 +295,8 @@ public class TransportService {
         gp.setCodigo(codigo);
         gp.setCantidad(request.cantidad());
         gp.setObservacion(normalizeOptional(request.observacion()));
+        gp.setSucursalDestino(guia.getSucursalDestino());
+        gp.setUbicacionDestino(guia.getUbicacionDestino());
         gp.setFechaRegistro(LocalDateTime.now());
         gp = guiaPaleRepository.save(gp);
 
@@ -414,10 +426,43 @@ public class TransportService {
         return new GuiaResponse(toGuiaHeaderDto(guia), pales);
     }
 
+    private void applyDestino(Guia guia, Long destinationBranchId, Long destinationLocationId) {
+        if (destinationLocationId != null) {
+            Ubicacion ubicacion =
+                    ubicacionRepository
+                            .findById(destinationLocationId)
+                            .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Ubicacion destino no encontrada"));
+            guia.setUbicacionDestino(ubicacion);
+            if (destinationBranchId != null) {
+                Sucursal sucursal =
+                        sucursalRepository
+                                .findById(destinationBranchId)
+                                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Sucursal destino no encontrada"));
+                guia.setSucursalDestino(sucursal);
+            } else {
+                guia.setSucursalDestino(null);
+            }
+            return;
+        }
+        if (destinationBranchId == null) {
+            throw new ResponseStatusException(BAD_REQUEST, "Indique sucursal destino u obra (ubicacion) destino");
+        }
+        Sucursal sucursal =
+                sucursalRepository
+                        .findById(destinationBranchId)
+                        .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Sucursal destino no encontrada"));
+        guia.setSucursalDestino(sucursal);
+        guia.setUbicacionDestino(null);
+    }
+
     private GuiaHeaderDto toGuiaHeaderDto(Guia guia) {
         Long transporteId = guia.getTransporte() == null ? null : guia.getTransporte().getId();
         String placa = guia.getTransporte() == null ? null : guia.getTransporte().getPlaca();
         Integer totalPales = Math.toIntExact(guiaPaleRepository.countByGuiaId(guia.getId()));
+        Long sucDestId = guia.getSucursalDestino() == null ? null : guia.getSucursalDestino().getId();
+        String sucDestNombre = guia.getSucursalDestino() == null ? null : guia.getSucursalDestino().getNombre();
+        Long ubicDestId = guia.getUbicacionDestino() == null ? null : guia.getUbicacionDestino().getId();
+        String ubicDestNombre = guia.getUbicacionDestino() == null ? null : guia.getUbicacionDestino().getNombre();
         return new GuiaHeaderDto(
                 guia.getId(),
                 guia.getNumeroGuia(),
@@ -427,6 +472,10 @@ public class TransportService {
                 guia.getChoferDocumento(),
                 guia.getEstado(),
                 guia.getNotas(),
+                sucDestId,
+                sucDestNombre,
+                ubicDestId,
+                ubicDestNombre,
                 totalPales,
                 guia.getFechaSalida(),
                 guia.getFechaEntrega(),

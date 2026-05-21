@@ -55,6 +55,10 @@ public class TransportDtos {
             String choferDocumento,
             String estado,
             String notas,
+            Long sucursalDestinoId,
+            String sucursalDestinoNombre,
+            Long ubicacionDestinoId,
+            String ubicacionDestinoNombre,
             Integer totalPales,
             LocalDateTime fechaSalida,
             LocalDateTime fechaEntrega,
@@ -77,6 +81,8 @@ public class TransportDtos {
             @NotBlank String choferNombre,
             String choferDocumento,
             String notas,
+            Long destinationBranchId,
+            Long destinationLocationId,
             LocalDateTime fechaSalida,
             Long creadoPor) {}
 
@@ -85,6 +91,8 @@ public class TransportDtos {
             String choferDocumento,
             String estado,
             String notas,
+            Long destinationBranchId,
+            Long destinationLocationId,
             LocalDateTime fechaSalida,
             LocalDateTime fechaEntrega) {}
 

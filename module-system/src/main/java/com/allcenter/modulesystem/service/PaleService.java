@@ -70,7 +70,7 @@ public class PaleService {
 
 
     public List<PaleHeaderDto> listPallets() {
-        return paleRepository.findAllWithRelations().stream()
+        return paleRepository.findAll().stream()
                 .sorted((a, b) -> b.getFechaCreacion().compareTo(a.getFechaCreacion()))
                 .map(this::toHeader)
                 .toList();
@@ -175,13 +175,13 @@ public class PaleService {
     }
 
     public PaleDetailResponse getByCode(String code) {
-        Pale pale = paleRepository.findByCodigoIgnoreCaseWithRelations(code)
+        Pale pale = paleRepository.findByCodigoIgnoreCase(code)
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Pale no encontrado"));
         return toDetailResponse(pale);
     }
 
     public PaleDetailResponse getById(Long id) {
-        Pale pale = paleRepository.findByIdWithRelations(id)
+        Pale pale = paleRepository.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Pale no encontrado"));
         return toDetailResponse(pale);
     }
@@ -222,7 +222,7 @@ public class PaleService {
         }
         paleRepository.save(pale);
         recordAudit("UPDATE", "Pale", String.valueOf(pale.getId()), pale, "Informacion del pale actualizada");
-        Pale fresh = paleRepository.findByIdWithRelations(id)
+        Pale fresh = paleRepository.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Pale no encontrado"));
         return toDetailResponse(fresh);
     }
@@ -244,7 +244,7 @@ public class PaleService {
                 String.valueOf(detailId),
                 pale,
                 "Detalle eliminado. piezaId=" + detail.getPiezaId() + ", partId=" + detail.getPartId());
-        Pale fresh = paleRepository.findByIdWithRelations(paleId)
+        Pale fresh = paleRepository.findById(paleId)
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Pale no encontrado"));
         return toDetailResponse(fresh);
     }

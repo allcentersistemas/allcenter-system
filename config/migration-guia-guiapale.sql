@@ -12,7 +12,9 @@ CREATE TABLE IF NOT EXISTS guia (
     fecha_salida TIMESTAMP,
     fecha_entrega TIMESTAMP,
     creado_por BIGINT,
-    fecha_creacion TIMESTAMP NOT NULL DEFAULT NOW()
+    fecha_creacion TIMESTAMP NOT NULL DEFAULT NOW(),
+    sucursal_destino_id BIGINT,
+    ubicacion_destino_id BIGINT
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_guia_numero ON guia (LOWER(numero_guia));

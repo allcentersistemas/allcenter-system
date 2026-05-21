@@ -45,6 +45,14 @@ public class Guia {
     @Column(name = "notas", columnDefinition = "TEXT")
     private String notas;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "sucursal_destino_id")
+    private Sucursal sucursalDestino;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "ubicacion_destino_id")
+    private Ubicacion ubicacionDestino;
+
     @Column(name = "fecha_salida")
     private LocalDateTime fechaSalida;
 

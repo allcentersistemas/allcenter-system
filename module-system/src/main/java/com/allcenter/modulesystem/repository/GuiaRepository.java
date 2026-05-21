@@ -11,9 +11,23 @@ public interface GuiaRepository extends JpaRepository<Guia, Long> {
 
     boolean existsByNumeroGuiaIgnoreCase(String numeroGuia);
 
-    @Query("SELECT g FROM Guia g JOIN FETCH g.transporte ORDER BY g.fechaCreacion DESC")
+    @Query(
+            """
+            SELECT g FROM Guia g
+            JOIN FETCH g.transporte
+            LEFT JOIN FETCH g.sucursalDestino
+            LEFT JOIN FETCH g.ubicacionDestino
+            ORDER BY g.fechaCreacion DESC
+            """)
     List<Guia> findAllWithTransporte();
 
-    @Query("SELECT g FROM Guia g JOIN FETCH g.transporte WHERE g.id = :id")
+    @Query(
+            """
+            SELECT g FROM Guia g
+            JOIN FETCH g.transporte
+            LEFT JOIN FETCH g.sucursalDestino
+            LEFT JOIN FETCH g.ubicacionDestino
+            WHERE g.id = :id
+            """)
     Optional<Guia> findByIdWithTransporte(@Param("id") Long id);
 }
