@@ -16,10 +16,12 @@ public class ClientUserDetailsService implements UserDetailsService {
 
     @Override
     @Transactional(readOnly = true)
-    public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
+    public UserDetails loadUserByUsername(String login) throws UsernameNotFoundException {
+        String key = login == null ? "" : login.trim();
         return clientUserRepository
-                .findByEmailIgnoreCase(username)
+                .findByEmailIgnoreCase(key)
+                .or(() -> clientUserRepository.findByUsernameIgnoreCase(key))
                 .map(ClientUserDetails::new)
-                .orElseThrow(() -> new UsernameNotFoundException("Client not found: " + username));
+                .orElseThrow(() -> new UsernameNotFoundException("Client not found: " + key));
     }
 }

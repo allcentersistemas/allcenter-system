@@ -8,5 +8,9 @@ public interface ClientUserRepository extends JpaRepository<ClientUser, Long> {
 
     Optional<ClientUser> findByEmailIgnoreCase(String email);
 
+    Optional<ClientUser> findByUsernameIgnoreCase(String username);
+
     boolean existsByEmailIgnoreCase(String email);
+
+    boolean existsByUsernameIgnoreCase(String username);
 }

@@ -1,13 +1,14 @@
 package com.allcenter.modulesystem.service;
 
-import com.allcenter.modulesystem.exception.ConflictException;
-import com.allcenter.modulesystem.exception.NotFoundException;
-import com.allcenter.modulesystem.model.ClientUser;
 import com.allcenter.modulesystem.dto.ClientCreateRequest;
 import com.allcenter.modulesystem.dto.ClientResponse;
 import com.allcenter.modulesystem.dto.ClientUpdateRequest;
+import com.allcenter.modulesystem.exception.ConflictException;
+import com.allcenter.modulesystem.exception.NotFoundException;
+import com.allcenter.modulesystem.model.ClientUser;
 import com.allcenter.modulesystem.repository.ClientUserRepository;
 import java.util.List;
+import java.util.Locale;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -40,13 +41,17 @@ public class ClientService {
         if (clientUserRepository.existsByEmailIgnoreCase(email)) {
             throw new ConflictException("El correo " + email + " ya esta registrado");
         }
+        String username = deriveUsername(request.username(), email);
+        if (clientUserRepository.existsByUsernameIgnoreCase(username)) {
+            throw new ConflictException("El usuario \"" + username + "\" ya esta en uso");
+        }
         ClientUser client = new ClientUser();
         client.setEmail(email);
+        client.setUsername(username);
         client.setPassword(passwordEncoder.encode(request.password()));
         client.setDisplayName(request.displayName().trim());
-        client.setCompanyName(request.companyName() != null ? request.companyName().trim() : null);
+        client.setJuridica(false);
         client.setPhone(request.phone() != null ? request.phone().trim() : null);
-        client.setTaxId(request.taxId() != null ? request.taxId().trim() : null);
         client.setActive(request.active() == null || request.active());
         clientUserRepository.save(client);
         return ClientResponse.from(client);
@@ -61,14 +66,8 @@ public class ClientService {
         if (request.displayName() != null) {
             client.setDisplayName(request.displayName().trim());
         }
-        if (request.companyName() != null) {
-            client.setCompanyName(request.companyName().trim());
-        }
         if (request.phone() != null) {
             client.setPhone(request.phone().trim());
-        }
-        if (request.taxId() != null) {
-            client.setTaxId(request.taxId().trim());
         }
         if (request.active() != null) {
             client.setActive(request.active());
@@ -83,5 +82,13 @@ public class ClientService {
             throw new NotFoundException("No existe un cliente con id " + id);
         }
         clientUserRepository.deleteById(id);
+    }
+
+    private static String deriveUsername(String requested, String email) {
+        if (requested != null && !requested.isBlank()) {
+            return requested.trim().toLowerCase(Locale.ROOT);
+        }
+        int at = email.indexOf('@');
+        return at > 0 ? email.substring(0, at) : email;
     }
 }

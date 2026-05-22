@@ -6,10 +6,19 @@ import java.time.Instant;
 public record ClientResponse(
         Long id,
         String email,
+        String username,
         String displayName,
-        String companyName,
+        boolean juridica,
         String phone,
-        String taxId,
+        String tipoDocumento,
+        String numeroDocumento,
+        String direccion,
+        String ciudad,
+        String distrito,
+        String departamento,
+        String razonSocial,
+        String ruc,
+        String nombre,
         boolean active,
         Instant createdAt) {
 
@@ -17,10 +26,19 @@ public record ClientResponse(
         return new ClientResponse(
                 client.getId(),
                 client.getEmail(),
+                client.getUsername(),
                 client.getDisplayName(),
-                client.getCompanyName(),
+                client.isJuridica(),
                 client.getPhone(),
-                client.getTaxId(),
+                client.getTipoDocumento(),
+                client.getDocumentodeindentificacion(),
+                client.getDireccion(),
+                client.getCiudad(),
+                client.getDistrito(),
+                client.getDepartamento(),
+                client.getRazonSocial(),
+                client.getRuc(),
+                client.getNombre(),
                 client.isActive(),
                 client.getCreatedAt());
     }

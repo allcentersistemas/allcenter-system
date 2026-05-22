@@ -23,6 +23,9 @@ public class ClientUser {
     @Column(nullable = false, unique = true, length = 180)
     private String email;
 
+    @Column(nullable = false, unique = true, length = 64)
+    private String username;
+
     @Column(nullable = false, length = 180)
     private String displayName;
 
@@ -31,6 +34,9 @@ public class ClientUser {
 
     @Column(length = 40)
     private String phone;
+
+    @Column(name = "tipo_documento", length = 16)
+    private String tipoDocumento;
 
     @Column(length = 40)
     private String documentodeindentificacion;
@@ -41,11 +47,20 @@ public class ClientUser {
     @Column(length = 200)
     private String direccion;
 
-    @Column(length = 200)
+    @Column(length = 120)
+    private String ciudad;
+
+    @Column(length = 120)
     private String distrito;
 
-    @Column(length = 200)
+    @Column(length = 120)
     private String departamento;
+
+    @Column(name = "razon_social", length = 180)
+    private String razonSocial;
+
+    @Column(length = 20)
+    private String ruc;
 
     @Column(nullable = false)
     private boolean active = true;

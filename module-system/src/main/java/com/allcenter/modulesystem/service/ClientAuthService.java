@@ -1,21 +1,23 @@
 package com.allcenter.modulesystem.service;
 
 import com.allcenter.modulesystem.config.AuthEndpointProperties;
+import com.allcenter.modulesystem.dto.ChangePasswordRequest;
+import com.allcenter.modulesystem.dto.ClientAuthSessionResponse;
+import com.allcenter.modulesystem.dto.ClientRegisterRequest;
+import com.allcenter.modulesystem.dto.ClientResponse;
+import com.allcenter.modulesystem.dto.LoginRequest;
+import com.allcenter.modulesystem.dto.RefreshTokenRequest;
 import com.allcenter.modulesystem.exception.BadRequestException;
 import com.allcenter.modulesystem.exception.ConflictException;
 import com.allcenter.modulesystem.exception.ForbiddenException;
 import com.allcenter.modulesystem.exception.NotFoundException;
 import com.allcenter.modulesystem.model.ClientUser;
-import com.allcenter.modulesystem.dto.ClientAuthSessionResponse;
-import com.allcenter.modulesystem.dto.ChangePasswordRequest;
-import com.allcenter.modulesystem.dto.ClientResponse;
-import com.allcenter.modulesystem.dto.LoginRequest;
-import com.allcenter.modulesystem.dto.RefreshTokenRequest;
-import com.allcenter.modulesystem.dto.ClientRegisterRequest;
 import com.allcenter.modulesystem.repository.ClientUserRepository;
 import com.allcenter.modulesystem.security.ClientUserDetails;
 import com.allcenter.modulesystem.security.JwtProperties;
 import com.allcenter.modulesystem.security.JwtService;
+import java.util.Locale;
+import java.util.Set;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -26,6 +28,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class ClientAuthService {
+
+    private static final Set<String> TIPOS_DOCUMENTO = Set.of("DNI", "CE", "PASAPORTE");
 
     private final ClientUserRepository clientUserRepository;
     private final PasswordEncoder passwordEncoder;
@@ -54,10 +58,15 @@ public class ClientAuthService {
 
     @Transactional
     public ClientAuthSessionResponse login(LoginRequest request) {
+        String login = request.username().trim();
+        ClientUser client =
+                clientUserRepository
+                        .findByEmailIgnoreCase(login)
+                        .or(() -> clientUserRepository.findByUsernameIgnoreCase(login))
+                        .orElseThrow(() -> new BadRequestException("Credenciales invalidas"));
         Authentication auth =
                 authenticationManager.authenticate(
-                        new UsernamePasswordAuthenticationToken(
-                                request.username().trim(), request.password()));
+                        new UsernamePasswordAuthenticationToken(client.getEmail(), request.password()));
         ClientUserDetails principal = (ClientUserDetails) auth.getPrincipal();
         String refresh = refreshTokenService.issue(principal.getClientUser().getId());
         return buildSession(principal, refresh);
@@ -69,19 +78,68 @@ public class ClientAuthService {
             throw new ForbiddenException("Public registration is disabled in this environment");
         }
         String email = request.email().trim().toLowerCase();
+        String username = normalizeUsername(request.username());
         if (clientUserRepository.existsByEmailIgnoreCase(email)) {
             throw new ConflictException("El correo " + email + " ya esta registrado");
         }
+        if (clientUserRepository.existsByUsernameIgnoreCase(username)) {
+            throw new ConflictException("El usuario \"" + username + "\" ya esta en uso");
+        }
+
+        boolean juridica = Boolean.TRUE.equals(request.juridica());
         ClientUser client = new ClientUser();
         client.setEmail(email);
+        client.setUsername(username);
         client.setPassword(passwordEncoder.encode(request.password()));
-        client.setDisplayName(request.displayName().trim());
-        client.setPhone(request.phone() != null ? request.phone().trim() : null);
+        client.setJuridica(juridica);
         client.setActive(true);
+
+        if (juridica) {
+            applyJuridicaProfile(client, request);
+        } else {
+            applyNaturalProfile(client, request);
+        }
+
         clientUserRepository.save(client);
         ClientUserDetails principal = new ClientUserDetails(client);
         String refresh = refreshTokenService.issue(client.getId());
         return buildSession(principal, refresh);
+    }
+
+    private void applyNaturalProfile(ClientUser client, ClientRegisterRequest request) {
+        String fullName = trimRequired(request.displayName(), "nombre completo");
+        client.setDisplayName(fullName);
+        client.setNombre(null);
+        client.setRazonSocial(null);
+        client.setRuc(null);
+        client.setPhone(trimRequired(request.phone(), "telefono"));
+        String tipo = normalizeTipoDocumento(request.tipoDocumento());
+        if (tipo == null) {
+            throw new BadRequestException("Seleccione un tipo de documento valido (DNI, CE o Pasaporte)");
+        }
+        client.setTipoDocumento(tipo);
+        client.setDocumentodeindentificacion(trimRequired(request.numeroDocumento(), "numero de documento"));
+        client.setDireccion(trimRequired(request.direccion(), "direccion"));
+        client.setCiudad(trimRequired(request.ciudad(), "ciudad"));
+        client.setDistrito(trimRequired(request.distrito(), "distrito"));
+        client.setDepartamento(trimRequired(request.departamento(), "departamento"));
+    }
+
+    private void applyJuridicaProfile(ClientUser client, ClientRegisterRequest request) {
+        String razon = trimRequired(request.razonSocial(), "razon social");
+        String ruc = trimRequired(request.ruc(), "RUC");
+        String nombre = trimRequired(request.nombre(), "nombre de contacto");
+        client.setRazonSocial(razon);
+        client.setRuc(ruc);
+        client.setNombre(nombre);
+        client.setDisplayName(razon);
+        client.setTipoDocumento(null);
+        client.setDocumentodeindentificacion(null);
+        client.setPhone(trimOptional(request.phone()));
+        client.setDireccion(trimRequired(request.direccion(), "direccion"));
+        client.setCiudad(trimRequired(request.ciudad(), "ciudad"));
+        client.setDistrito(trimRequired(request.distrito(), "distrito"));
+        client.setDepartamento(trimRequired(request.departamento(), "departamento"));
     }
 
     @Transactional
@@ -123,5 +181,44 @@ public class ClientAuthService {
                 refreshTokenRaw,
                 jwtProperties.accessExpirationMs(),
                 jwtProperties.refreshExpirationMs());
+    }
+
+    private static String normalizeUsername(String raw) {
+        String u = raw == null ? "" : raw.trim().toLowerCase(Locale.ROOT);
+        if (u.length() < 3) {
+            throw new BadRequestException("El usuario debe tener al menos 3 caracteres");
+        }
+        if (!u.matches("^[a-z0-9._-]+$")) {
+            throw new BadRequestException(
+                    "El usuario solo puede contener letras, numeros, punto, guion y guion bajo");
+        }
+        return u;
+    }
+
+    private static String normalizeTipoDocumento(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        String t = raw.trim().toUpperCase(Locale.ROOT);
+        if ("PASAPORTE".equals(t) || "PASSPORT".equals(t)) {
+            return "PASAPORTE";
+        }
+        return TIPOS_DOCUMENTO.contains(t) ? t : null;
+    }
+
+    private static String trimRequired(String value, String fieldLabel) {
+        String t = trimOptional(value);
+        if (t == null) {
+            throw new BadRequestException("El campo " + fieldLabel + " es obligatorio");
+        }
+        return t;
+    }
+
+    private static String trimOptional(String value) {
+        if (value == null) {
+            return null;
+        }
+        String t = value.trim();
+        return t.isEmpty() ? null : t;
     }
 }

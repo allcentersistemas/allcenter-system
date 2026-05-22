@@ -29,14 +29,15 @@ public class ClientDemoUserBootstrap implements ApplicationRunner {
         if (!StringUtils.hasText(properties.email()) || !StringUtils.hasText(properties.password())) {
             return;
         }
+        String email = properties.email().trim().toLowerCase();
         ClientUser demo = new ClientUser();
-        demo.setEmail(properties.email().trim().toLowerCase());
+        demo.setEmail(email);
+        demo.setUsername(email.contains("@") ? email.substring(0, email.indexOf('@')) : email);
         demo.setPassword(passwordEncoder.encode(properties.password()));
         demo.setDisplayName(
                 StringUtils.hasText(properties.displayName()) ? properties.displayName().trim() : "Cliente Demo");
-        demo.setCompanyName(StringUtils.hasText(properties.companyName()) ? properties.companyName().trim() : null);
+        demo.setJuridica(false);
         demo.setPhone(StringUtils.hasText(properties.phone()) ? properties.phone().trim() : null);
-        demo.setTaxId(StringUtils.hasText(properties.taxId()) ? properties.taxId().trim() : null);
         demo.setActive(true);
         clientUserRepository.save(demo);
     }
