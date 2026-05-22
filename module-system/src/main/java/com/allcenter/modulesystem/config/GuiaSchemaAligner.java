@@ -29,6 +29,7 @@ public class GuiaSchemaAligner implements ApplicationRunner {
         }
         ensureOrigenColumns();
         ensureRmSalidaGuiaColumn();
+        ensureRmSalidaDetalleOptionalColumns();
         relaxLegacyColumns();
         dropLegacyColumns();
     }
@@ -43,6 +44,24 @@ public class GuiaSchemaAligner implements ApplicationRunner {
                 log.info("Columna rm_registro_salida.guia_inventario_id creada");
             } catch (Exception ex) {
                 log.warn("No se pudo crear rm_registro_salida.guia_inventario_id: {}", ex.getMessage());
+            }
+        }
+    }
+
+    /** recibe_firma y entrega_rci ya no son obligatorios en la app Android. */
+    private void ensureRmSalidaDetalleOptionalColumns() {
+        if (!tableExists("rm_registro_salida_detalle")) {
+            return;
+        }
+        for (String col : new String[] {"recibe_firma", "entrega_rci"}) {
+            if (!columnExists("rm_registro_salida_detalle", col)) {
+                continue;
+            }
+            try {
+                jdbc.execute("ALTER TABLE rm_registro_salida_detalle ALTER COLUMN " + col + " DROP NOT NULL");
+                log.info("rm_registro_salida_detalle.{} admite NULL", col);
+            } catch (Exception ex) {
+                log.warn("No se pudo relajar NOT NULL en rm_registro_salida_detalle.{}: {}", col, ex.getMessage());
             }
         }
     }

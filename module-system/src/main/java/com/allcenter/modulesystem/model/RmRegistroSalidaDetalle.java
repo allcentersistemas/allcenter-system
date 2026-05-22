@@ -49,10 +49,11 @@ public class RmRegistroSalidaDetalle {
     @Column(nullable = false, length = 64)
     private String unidad;
 
-    @Column(nullable = false, length = 256)
+    /** Opcional desde salida RM vía guía inventario (ya no se captura en Android). */
+    @Column(length = 256)
     private String recibeFirma;
 
-    @Column(nullable = false, length = 256)
+    @Column(length = 256)
     private String entregaRci;
 
     @Column(columnDefinition = "TEXT")
