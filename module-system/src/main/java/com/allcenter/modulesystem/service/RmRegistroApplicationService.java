@@ -646,9 +646,7 @@ public class RmRegistroApplicationService {
         if (payload.detalles() == null || payload.detalles().isEmpty()) {
             throw new ResponseStatusException(BAD_REQUEST, "Debe haber al menos un producto (detalle)");
         }
-        if (payload.ocNumero() == null || payload.ocNumero().isBlank()) {
-            throw new ResponseStatusException(BAD_REQUEST, "ocNumero obligatorio");
-        }
+
         if (payload.guiaNumero() == null || payload.guiaNumero().isBlank()) {
             throw new ResponseStatusException(BAD_REQUEST, "guiaNumero obligatorio");
         }
