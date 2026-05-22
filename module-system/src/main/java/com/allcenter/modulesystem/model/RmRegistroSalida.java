@@ -40,6 +40,10 @@ public class RmRegistroSalida {
     @Column(name = "transporte_id")
     private Long transporteId;
 
+    /** Guía de despacho (inventario) asociada a esta salida RM. */
+    @Column(name = "guia_inventario_id")
+    private Long guiaInventarioId;
+
     @Column(columnDefinition = "TEXT")
     private String cabeceraPhotoFilenamesJson;
 

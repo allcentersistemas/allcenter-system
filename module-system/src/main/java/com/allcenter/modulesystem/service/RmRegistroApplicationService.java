@@ -50,6 +50,7 @@ public class RmRegistroApplicationService {
     private final RmRegistroSalidaRepository salidaRepository;
     private final RmRegistroSalidaDetalleRepository salidaDetalleRepository;
     private final RmRegistroVehiculoRepository vehiculoRepository;
+    private final GuiaInventoryService guiaInventoryService;
     private final RmActaConformidadRepository actaRepository;
     private final EmployeeAuthService employeeAuthService;
 
@@ -189,6 +190,7 @@ public class RmRegistroApplicationService {
         sal.setFecha(LocalDate.parse(payload.fecha().trim()));
         sal.setHoraCabecera(trimMax(payload.hora(), 16));
         sal.setTransporteId(payload.transporteId());
+        sal.setGuiaInventarioId(payload.guiaInventarioId());
         sal.setCreatedByEmail(trimMaxNullable(createdByEmail, 320));
         sal.setChoferSalidaEmpleadoId(payload.choferSalidaEmpleadoId());
         sal.setChoferSalidaNombre(trimMaxNullable(payload.choferSalidaNombre(), 256));
@@ -221,8 +223,8 @@ public class RmRegistroApplicationService {
             row.setMaterialProducto(trimMax(d.materialProducto(), 512));
             row.setCantidad(trimMax(d.cantidad(), 64));
             row.setUnidad(trimMax(d.unidad(), 64));
-            row.setRecibeFirma(trimMax(d.recibeFirma(), 256));
-            row.setEntregaRci(trimMax(d.entregaRci(), 256));
+            row.setRecibeFirma(trimMaxNullable(d.recibeFirma(), 256));
+            row.setEntregaRci(trimMaxNullable(d.entregaRci(), 256));
             row.setPhotoFilenamesJson("[]");
             sal.getDetalles().add(row);
         }
@@ -255,6 +257,9 @@ public class RmRegistroApplicationService {
             }
         }
         salidaDetalleRepository.saveAll(sal.getDetalles());
+        if (Boolean.TRUE.equals(payload.salidaConformidadCerrada()) && payload.guiaInventarioId() != null) {
+            guiaInventoryService.markGuiaEnCamino(payload.guiaInventarioId());
+        }
         return new RmApiModels.Created(sal.getId());
     }
 
@@ -699,10 +704,6 @@ public class RmRegistroApplicationService {
             throw new ResponseStatusException(BAD_REQUEST, "cabeceraFotosCount invalido");
         }
         if (Boolean.TRUE.equals(payload.salidaConformidadCerrada())) {
-            if (payload.cabeceraFotosCount() < 1) {
-                throw new ResponseStatusException(
-                        BAD_REQUEST, "Conformidad de salida requiere al menos una foto de cabecera (cabeceraFotosCount >= 1)");
-            }
             if (payload.choferValidacionEmpleadoId() == null || payload.choferValidacionEmpleadoId() <= 0) {
                 throw new ResponseStatusException(BAD_REQUEST, "Chofer que valida la salida (empleado) obligatorio");
             }
@@ -722,12 +723,6 @@ public class RmRegistroApplicationService {
             }
             if (d.unidad() == null || d.unidad().isBlank()) {
                 throw new ResponseStatusException(BAD_REQUEST, "Unidad obligatoria");
-            }
-            if (d.recibeFirma() == null || d.recibeFirma().isBlank()) {
-                throw new ResponseStatusException(BAD_REQUEST, "Recibe obligatorio");
-            }
-            if (d.entregaRci() == null || d.entregaRci().isBlank()) {
-                throw new ResponseStatusException(BAD_REQUEST, "Entrega RCI obligatorio");
             }
             if (d.fotosCount() < 0) {
                 throw new ResponseStatusException(BAD_REQUEST, "fotosCount invalido");

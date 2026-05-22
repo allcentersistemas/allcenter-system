@@ -62,6 +62,8 @@ public final class RmPayloadModels {
             Boolean salidaConformidadCerrada,
             Long choferValidacionEmpleadoId,
             String choferValidacionNombre,
+            /** Guía de inventario (estado CREADA); al validar salida pasa a EN_CAMINO. */
+            Long guiaInventarioId,
             List<SalidaDetalle> detalles,
             String confirmPassword) {}
 

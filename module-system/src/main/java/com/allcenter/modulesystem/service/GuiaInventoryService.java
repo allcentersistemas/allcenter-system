@@ -40,6 +40,7 @@ import static org.springframework.http.HttpStatus.NOT_FOUND;
 public class GuiaInventoryService {
 
     private static final String ESTADO_CREADA = "CREADA";
+    private static final String ESTADO_EN_CAMINO = "EN_CAMINO";
     private static final String ESTADO_BORRADOR = "BORRADOR";
     private static final String ESTADO_CERRADA = "CERRADA";
     private static final String ESTADO_ENVIO_ESCANEADO = "ESCANEADO";
@@ -53,7 +54,32 @@ public class GuiaInventoryService {
 
     @Transactional(readOnly = true)
     public List<GuiaHeaderDto> listGuias() {
-        return guiaRepository.findAllForList().stream().map(this::toHeader).toList();
+        return listGuias(null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<GuiaHeaderDto> listGuias(String estadoFilter) {
+        String estado = trimOptional(estadoFilter);
+        return guiaRepository.findAllForList().stream()
+                .filter(g -> estado == null || estado.equalsIgnoreCase(g.getEstado()))
+                .map(this::toHeader)
+                .toList();
+    }
+
+    @Transactional
+    public void markGuiaEnCamino(long guiaId) {
+        Guia guia =
+                guiaRepository
+                        .findById(guiaId)
+                        .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Guia no encontrada"));
+        String actual = guia.getEstado() != null ? guia.getEstado().trim() : "";
+        if (!ESTADO_CREADA.equalsIgnoreCase(actual) && !ESTADO_BORRADOR.equalsIgnoreCase(actual)) {
+            throw new ResponseStatusException(
+                    BAD_REQUEST,
+                    "Solo se puede marcar en camino una guia en estado CREADA. Actual: " + actual);
+        }
+        guia.setEstado(ESTADO_EN_CAMINO);
+        guiaRepository.save(guia);
     }
 
     @Transactional(readOnly = true)
@@ -262,8 +288,9 @@ public class GuiaInventoryService {
     }
 
     private void ensureEditable(Guia guia) {
-        if (ESTADO_CERRADA.equalsIgnoreCase(guia.getEstado())) {
-            throw new ResponseStatusException(BAD_REQUEST, "La guia esta cerrada y no admite cambios");
+        String e = guia.getEstado() != null ? guia.getEstado().trim() : "";
+        if (ESTADO_CERRADA.equalsIgnoreCase(e) || ESTADO_EN_CAMINO.equalsIgnoreCase(e)) {
+            throw new ResponseStatusException(BAD_REQUEST, "La guia no admite cambios en su estado actual");
         }
     }
 
@@ -309,7 +336,10 @@ public class GuiaInventoryService {
 
     private String normalizeEstado(String estado) {
         String e = trimRequired(estado, "estado").toUpperCase(Locale.ROOT);
-        if (!ESTADO_CREADA.equals(e) && !ESTADO_BORRADOR.equals(e) && !ESTADO_CERRADA.equals(e)) {
+        if (!ESTADO_CREADA.equals(e)
+                && !ESTADO_EN_CAMINO.equals(e)
+                && !ESTADO_BORRADOR.equals(e)
+                && !ESTADO_CERRADA.equals(e)) {
             throw new ResponseStatusException(BAD_REQUEST, "Estado de guia no valido");
         }
         return e;

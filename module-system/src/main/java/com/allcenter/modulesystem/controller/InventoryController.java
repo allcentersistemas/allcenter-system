@@ -60,8 +60,9 @@ public class InventoryController {
     }
 
     @GetMapping("/guias")
-    public java.util.List<GuiaDtos.GuiaHeaderDto> listGuias() {
-        return guiaInventoryService.listGuias();
+    public java.util.List<GuiaDtos.GuiaHeaderDto> listGuias(
+            @RequestParam(required = false) String estado) {
+        return guiaInventoryService.listGuias(estado);
     }
 
     @GetMapping("/guias/pales-escaneados")

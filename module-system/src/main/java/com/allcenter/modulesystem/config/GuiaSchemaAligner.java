@@ -28,8 +28,23 @@ public class GuiaSchemaAligner implements ApplicationRunner {
             return;
         }
         ensureOrigenColumns();
+        ensureRmSalidaGuiaColumn();
         relaxLegacyColumns();
         dropLegacyColumns();
+    }
+
+    private void ensureRmSalidaGuiaColumn() {
+        if (!tableExists("rm_registro_salida")) {
+            return;
+        }
+        if (!columnExists("rm_registro_salida", "guia_inventario_id")) {
+            try {
+                jdbc.execute("ALTER TABLE rm_registro_salida ADD COLUMN guia_inventario_id BIGINT");
+                log.info("Columna rm_registro_salida.guia_inventario_id creada");
+            } catch (Exception ex) {
+                log.warn("No se pudo crear rm_registro_salida.guia_inventario_id: {}", ex.getMessage());
+            }
+        }
     }
 
     private void ensureOrigenColumns() {
