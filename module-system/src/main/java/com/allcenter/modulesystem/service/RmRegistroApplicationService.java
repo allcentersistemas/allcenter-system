@@ -8,7 +8,9 @@ import com.allcenter.modulesystem.model.RmRegistroEntradaDetalle;
 import com.allcenter.modulesystem.model.RmRegistroSalida;
 import com.allcenter.modulesystem.model.RmRegistroSalidaDetalle;
 import com.allcenter.modulesystem.model.RmRegistroVehiculo;
+import com.allcenter.modulesystem.model.Sucursal;
 import com.allcenter.modulesystem.repository.RmActaConformidadRepository;
+import com.allcenter.modulesystem.repository.SucursalRepository;
 import com.allcenter.modulesystem.repository.RmRegistroEntradaDetalleRepository;
 import com.allcenter.modulesystem.repository.RmRegistroEntradaRepository;
 import com.allcenter.modulesystem.repository.RmRegistroSalidaDetalleRepository;
@@ -42,6 +44,9 @@ import static org.springframework.http.HttpStatus.NOT_FOUND;
 @RequiredArgsConstructor
 public class RmRegistroApplicationService {
 
+    private static final String TIPO_REGISTRO_INGRESO = "ingreso";
+    private static final String TIPO_REGISTRO_SALIDA = "salida";
+
     private final ObjectMapper objectMapper;
     private final PhotoFilenameCodec photoFilenameCodec;
     private final RmStorageService storageService;
@@ -53,6 +58,7 @@ public class RmRegistroApplicationService {
     private final GuiaInventoryService guiaInventoryService;
     private final RmActaConformidadRepository actaRepository;
     private final EmployeeAuthService employeeAuthService;
+    private final SucursalRepository sucursalRepository;
 
     @PostConstruct
     void initStorage() throws IOException {
@@ -88,7 +94,6 @@ public class RmRegistroApplicationService {
         ent.setTipoDocumento("AMBOS");
         ent.setOcNumero(trimMax(payload.ocNumero(), 128));
         ent.setGuiaNumero(trimMax(payload.guiaNumero(), 128));
-        ent.setDestino(trimMaxNullable(payload.destino(), 512));
         ent.setCreatedByEmail(trimMaxNullable(createdByEmail, 320));
         ent.setDocumentoPhotoFilenamesJson("[]");
 
@@ -170,13 +175,57 @@ public class RmRegistroApplicationService {
 
     @Transactional
     public RmApiModels.Created createRegistroSalida(
-            byte[] dataJsonBytes, List<MultipartFile> photos, String createdByEmail) {
+            byte[] dataJsonBytes, List<MultipartFile> photos, String createdByEmail, Long actorBranchId) {
         RmPayloadModels.SalidaPayload payload = readJson(dataJsonBytes, RmPayloadModels.SalidaPayload.class);
         validateSalidaPayload(payload);
         if (Boolean.TRUE.equals(payload.salidaConformidadCerrada())) {
             requireChoferValidacionPassword(
                     payload.choferValidacionEmpleadoId(), payload.confirmPassword(), "salida");
         }
+        return persistSalida(payload, photos, createdByEmail, actorBranchId);
+    }
+
+    /** Registra vehículo (borrador) y salida en una transacción; fotos: vehículo, cabecera, líneas. */
+    @Transactional
+    public RmApiModels.Created createSalidaCompleto(
+            byte[] dataJsonBytes, List<MultipartFile> photos, String createdByEmail, Long actorBranchId) {
+        RmPayloadModels.SalidaCompletoPayload full =
+                readJson(dataJsonBytes, RmPayloadModels.SalidaCompletoPayload.class);
+        if (full.vehiculo() == null || full.salida() == null) {
+            throw new ResponseStatusException(BAD_REQUEST, "vehiculo y salida son obligatorios");
+        }
+        RmPayloadModels.VehiculoPayload veh = full.vehiculo();
+        RmPayloadModels.SalidaPayload salPayload = full.salida();
+        validateVehiculoPayload(veh);
+        requireTipoRegistro(veh, TIPO_REGISTRO_SALIDA);
+        validateSalidaPayload(salPayload);
+        if (Boolean.TRUE.equals(salPayload.salidaConformidadCerrada())) {
+            requireChoferValidacionPassword(
+                    salPayload.choferValidacionEmpleadoId(), salPayload.confirmPassword(), "salida");
+        }
+
+        List<MultipartFile> plist = RmMultipartUtil.normalizePhotos(photos);
+        int vehFotos = veh.fotosCount();
+        int cabFotos = salPayload.cabeceraFotosCount();
+        int detFotos =
+                salPayload.detalles().stream().mapToInt(RmPayloadModels.SalidaDetalle::fotosCount).sum();
+        int expected = vehFotos + cabFotos + detFotos;
+        if (expected != plist.size()) {
+            throw new ResponseStatusException(
+                    BAD_REQUEST, "El numero de fotos no coincide (vehiculo + cabecera + lineas)");
+        }
+
+        List<MultipartFile> vehPhotos = new ArrayList<>(plist.subList(0, vehFotos));
+        List<MultipartFile> salPhotos = new ArrayList<>(plist.subList(vehFotos, plist.size()));
+        persistVehiculo(veh, createdByEmail, TIPO_REGISTRO_SALIDA, vehPhotos);
+        return persistSalida(salPayload, salPhotos, createdByEmail, actorBranchId);
+    }
+
+    private RmApiModels.Created persistSalida(
+            RmPayloadModels.SalidaPayload payload,
+            List<MultipartFile> photos,
+            String createdByEmail,
+            Long actorBranchId) {
         List<MultipartFile> plist = RmMultipartUtil.normalizePhotos(photos);
         int expected = payload.cabeceraFotosCount()
                 + payload.detalles().stream().mapToInt(RmPayloadModels.SalidaDetalle::fotosCount).sum();
@@ -188,6 +237,7 @@ public class RmRegistroApplicationService {
         RmRegistroSalida sal = new RmRegistroSalida();
         sal.setFecha(LocalDate.parse(payload.fecha().trim()));
         sal.setHoraCabecera(trimMax(payload.hora(), 16));
+        sal.setOrigen(resolveOrigenSucursal(actorBranchId));
         sal.setTransporteId(payload.transporteId());
         sal.setGuiaInventarioId(payload.guiaInventarioId());
         sal.setCreatedByEmail(trimMaxNullable(createdByEmail, 320));
@@ -281,29 +331,8 @@ public class RmRegistroApplicationService {
         if (payload.fotosCount() != plist.size()) {
             throw new ResponseStatusException(BAD_REQUEST, "El numero de fotos no coincide con fotosCount");
         }
-
-        RmRegistroVehiculo v = new RmRegistroVehiculo();
-        v.setFecha(LocalDate.parse(payload.fecha().trim()));
-        v.setHoraIngreso(trimMaxNullable(payload.horaIngreso(), 16));
-        v.setMarca(trimMax(payload.marca(), 128));
-        v.setPlaca(trimMax(payload.placa(), 32).toUpperCase(Locale.ROOT));
-        v.setChofer(trimMax(payload.chofer(), 256));
-        v.setKilometraje(trimMaxNullable(payload.kilometraje(), 32));
-        v.setHoraSalida(trimMaxNullable(payload.horaSalida(), 16));
-        v.setCreatedByEmail(trimMaxNullable(createdByEmail, 320));
-        v.setPhotoFilenamesJson("[]");
-        vehiculoRepository.saveAndFlush(v);
-
-        List<String> names = new ArrayList<>();
-        for (MultipartFile p : plist) {
-            names.add(savePhoto(RmMediaKinds.VEHICULO, v.getId(), p));
-        }
-        try {
-            v.setPhotoFilenamesJson(photoFilenameCodec.writeList(names));
-        } catch (RuntimeException e) {
-            throw new ResponseStatusException(BAD_REQUEST, "No se pudo serializar fotos");
-        }
-        vehiculoRepository.save(v);
+        String tipo = normalizeTipoRegistro(payload.tipoRegistro());
+        RmRegistroVehiculo v = persistVehiculo(payload, createdByEmail, tipo, plist);
         return new RmApiModels.Created(v.getId());
     }
 
@@ -319,6 +348,7 @@ public class RmRegistroApplicationService {
         RmPayloadModels.VehiculoPayload veh = full.vehiculo();
         RmPayloadModels.EntradaPayload entPayload = full.entrada();
         validateVehiculoPayload(veh);
+        requireTipoRegistro(veh, TIPO_REGISTRO_INGRESO);
         validateEntradaPayloadSinVehiculo(entPayload);
         if (Boolean.TRUE.equals(entPayload.recepcionConformidadCerrada())) {
             requireChoferValidacionPassword(
@@ -337,29 +367,9 @@ public class RmRegistroApplicationService {
                     "El numero de fotos no coincide (vehiculo + documento + productos)");
         }
 
-        RmRegistroVehiculo v = new RmRegistroVehiculo();
-        v.setFecha(LocalDate.parse(veh.fecha().trim()));
-        v.setHoraIngreso(trimMaxNullable(veh.horaIngreso(), 16));
-        v.setMarca(trimMax(veh.marca(), 128));
-        v.setPlaca(trimMax(veh.placa(), 32).toUpperCase(Locale.ROOT));
-        v.setChofer(trimMax(veh.chofer(), 256));
-        v.setKilometraje(trimMaxNullable(veh.kilometraje(), 32));
-        v.setHoraSalida(trimMaxNullable(veh.horaSalida(), 16));
-        v.setCreatedByEmail(trimMaxNullable(createdByEmail, 320));
-        v.setPhotoFilenamesJson("[]");
-        vehiculoRepository.saveAndFlush(v);
-
-        int pi = 0;
-        List<String> vehNames = new ArrayList<>();
-        for (int c = 0; c < vehFotos; c++) {
-            vehNames.add(savePhoto(RmMediaKinds.VEHICULO, v.getId(), plist.get(pi++)));
-        }
-        try {
-            v.setPhotoFilenamesJson(photoFilenameCodec.writeList(vehNames));
-        } catch (RuntimeException e) {
-            throw new ResponseStatusException(BAD_REQUEST, "No se pudo serializar fotos del vehiculo");
-        }
-        vehiculoRepository.save(v);
+        List<MultipartFile> vehPhotos = new ArrayList<>(plist.subList(0, vehFotos));
+        RmRegistroVehiculo v = persistVehiculo(veh, createdByEmail, TIPO_REGISTRO_INGRESO, vehPhotos);
+        int pi = vehFotos;
 
         RmRegistroEntrada ent = new RmRegistroEntrada();
         ent.setRegistroVehiculo(v);
@@ -368,7 +378,6 @@ public class RmRegistroApplicationService {
         ent.setTipoDocumento("AMBOS");
         ent.setOcNumero(trimMax(entPayload.ocNumero(), 128));
         ent.setGuiaNumero(trimMax(entPayload.guiaNumero(), 128));
-        ent.setDestino(trimMaxNullable(entPayload.destino(), 512));
         ent.setCreatedByEmail(trimMaxNullable(createdByEmail, 320));
         ent.setDocumentoPhotoFilenamesJson("[]");
 
@@ -423,6 +432,10 @@ public class RmRegistroApplicationService {
             }
         }
         entradaDetalleRepository.saveAll(ent.getDetalles());
+
+        if (Boolean.TRUE.equals(entPayload.recepcionConformidadCerrada()) && entPayload.guiaInventarioId() != null) {
+            guiaInventoryService.markGuiaCerrada(entPayload.guiaInventarioId());
+        }
 
         return new RmApiModels.Created(ent.getId());
     }
@@ -776,6 +789,72 @@ public class RmRegistroApplicationService {
         if (p.fotosCount() < 0) {
             throw new ResponseStatusException(BAD_REQUEST, "fotosCount invalido");
         }
+    }
+
+    private RmRegistroVehiculo persistVehiculo(
+            RmPayloadModels.VehiculoPayload veh,
+            String createdByEmail,
+            String tipoRegistro,
+            List<MultipartFile> vehPhotos) {
+        RmRegistroVehiculo v = new RmRegistroVehiculo();
+        v.setFecha(LocalDate.parse(veh.fecha().trim()));
+        v.setHoraIngreso(trimMaxNullable(veh.horaIngreso(), 16));
+        v.setMarca(trimMax(veh.marca(), 128));
+        v.setPlaca(trimMax(veh.placa(), 32).toUpperCase(Locale.ROOT));
+        v.setChofer(trimMax(veh.chofer(), 256));
+        v.setKilometraje(trimMaxNullable(veh.kilometraje(), 32));
+        v.setHoraSalida(trimMaxNullable(veh.horaSalida(), 16));
+        v.setTiporegistro(tipoRegistro);
+        v.setCreatedByEmail(trimMaxNullable(createdByEmail, 320));
+        v.setPhotoFilenamesJson("[]");
+        vehiculoRepository.saveAndFlush(v);
+
+        List<String> vehNames = new ArrayList<>();
+        for (MultipartFile p : vehPhotos) {
+            vehNames.add(savePhoto(RmMediaKinds.VEHICULO, v.getId(), p));
+        }
+        try {
+            v.setPhotoFilenamesJson(photoFilenameCodec.writeList(vehNames));
+        } catch (RuntimeException e) {
+            throw new ResponseStatusException(BAD_REQUEST, "No se pudo serializar fotos del vehiculo");
+        }
+        vehiculoRepository.save(v);
+        return v;
+    }
+
+    private String resolveOrigenSucursal(Long branchId) {
+        if (branchId == null || branchId <= 0) {
+            throw new ResponseStatusException(
+                    BAD_REQUEST, "No se pudo determinar la sucursal del empleado (origen de salida)");
+        }
+        Sucursal sucursal =
+                sucursalRepository
+                        .findById(branchId)
+                        .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Sucursal origen no encontrada"));
+        String nombre = sucursal.getNombre();
+        if (nombre == null || nombre.isBlank()) {
+            return "Sucursal #" + branchId;
+        }
+        return "Sucursal: " + nombre.trim();
+    }
+
+    private static void requireTipoRegistro(RmPayloadModels.VehiculoPayload veh, String expected) {
+        String tipo = normalizeTipoRegistro(veh.tipoRegistro());
+        if (!expected.equalsIgnoreCase(tipo)) {
+            throw new ResponseStatusException(
+                    BAD_REQUEST, "tipoRegistro debe ser \"" + expected + "\"");
+        }
+    }
+
+    private static String normalizeTipoRegistro(String raw) {
+        if (raw == null || raw.isBlank()) {
+            throw new ResponseStatusException(BAD_REQUEST, "tipoRegistro obligatorio (ingreso o salida)");
+        }
+        String t = raw.trim().toLowerCase(Locale.ROOT);
+        if (!TIPO_REGISTRO_INGRESO.equals(t) && !TIPO_REGISTRO_SALIDA.equals(t)) {
+            throw new ResponseStatusException(BAD_REQUEST, "tipoRegistro invalido");
+        }
+        return t;
     }
 
     private static String trimMax(String s, int max) {

@@ -33,6 +33,9 @@ public class RmRegistroSalida {
     private LocalDate fecha;
 
     @Column(nullable = false, length = 512)
+    private String origen;
+
+    @Column(nullable = false, length = 512)
     private String destino;
 
     /** Hora de cabecera (formato HH:MM). */

@@ -61,6 +61,9 @@ public class RmRegistroVehiculo {
     @Column(length = 320)
     private String createdByEmail;
 
+    @Column
+    private String tiporegistro;
+
     @PrePersist
     void prePersist() {
         if (createdAt == null) {

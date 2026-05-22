@@ -9,6 +9,7 @@ import com.allcenter.modulesystem.model.RmRegistroSalida;
 import com.allcenter.modulesystem.model.RmRegistroSalidaDetalle;
 import com.allcenter.modulesystem.model.RmRegistroVehiculo;
 import com.allcenter.modulesystem.service.RmRegistroApplicationService;
+import com.allcenter.modulesystem.support.AuthenticatedEmployeeResolver;
 import com.allcenter.modulesystem.support.PhotoFilenameCodec;
 import com.allcenter.modulesystem.support.RmMediaKinds;
 import com.allcenter.modulesystem.support.RmStorageService;
@@ -42,6 +43,7 @@ import static org.springframework.http.HttpStatus.BAD_REQUEST;
 public class RmApiController {
 
     private final RmRegistroApplicationService registroService;
+    private final AuthenticatedEmployeeResolver employeeResolver;
     private final PhotoFilenameCodec photoFilenameCodec;
     private final ObjectMapper objectMapper;
 
@@ -91,6 +93,17 @@ public class RmApiController {
         return registroService.createIngresoCompleto(data.getBytes(), photos, user);
     }
 
+    /** Vehículo en borrador + salida en una sola transacción (Android). */
+    @PostMapping(value = "/registros-salida-completo", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public RmApiModels.Created postSalidaCompleto(MultipartHttpServletRequest request) throws IOException {
+        MultipartFile data = requireDataPart(request);
+        List<MultipartFile> photos = request.getFiles("photos");
+        String user = trimHeaderEmail(request);
+        Long branchId =
+                employeeResolver.resolve(request).map(AuthenticatedEmployeeResolver.Context::branchId).orElse(null);
+        return registroService.createSalidaCompleto(data.getBytes(), photos, user, branchId);
+    }
+
     @GetMapping("/registros-entrada")
     public Page<RmApiModels.EntradaListRow> listEntradas(@PageableDefault(size = 20) Pageable pageable) {
         return registroService.pageEntradas(pageable).map(this::toEntradaListRow);
@@ -106,7 +119,9 @@ public class RmApiController {
         MultipartFile data = requireDataPart(request);
         List<MultipartFile> photos = request.getFiles("photos");
         String user = trimHeaderEmail(request);
-        return registroService.createRegistroSalida(data.getBytes(), photos, user);
+        Long branchId =
+                employeeResolver.resolve(request).map(AuthenticatedEmployeeResolver.Context::branchId).orElse(null);
+        return registroService.createRegistroSalida(data.getBytes(), photos, user, branchId);
     }
 
     @GetMapping("/registros-salida")
@@ -273,6 +288,7 @@ public class RmApiController {
                 s.getId(),
                 s.getFecha(),
                 s.getHoraCabecera(),
+                s.getOrigen(),
                 s.getDestino(),
                 s.getNumeroGuia(),
                 s.getOrdenCompra(),

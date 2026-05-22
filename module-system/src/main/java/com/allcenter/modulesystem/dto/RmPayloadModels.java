@@ -16,6 +16,12 @@ public final class RmPayloadModels {
             VehiculoPayload vehiculo,
             EntradaPayload entrada) {}
 
+    /** Vehículo en borrador + salida; un solo envío al validar (Android). */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record SalidaCompletoPayload(
+            VehiculoPayload vehiculo,
+            SalidaPayload salida) {}
+
     /** Documento (OC + guía) asociado a un {@link com.allcenter.modulesystem.model.RmRegistroVehiculo}. */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record EntradaPayload(
@@ -25,6 +31,7 @@ public final class RmPayloadModels {
             String destino,
             String ocNumero,
             String guiaNumero,
+            Long guiaInventarioId,
             int documentoFotosCount,
             Boolean recepcionConformidadCerrada,
             Long choferValidacionEmpleadoId,
@@ -65,6 +72,8 @@ public final class RmPayloadModels {
             String chofer,
             String kilometraje,
             String horaSalida,
+            /** {@code ingreso} o {@code salida}. */
+            String tipoRegistro,
             int fotosCount) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)

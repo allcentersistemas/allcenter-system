@@ -67,6 +67,7 @@ public final class RmApiModels {
             Long id,
             LocalDate fecha,
             String horaCabecera,
+            String origen,
             String destino,
             String numeroGuia,
             String ordenCompra,

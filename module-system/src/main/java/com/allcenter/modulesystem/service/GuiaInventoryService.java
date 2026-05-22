@@ -67,6 +67,15 @@ public class GuiaInventoryService {
     }
 
     @Transactional
+    public void markGuiaCerrada(long guiaId) {
+        Guia guia =
+                guiaRepository
+                        .findById(guiaId)
+                        .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Guia no encontrada"));
+        guia.setEstado(ESTADO_CERRADA);
+        guiaRepository.save(guia);
+    }
+
     public void markGuiaEnCamino(long guiaId) {
         Guia guia =
                 guiaRepository
