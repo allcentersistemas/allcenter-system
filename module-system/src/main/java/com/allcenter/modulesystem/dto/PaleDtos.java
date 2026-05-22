@@ -32,13 +32,8 @@ public class PaleDtos {
             String departamento,
             String ciudad) {}
 
-    /** Destino de envío se define en la guía de transporte, no en el palé. */
-    public record CreatePaleRequest(
-            String code,
-            @NotNull Long branchId,
-            Long originLocationId,
-            String notes,
-            Long createdBy) {}
+    /** Origen/destino de envío se definen en la guía, no en el palé. */
+    public record CreatePaleRequest(String code, Long branchId, Long originLocationId, String notes, Long createdBy) {}
 
     public record PaleHeaderDto(
             Long paleenvioid,
@@ -55,6 +50,7 @@ public class PaleDtos {
             Long ubicacionOrigenId,
             Long ubicacionDestinoId,
             String ubicacionDestinoNombre,
+            String estadoEnvio,
             LocalDateTime fechaCreacion,
             LocalDateTime fechaCierre) {}
 
@@ -81,14 +77,7 @@ public class PaleDtos {
 
     public record ClosePaleRequest(String notes) {}
 
-    public record UpdatePaleRequest(
-            String code,
-            String estado,
-            Long branchId,
-            Long originLocationId,
-            Long destinationBranchId,
-            Long destinationLocationId,
-            String notes) {}
+    public record UpdatePaleRequest(String code, String estado, String notes) {}
 
     public record PaleAuditEntryDto(
             Long id,

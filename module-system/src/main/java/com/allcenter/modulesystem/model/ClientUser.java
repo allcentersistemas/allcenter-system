@@ -27,19 +27,31 @@ public class ClientUser {
     private String displayName;
 
     @Column(length = 180)
-    private String companyName;
+    private String nombre;
 
     @Column(length = 40)
     private String phone;
 
     @Column(length = 40)
-    private String taxId;
+    private String documentodeindentificacion;
 
     @Column(nullable = false)
     private String password;
 
+    @Column(length = 200)
+    private String direccion;
+
+    @Column(length = 200)
+    private String distrito;
+
+    @Column(length = 200)
+    private String departamento;
+
     @Column(nullable = false)
     private boolean active = true;
+
+    @Column(nullable = false)
+    private boolean juridica;
 
     @Column(nullable = false, updatable = false)
     private Instant createdAt = Instant.now();

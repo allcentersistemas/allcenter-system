@@ -4,6 +4,7 @@ import com.allcenter.modulesystem.dto.GuiaDtos;
 import com.allcenter.modulesystem.dto.InventoryDtos;
 import com.allcenter.modulesystem.service.GuiaInventoryService;
 import com.allcenter.modulesystem.service.InventoryApplicationService;
+import com.allcenter.modulesystem.support.AuthenticatedEmployeeResolver;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -28,6 +29,7 @@ public class InventoryController {
 
     private final InventoryApplicationService inventoryService;
     private final GuiaInventoryService guiaInventoryService;
+    private final AuthenticatedEmployeeResolver employeeResolver;
 
     @GetMapping("/items")
     public Page<InventoryDtos.ItemRow> listItems(
@@ -76,7 +78,16 @@ public class InventoryController {
     @PostMapping("/guias")
     public ResponseEntity<GuiaDtos.Created> createGuia(
             @RequestBody GuiaDtos.CreateGuiaRequest body, HttpServletRequest request) {
-        GuiaDtos.GuiaResponse created = guiaInventoryService.createGuia(withCreadoPor(body, request));
+        AuthenticatedEmployeeResolver.Context actor =
+                employeeResolver
+                        .resolve(request)
+                        .orElseThrow(
+                                () ->
+                                        new org.springframework.web.server.ResponseStatusException(
+                                                org.springframework.http.HttpStatus.UNAUTHORIZED,
+                                                "Sesion de empleado requerida para crear guias"));
+        GuiaDtos.GuiaResponse created =
+                guiaInventoryService.createGuia(withCreadoPor(body, actor.employeeId()), actor.branchId());
         return ResponseEntity.ok(new GuiaDtos.Created(created.guia().guiaId()));
     }
 
@@ -104,9 +115,8 @@ public class InventoryController {
         return guiaInventoryService.removeDetalle(id, detalleId);
     }
 
-    private static GuiaDtos.CreateGuiaRequest withCreadoPor(
-            GuiaDtos.CreateGuiaRequest body, HttpServletRequest request) {
-        Long creadoPor = body.creadoPor();
+    private static GuiaDtos.CreateGuiaRequest withCreadoPor(GuiaDtos.CreateGuiaRequest body, Long employeeId) {
+        Long creadoPor = body.creadoPor() != null ? body.creadoPor() : employeeId;
         return new GuiaDtos.CreateGuiaRequest(
                 body.notas(),
                 body.destinationBranchId(),

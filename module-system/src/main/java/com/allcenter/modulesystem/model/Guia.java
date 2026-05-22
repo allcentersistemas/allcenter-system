@@ -41,6 +41,14 @@ public class Guia {
     private String notas;
 
     @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "sucursal_origen_id")
+    private Sucursal sucursalOrigen;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "ubicacion_origen_id")
+    private Ubicacion ubicacionOrigen;
+
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "sucursal_destino_id")
     private Sucursal sucursalDestino;
 

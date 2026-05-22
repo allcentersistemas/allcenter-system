@@ -27,8 +27,28 @@ public class GuiaSchemaAligner implements ApplicationRunner {
         if (!tableExists("guia")) {
             return;
         }
+        ensureOrigenColumns();
         relaxLegacyColumns();
         dropLegacyColumns();
+    }
+
+    private void ensureOrigenColumns() {
+        if (!columnExists("guia", "sucursal_origen_id")) {
+            try {
+                jdbc.execute("ALTER TABLE guia ADD COLUMN sucursal_origen_id BIGINT");
+                log.info("Columna guia.sucursal_origen_id creada");
+            } catch (Exception ex) {
+                log.warn("No se pudo crear guia.sucursal_origen_id: {}", ex.getMessage());
+            }
+        }
+        if (!columnExists("guia", "ubicacion_origen_id")) {
+            try {
+                jdbc.execute("ALTER TABLE guia ADD COLUMN ubicacion_origen_id BIGINT");
+                log.info("Columna guia.ubicacion_origen_id creada");
+            } catch (Exception ex) {
+                log.warn("No se pudo crear guia.ubicacion_origen_id: {}", ex.getMessage());
+            }
+        }
     }
 
     private boolean tableExists(String table) {

@@ -22,6 +22,7 @@ public interface GuiaRepository extends JpaRepository<Guia, Long> {
     @Query(
             """
             SELECT g FROM Guia g
+            LEFT JOIN FETCH g.sucursalOrigen
             LEFT JOIN FETCH g.sucursalDestino
             LEFT JOIN FETCH g.ubicacionDestino
             ORDER BY g.fechaCreacion DESC
@@ -31,6 +32,7 @@ public interface GuiaRepository extends JpaRepository<Guia, Long> {
     @Query(
             """
             SELECT DISTINCT g FROM Guia g
+            LEFT JOIN FETCH g.sucursalOrigen
             LEFT JOIN FETCH g.sucursalDestino
             LEFT JOIN FETCH g.ubicacionDestino
             LEFT JOIN FETCH g.detalles

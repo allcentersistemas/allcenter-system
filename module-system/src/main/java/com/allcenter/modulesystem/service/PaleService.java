@@ -56,6 +56,8 @@ import static org.springframework.http.HttpStatus.NOT_FOUND;
 @Slf4j
 public class PaleService {
 
+    private static final String ESTADO_ENVIO_ESCANEADO = "ESCANEADO";
+
     private final PaleRepository paleRepository;
     private final PaleDetalleRepository detalleRepository;
     private final PaleAuditEntryRepository auditEntryRepository;
@@ -152,10 +154,6 @@ public class PaleService {
 
     @Transactional
     public PaleDetailResponse createPale(CreatePaleRequest req) {
-        sucursalRepository
-                .findById(req.branchId())
-                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Sucursal origen no encontrada"));
-
         String code = nextPaleCode();
         paleRepository.findByCodigoIgnoreCase(code).ifPresent(p ->
                 { throw new ResponseStatusException(CONFLICT, "Ya existe un pale con ese codigo"); });
@@ -191,7 +189,7 @@ public class PaleService {
         Pale pale = paleRepository.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Pale no encontrado"));
         if (req == null) {
-            req = new UpdatePaleRequest(null, null, null, null, null, null, null);
+            req = new UpdatePaleRequest(null, null, null);
         }
         if (req.code() != null) {
             String code = normalizeRequired(req.code(), "codigo");
@@ -205,17 +203,14 @@ public class PaleService {
         if (req.estado() != null) {
             String estado = normalizeRequired(req.estado(), "estado").toUpperCase();
             pale.setEstado(estado);
-            if ("CERRADO".equals(estado) && pale.getFechaCierre() == null) {
-                pale.setFechaCierre(LocalDateTime.now());
-            }
-            if (!"CERRADO".equals(estado)) {
+            if ("CERRADO".equals(estado)) {
+                if (pale.getFechaCierre() == null) {
+                    pale.setFechaCierre(LocalDateTime.now());
+                }
+                pale.setEstadoEnvio(ESTADO_ENVIO_ESCANEADO);
+            } else {
                 pale.setFechaCierre(null);
             }
-        }
-        if (req.branchId() != null) {
-            sucursalRepository
-                    .findById(req.branchId())
-                    .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Sucursal origen no encontrada"));
         }
         if (req.notes() != null) {
             pale.setNotas(req.notes().trim());
@@ -337,6 +332,7 @@ public class PaleService {
             return new ApiMessage(true, "El pale ya estaba cerrado");
         }
         pale.setEstado("CERRADO");
+        pale.setEstadoEnvio(ESTADO_ENVIO_ESCANEADO);
         pale.setFechaCierre(LocalDateTime.now());
         if (req != null && req.notes() != null && !req.notes().isBlank()) {
             pale.setNotas(req.notes());
@@ -531,6 +527,7 @@ public class PaleService {
                 null,
                 null,
                 null,
+                p.getEstadoEnvio(),
                 p.getFechaCreacion(),
                 p.getFechaCierre());
     }

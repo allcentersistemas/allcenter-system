@@ -9,8 +9,10 @@ import com.allcenter.modulesystem.dto.GuiaDtos.CreateGuiaRequest;
 import com.allcenter.modulesystem.dto.GuiaDtos.GuiaDetalleLineDto;
 import com.allcenter.modulesystem.dto.GuiaDtos.GuiaResponse;
 import com.allcenter.modulesystem.model.Pale;
+import com.allcenter.modulesystem.model.Sucursal;
 import com.allcenter.modulesystem.repository.GuiaRepository;
 import com.allcenter.modulesystem.repository.PaleRepository;
+import com.allcenter.modulesystem.repository.SucursalRepository;
 import java.time.LocalDateTime;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -32,16 +34,22 @@ class GuiaInventoryIntegrationTest {
     @Autowired
     private GuiaRepository guiaRepository;
 
+    @Autowired
+    private SucursalRepository sucursalRepository;
+
     @Test
     void flujoCompleto_numeroCorrelativo_lineaManual_yPaleEscaneado() {
+        Sucursal origen = sucursalRepository.save(sucursal("Sucursal test guia"));
         Pale paleEscaneado = paleRepository.save(pale("P-ESC-001", "ESCANEADO", 8, "OC-100, OC-101"));
         Pale palePendiente = paleRepository.save(pale("P-PEN-001", "PENDIENTE", 3, "OC-200"));
 
         GuiaResponse creada =
                 guiaInventoryService.createGuia(
-                        new CreateGuiaRequest("Notas prueba", null, null, 99L, List.of(paleEscaneado.getId())));
+                        new CreateGuiaRequest("Notas prueba", null, null, 99L, List.of(paleEscaneado.getId())),
+                        origen.getId());
         assertThat(creada.guia().numeroGuia()).isEqualTo("G-000001");
-        assertThat(creada.guia().estado()).isEqualTo("BORRADOR");
+        assertThat(creada.guia().estado()).isEqualTo("CREADA");
+        assertThat(creada.guia().sucursalOrigenId()).isEqualTo(origen.getId());
         assertThat(creada.detalles()).hasSize(1);
         assertThat(creada.detalles().getFirst().descripcion()).isEqualTo("OC-100, OC-101");
         assertThat(creada.detalles().getFirst().unidadMedida()).isEqualTo("piezas");
@@ -95,7 +103,8 @@ class GuiaInventoryIntegrationTest {
         Pale paleEscaneado2 = paleRepository.save(pale("P-ESC-002", "ESCANEADO", 2, "OC-300"));
         GuiaResponse segunda =
                 guiaInventoryService.createGuia(
-                        new CreateGuiaRequest(null, null, null, null, List.of(paleEscaneado2.getId())));
+                        new CreateGuiaRequest(null, null, null, null, List.of(paleEscaneado2.getId())),
+                        origen.getId());
         assertThat(segunda.guia().numeroGuia()).isEqualTo("G-000002");
 
         assertThatThrownBy(
@@ -106,7 +115,8 @@ class GuiaInventoryIntegrationTest {
                                                 null,
                                                 null,
                                                 null,
-                                                List.of(paleEscaneado.getId(), paleEscaneado.getId()))))
+                                                List.of(paleEscaneado.getId(), paleEscaneado.getId())),
+                                        origen.getId()))
                 .isInstanceOf(ResponseStatusException.class)
                 .satisfies(
                         ex ->
@@ -114,6 +124,12 @@ class GuiaInventoryIntegrationTest {
                                         .isEqualTo(409));
 
         assertThat(guiaRepository.findMaxCorrelativoSequence()).isEqualTo(2L);
+    }
+
+    private static Sucursal sucursal(String nombre) {
+        Sucursal s = new Sucursal();
+        s.setNombre(nombre);
+        return s;
     }
 
     private static Pale pale(String codigo, String estadoEnvio, int piezas, String ordenesResumen) {

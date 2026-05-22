@@ -5,6 +5,8 @@ CREATE TABLE IF NOT EXISTS guia (
     numero_guia VARCHAR(32) NOT NULL,
     estado VARCHAR(32) NOT NULL DEFAULT 'BORRADOR',
     notas TEXT,
+    sucursal_origen_id BIGINT,
+    ubicacion_origen_id BIGINT,
     sucursal_destino_id BIGINT,
     ubicacion_destino_id BIGINT,
     creado_por BIGINT,

@@ -25,6 +25,8 @@ public final class GuiaDtos {
             String numeroGuia,
             String estado,
             String notas,
+            Long sucursalOrigenId,
+            String sucursalOrigenNombre,
             Long sucursalDestinoId,
             String sucursalDestinoNombre,
             Long ubicacionDestinoId,

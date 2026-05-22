@@ -39,6 +39,7 @@ import static org.springframework.http.HttpStatus.NOT_FOUND;
 @RequiredArgsConstructor
 public class GuiaInventoryService {
 
+    private static final String ESTADO_CREADA = "CREADA";
     private static final String ESTADO_BORRADOR = "BORRADOR";
     private static final String ESTADO_CERRADA = "CERRADA";
     private static final String ESTADO_ENVIO_ESCANEADO = "ESCANEADO";
@@ -65,7 +66,11 @@ public class GuiaInventoryService {
     }
 
     @Transactional
-    public GuiaResponse createGuia(CreateGuiaRequest request) {
+    public GuiaResponse createGuia(CreateGuiaRequest request, Long originBranchId) {
+        if (originBranchId == null || originBranchId <= 0) {
+            throw new ResponseStatusException(
+                    BAD_REQUEST, "El usuario no tiene sucursal asignada; no se puede definir el origen de la guia");
+        }
         List<Long> paleIds = request.paleIds() != null ? request.paleIds() : List.of();
         if (paleIds.isEmpty()) {
             throw new ResponseStatusException(BAD_REQUEST, "Agregue al menos un pale escaneado a la guia");
@@ -99,8 +104,9 @@ public class GuiaInventoryService {
 
         Guia guia = new Guia();
         guia.setNumeroGuia(numero);
-        guia.setEstado(ESTADO_BORRADOR);
+        guia.setEstado(ESTADO_CREADA);
         guia.setNotas(trimOptional(request.notas()));
+        applyOrigen(guia, originBranchId);
         if (request.destinationBranchId() != null || request.destinationLocationId() != null) {
             applyDestino(guia, request.destinationBranchId(), request.destinationLocationId());
         }
@@ -261,6 +267,15 @@ public class GuiaInventoryService {
         }
     }
 
+    private void applyOrigen(Guia guia, Long originBranchId) {
+        Sucursal sucursal =
+                sucursalRepository
+                        .findById(originBranchId)
+                        .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Sucursal origen no encontrada"));
+        guia.setSucursalOrigen(sucursal);
+        guia.setUbicacionOrigen(null);
+    }
+
     private void applyDestino(Guia guia, Long destinationBranchId, Long destinationLocationId) {
         if (destinationLocationId != null) {
             Ubicacion ubicacion =
@@ -294,7 +309,7 @@ public class GuiaInventoryService {
 
     private String normalizeEstado(String estado) {
         String e = trimRequired(estado, "estado").toUpperCase(Locale.ROOT);
-        if (!ESTADO_BORRADOR.equals(e) && !ESTADO_CERRADA.equals(e)) {
+        if (!ESTADO_CREADA.equals(e) && !ESTADO_BORRADOR.equals(e) && !ESTADO_CERRADA.equals(e)) {
             throw new ResponseStatusException(BAD_REQUEST, "Estado de guia no valido");
         }
         return e;
@@ -313,6 +328,8 @@ public class GuiaInventoryService {
     }
 
     private GuiaHeaderDto toHeader(Guia guia, int totalLineas) {
+        Long origenId = guia.getSucursalOrigen() == null ? null : guia.getSucursalOrigen().getId();
+        String origenNom = guia.getSucursalOrigen() == null ? null : guia.getSucursalOrigen().getNombre();
         Long sucId = guia.getSucursalDestino() == null ? null : guia.getSucursalDestino().getId();
         String sucNom = guia.getSucursalDestino() == null ? null : guia.getSucursalDestino().getNombre();
         Long ubicId = guia.getUbicacionDestino() == null ? null : guia.getUbicacionDestino().getId();
@@ -322,6 +339,8 @@ public class GuiaInventoryService {
                 guia.getNumeroGuia(),
                 guia.getEstado(),
                 guia.getNotas(),
+                origenId,
+                origenNom,
                 sucId,
                 sucNom,
                 ubicId,
