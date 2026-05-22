@@ -59,8 +59,17 @@ public class RmApiController {
     public Page<RmApiModels.VehiculoListRow> listVehiculos(@PageableDefault(size = 20) Pageable pageable) {
         return registroService
                 .pageVehiculos(pageable)
-                .map(v -> new RmApiModels.VehiculoListRow(
-                        v.getId(), v.getFecha(), v.getPlaca(), v.getChofer(), v.getMarca(), v.getCreatedAt()));
+                .map(
+                        v ->
+                                new RmApiModels.VehiculoListRow(
+                                        v.getId(),
+                                        v.getNumeroregistro(),
+                                        v.getTiporegistro(),
+                                        v.getFecha(),
+                                        v.getPlaca(),
+                                        v.getChofer(),
+                                        v.getMarca(),
+                                        v.getCreatedAt()));
     }
 
     @GetMapping("/registros-vehiculo/{id}")
@@ -128,14 +137,20 @@ public class RmApiController {
     public Page<RmApiModels.SalidaListRow> listSalidas(@PageableDefault(size = 20) Pageable pageable) {
         return registroService
                 .pageSalidas(pageable)
-                .map(s -> new RmApiModels.SalidaListRow(
-                        s.getId(),
-                        s.getFecha(),
-                        s.getHoraCabecera(),
-                        s.getTransporteId(),
-                        s.getRecepcionEstado(),
-                        s.getCreatedAt(),
-                        s.getLineas()));
+                .map(
+                        s ->
+                                new RmApiModels.SalidaListRow(
+                                        s.getId(),
+                                        s.getNumeroregistro(),
+                                        s.getRegistroVehiculo() == null
+                                                ? null
+                                                : s.getRegistroVehiculo().getId(),
+                                        s.getFecha(),
+                                        s.getHoraCabecera(),
+                                        s.getTransporteId(),
+                                        s.getRecepcionEstado(),
+                                        s.getCreatedAt(),
+                                        s.getLineas()));
     }
 
     @GetMapping("/registros-salida/{id}")
@@ -181,6 +196,7 @@ public class RmApiController {
         Long vehiculoId = e.getRegistroVehiculo() == null ? null : e.getRegistroVehiculo().getId();
         return new RmApiModels.EntradaListRow(
                 e.getId(),
+                e.getNumeroregistro(),
                 vehiculoId,
                 e.getFecha(),
                 e.getHora(),
@@ -252,13 +268,14 @@ public class RmApiController {
                 e.getDetalles().stream().map(this::toEntradaDetalle).toList();
         return new RmApiModels.RegistroEntradaResponse(
                 e.getId(),
+                e.getNumeroregistro(),
                 vehiculoId,
                 e.getFecha(),
                 e.getHora(),
                 e.getTipoDocumento(),
                 e.getOcNumero(),
                 e.getGuiaNumero(),
-                e.getDestino(),
+                null,
                 e.getRecepcionEstado(),
                 e.getValidadoAt(),
                 e.getValidadoPorEmail(),
@@ -284,8 +301,11 @@ public class RmApiController {
         List<String> cabNames = photoFilenameCodec.readList(s.getCabeceraPhotoFilenamesJson());
         List<RmApiModels.SalidaDetalleResponse> detalles =
                 s.getDetalles().stream().map(this::toSalidaDetalle).toList();
+        Long vehiculoId = s.getRegistroVehiculo() == null ? null : s.getRegistroVehiculo().getId();
         return new RmApiModels.RegistroSalidaResponse(
                 s.getId(),
+                s.getNumeroregistro(),
+                vehiculoId,
                 s.getFecha(),
                 s.getHoraCabecera(),
                 s.getOrigen(),
@@ -322,6 +342,8 @@ public class RmApiController {
         List<String> names = photoFilenameCodec.readList(v.getPhotoFilenamesJson());
         return new RmApiModels.RegistroVehiculoResponse(
                 v.getId(),
+                v.getNumeroregistro(),
+                v.getTiporegistro(),
                 v.getFecha(),
                 v.getHoraIngreso(),
                 v.getMarca(),

@@ -32,6 +32,9 @@ public class RmRegistroEntrada {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(nullable = false)
+    private Integer numeroregistro;
+
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "registro_vehiculo_id", nullable = false)
     private RmRegistroVehiculo registroVehiculo;
@@ -54,9 +57,6 @@ public class RmRegistroEntrada {
 
     @Column(name = "guia_inventario_id")
     private Long guiaInventarioId;
-
-    @Column(length = 512)
-    private String destino;
 
     /** Fotos del documento (OC o guia). Reutiliza columna legacy de cabecera. */
     @Column(name = "cabecera_vehiculo_photo_filenames_json", columnDefinition = "TEXT")
@@ -93,9 +93,6 @@ public class RmRegistroEntrada {
 
     @Column(length = 256)
     private String estadoEntrega;
-
-    @Column(length = 256)
-    private String estadoRuta;
 
     @Column(nullable = false)
     private Instant createdAt;

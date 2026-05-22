@@ -14,6 +14,7 @@ public final class RmApiModels {
 
     public record EntradaListRow(
             Long id,
+            Integer numeroRegistro,
             Long registroVehiculoId,
             LocalDate fecha,
             String hora,
@@ -26,6 +27,8 @@ public final class RmApiModels {
 
     public record SalidaListRow(
             Long id,
+            Integer numeroRegistro,
+            Long registroVehiculoId,
             LocalDate fecha,
             String horaCabecera,
             Long transporteId,
@@ -34,7 +37,14 @@ public final class RmApiModels {
             long lineas) {}
 
     public record VehiculoListRow(
-            Long id, LocalDate fecha, String placa, String chofer, String marca, Instant createdAt) {}
+            Long id,
+            Integer numeroRegistro,
+            String tipoRegistro,
+            LocalDate fecha,
+            String placa,
+            String chofer,
+            String marca,
+            Instant createdAt) {}
 
     public record ActaListRow(Long id, String razonSocialNombre, String decision, Instant createdAt) {}
 
@@ -43,6 +53,7 @@ public final class RmApiModels {
 
     public record RegistroEntradaResponse(
             Long id,
+            Integer numeroRegistro,
             Long registroVehiculoId,
             LocalDate fecha,
             String hora,
@@ -65,6 +76,8 @@ public final class RmApiModels {
 
     public record RegistroSalidaResponse(
             Long id,
+            Integer numeroRegistro,
+            Long registroVehiculoId,
             LocalDate fecha,
             String horaCabecera,
             String origen,
@@ -86,6 +99,8 @@ public final class RmApiModels {
 
     public record RegistroVehiculoResponse(
             Long id,
+            Integer numeroRegistro,
+            String tipoRegistro,
             LocalDate fecha,
             String horaIngreso,
             String marca,

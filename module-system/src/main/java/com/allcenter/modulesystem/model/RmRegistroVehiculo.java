@@ -29,6 +29,9 @@ public class RmRegistroVehiculo {
     private Long id;
 
     @Column(nullable = false)
+    private Integer numeroregistro;
+
+    @Column(nullable = false)
     private LocalDate fecha;
 
     @Column(length = 16)
@@ -54,6 +57,9 @@ public class RmRegistroVehiculo {
 
     @OneToMany(mappedBy = "registroVehiculo", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<RmRegistroEntrada> entradas = new ArrayList<>();
+
+    @OneToMany(mappedBy = "registroVehiculo", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<RmRegistroSalida> salidas = new ArrayList<>();
 
     @Column(nullable = false)
     private Instant createdAt;

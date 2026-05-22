@@ -46,6 +46,8 @@ public final class RmPayloadModels {
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record SalidaPayload(
+            /** Obligatorio en POST salida sin vehículo en el mismo request; omitir en salida-completo. */
+            Long registroVehiculoId,
             String fecha,
             String hora,
             int cabeceraFotosCount,

@@ -1,14 +1,6 @@
 package com.allcenter.modulesystem.model;
 
-import jakarta.persistence.CascadeType;
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-import jakarta.persistence.OneToMany;
-import jakarta.persistence.PrePersist;
-import jakarta.persistence.Table;
+import jakarta.persistence.*;
 import org.hibernate.annotations.Formula;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -30,6 +22,9 @@ public class RmRegistroSalida {
     private Long id;
 
     @Column(nullable = false)
+    private Integer numeroregistro;
+
+    @Column(nullable = false)
     private LocalDate fecha;
 
     @Column(nullable = false, length = 512)
@@ -41,6 +36,10 @@ public class RmRegistroSalida {
     /** Hora de cabecera (formato HH:MM). */
     @Column(nullable = false, length = 16)
     private String horaCabecera;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "registro_vehiculo_id", nullable = false)
+    private RmRegistroVehiculo registroVehiculo;
 
     /** Vehículo de flota (module-system), opcional. */
     @Column(name = "transporte_id")

@@ -81,6 +81,7 @@ public class RmRegistroApplicationService {
         RmRegistroVehiculo vehiculo = vehiculoRepository
                 .findById(payload.registroVehiculoId())
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Registro de vehiculo no encontrado"));
+        requireVehiculoTipoRegistro(vehiculo, TIPO_REGISTRO_INGRESO);
 
         List<MultipartFile> plist = RmMultipartUtil.normalizePhotos(photos);
         int docCount = payload.documentoFotosCount();
@@ -93,6 +94,7 @@ public class RmRegistroApplicationService {
 
         RmRegistroEntrada ent = new RmRegistroEntrada();
         ent.setRegistroVehiculo(vehiculo);
+        ent.setNumeroregistro(numeroRegistroFromVehiculo(vehiculo));
         ent.setFecha(resolveEntradaFecha(payload, vehiculo));
         ent.setHora(resolveEntradaHora(payload, vehiculo));
         ent.setTipoDocumento("AMBOS");
@@ -186,7 +188,7 @@ public class RmRegistroApplicationService {
             requireChoferValidacionPassword(
                     payload.choferValidacionEmpleadoId(), payload.confirmPassword(), "salida");
         }
-        return persistSalida(payload, photos, createdByEmail, actorBranchId);
+        return persistSalida(payload, photos, createdByEmail, actorBranchId, null);
     }
 
     /** Registra vehículo (borrador) y salida en una transacción; fotos: vehículo, cabecera, líneas. */
@@ -221,15 +223,16 @@ public class RmRegistroApplicationService {
 
         List<MultipartFile> vehPhotos = new ArrayList<>(plist.subList(0, vehFotos));
         List<MultipartFile> salPhotos = new ArrayList<>(plist.subList(vehFotos, plist.size()));
-        persistVehiculo(veh, createdByEmail, TIPO_REGISTRO_SALIDA, vehPhotos);
-        return persistSalida(salPayload, salPhotos, createdByEmail, actorBranchId);
+        RmRegistroVehiculo v = persistVehiculo(veh, createdByEmail, TIPO_REGISTRO_SALIDA, vehPhotos);
+        return persistSalida(salPayload, salPhotos, createdByEmail, actorBranchId, v);
     }
 
     private RmApiModels.Created persistSalida(
             RmPayloadModels.SalidaPayload payload,
             List<MultipartFile> photos,
             String createdByEmail,
-            Long actorBranchId) {
+            Long actorBranchId,
+            RmRegistroVehiculo vehiculoFromCompleto) {
         List<MultipartFile> plist = RmMultipartUtil.normalizePhotos(photos);
         int expected = payload.cabeceraFotosCount()
                 + payload.detalles().stream().mapToInt(RmPayloadModels.SalidaDetalle::fotosCount).sum();
@@ -238,7 +241,11 @@ public class RmRegistroApplicationService {
                     BAD_REQUEST, "El numero de fotos no coincide con cabeceraFotosCount y fotosCount");
         }
 
+        RmRegistroVehiculo vehiculo = resolveVehiculoForSalida(payload, vehiculoFromCompleto);
+
         RmRegistroSalida sal = new RmRegistroSalida();
+        sal.setRegistroVehiculo(vehiculo);
+        sal.setNumeroregistro(numeroRegistroFromVehiculo(vehiculo));
         sal.setFecha(LocalDate.parse(payload.fecha().trim()));
         sal.setHoraCabecera(trimMax(payload.hora(), 16));
         sal.setOrigen(resolveOrigenSucursal(actorBranchId));
@@ -377,6 +384,7 @@ public class RmRegistroApplicationService {
 
         RmRegistroEntrada ent = new RmRegistroEntrada();
         ent.setRegistroVehiculo(v);
+        ent.setNumeroregistro(v.getNumeroregistro());
         ent.setFecha(resolveEntradaFecha(entPayload, v));
         ent.setHora(resolveEntradaHora(entPayload, v));
         ent.setTipoDocumento("AMBOS");
@@ -836,6 +844,7 @@ public class RmRegistroApplicationService {
             String tipoRegistro,
             List<MultipartFile> vehPhotos) {
         RmRegistroVehiculo v = new RmRegistroVehiculo();
+        v.setNumeroregistro(allocateNumeroRegistro());
         v.setFecha(LocalDate.parse(veh.fecha().trim()));
         v.setHoraIngreso(trimMaxNullable(veh.horaIngreso(), 16));
         v.setMarca(trimMax(veh.marca(), 128));
@@ -859,6 +868,55 @@ public class RmRegistroApplicationService {
         }
         vehiculoRepository.save(v);
         return v;
+    }
+
+    private int allocateNumeroRegistro() {
+        int max =
+                Math.max(
+                        vehiculoRepository.findMaxNumeroRegistro(),
+                        Math.max(
+                                entradaRepository.findMaxNumeroRegistro(),
+                                salidaRepository.findMaxNumeroRegistro()));
+        return max + 1;
+    }
+
+    private int numeroRegistroFromVehiculo(RmRegistroVehiculo vehiculo) {
+        if (vehiculo.getNumeroregistro() != null && vehiculo.getNumeroregistro() > 0) {
+            return vehiculo.getNumeroregistro();
+        }
+        int n = allocateNumeroRegistro();
+        vehiculo.setNumeroregistro(n);
+        vehiculoRepository.save(vehiculo);
+        return n;
+    }
+
+    private RmRegistroVehiculo resolveVehiculoForSalida(
+            RmPayloadModels.SalidaPayload payload, RmRegistroVehiculo vehiculoFromCompleto) {
+        RmRegistroVehiculo vehiculo = vehiculoFromCompleto;
+        if (vehiculo == null) {
+            if (payload.registroVehiculoId() == null || payload.registroVehiculoId() <= 0) {
+                throw new ResponseStatusException(
+                        BAD_REQUEST,
+                        "registroVehiculoId obligatorio (o enviar salida completa con vehiculo)");
+            }
+            vehiculo =
+                    vehiculoRepository
+                            .findById(payload.registroVehiculoId())
+                            .orElseThrow(
+                                    () ->
+                                            new ResponseStatusException(
+                                                    NOT_FOUND, "Registro de vehiculo no encontrado"));
+        }
+        requireVehiculoTipoRegistro(vehiculo, TIPO_REGISTRO_SALIDA);
+        return vehiculo;
+    }
+
+    private static void requireVehiculoTipoRegistro(RmRegistroVehiculo vehiculo, String expected) {
+        String tipo = vehiculo.getTiporegistro();
+        if (tipo == null || !expected.equalsIgnoreCase(tipo.trim())) {
+            throw new ResponseStatusException(
+                    BAD_REQUEST, "El registro de vehiculo debe tener tipoRegistro " + expected);
+        }
     }
 
     private String resolveOrigenSucursal(Long branchId) {

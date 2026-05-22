@@ -16,6 +16,9 @@ public interface RmRegistroEntradaRepository extends JpaRepository<RmRegistroEnt
 
     List<RmRegistroEntrada> findByRegistroVehiculoIdOrderByCreatedAtDesc(Long registroVehiculoId);
 
+    @Query("select coalesce(max(e.numeroregistro), 0) from RmRegistroEntrada e")
+    int findMaxNumeroRegistro();
+
     @Query(
             """
             select e from RmRegistroEntrada e
