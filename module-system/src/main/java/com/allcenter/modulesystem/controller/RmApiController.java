@@ -243,6 +243,7 @@ public class RmApiController {
                 e.getTipoDocumento(),
                 e.getOcNumero(),
                 e.getGuiaNumero(),
+                e.getDestino(),
                 e.getRecepcionEstado(),
                 e.getValidadoAt(),
                 e.getValidadoPorEmail(),
@@ -258,10 +259,8 @@ public class RmApiController {
         List<String> names = photoFilenameCodec.readList(d.getPhotoFilenamesJson());
         return new RmApiModels.EntradaDetalleResponse(
                 d.getId(),
-                d.getProveedor(),
                 d.getMaterial(),
-                d.getColorModelo(),
-                d.getCantidadRecibida(),
+                d.getCantidad(),
                 d.getUnidad(),
                 photoUrls(RmMediaKinds.ENTRADA_DETALLE, d.getId(), names));
     }
@@ -274,6 +273,9 @@ public class RmApiController {
                 s.getId(),
                 s.getFecha(),
                 s.getHoraCabecera(),
+                s.getDestino(),
+                s.getNumeroGuia(),
+                s.getOrdenCompra(),
                 s.getTransporteId(),
                 s.getChoferSalidaEmpleadoId(),
                 s.getChoferSalidaNombre(),
@@ -293,14 +295,9 @@ public class RmApiController {
         return new RmApiModels.SalidaDetalleResponse(
                 d.getId(),
                 d.getHora(),
-                d.getDestino(),
-                d.getNoRqmVale(),
-                d.getNoGuia(),
                 d.getMaterialProducto(),
                 d.getCantidad(),
                 d.getUnidad(),
-                d.getRecibeFirma(),
-                d.getEntregaRci(),
                 photoUrls(RmMediaKinds.SALIDA_DETALLE, d.getId(), names));
     }
 

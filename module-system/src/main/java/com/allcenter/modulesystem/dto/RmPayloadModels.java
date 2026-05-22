@@ -8,13 +8,7 @@ public final class RmPayloadModels {
     private RmPayloadModels() {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record EntradaDetalle(
-            String proveedor,
-            String material,
-            String colorModelo,
-            String cantidadRecibida,
-            String unidad,
-            int fotosCount) {}
+    public record EntradaDetalle(String material, String cantidad, String unidad, int fotosCount) {}
 
     /** Vehículo en borrador + documento; un solo envío al validar (Android). */
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -28,6 +22,7 @@ public final class RmPayloadModels {
             Long registroVehiculoId,
             String fecha,
             String hora,
+            String destino,
             String ocNumero,
             String guiaNumero,
             int documentoFotosCount,
@@ -38,18 +33,9 @@ public final class RmPayloadModels {
             /** Contraseña del chofer que valida; obligatoria si recepcionConformidadCerrada. */
             String confirmPassword) {}
 
+    /** Línea de salida: solo ítems (cabecera lleva destino, guía y OC). */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record SalidaDetalle(
-            String hora,
-            String destino,
-            String noRqmVale,
-            String noGuia,
-            String materialProducto,
-            String cantidad,
-            String unidad,
-            String recibeFirma,
-            String entregaRci,
-            int fotosCount) {}
+    public record SalidaDetalle(String hora, String materialProducto, String cantidad, String unidad, int fotosCount) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record SalidaPayload(
@@ -62,7 +48,9 @@ public final class RmPayloadModels {
             Boolean salidaConformidadCerrada,
             Long choferValidacionEmpleadoId,
             String choferValidacionNombre,
-            /** Guía de inventario (estado CREADA); al validar salida pasa a EN_CAMINO. */
+            String destino,
+            String numeroGuia,
+            String ordenCompra,
             Long guiaInventarioId,
             List<SalidaDetalle> detalles,
             String confirmPassword) {}

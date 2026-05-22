@@ -52,6 +52,9 @@ public class RmRegistroEntrada {
     @Column(length = 128)
     private String guiaNumero;
 
+    @Column(length = 512)
+    private String destino;
+
     /** Fotos del documento (OC o guia). Reutiliza columna legacy de cabecera. */
     @Column(name = "cabecera_vehiculo_photo_filenames_json", columnDefinition = "TEXT")
     private String documentoPhotoFilenamesJson;

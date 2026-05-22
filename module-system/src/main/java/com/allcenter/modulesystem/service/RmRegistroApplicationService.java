@@ -88,6 +88,7 @@ public class RmRegistroApplicationService {
         ent.setTipoDocumento("AMBOS");
         ent.setOcNumero(trimMax(payload.ocNumero(), 128));
         ent.setGuiaNumero(trimMax(payload.guiaNumero(), 128));
+        ent.setDestino(trimMaxNullable(payload.destino(), 512));
         ent.setCreatedByEmail(trimMaxNullable(createdByEmail, 320));
         ent.setDocumentoPhotoFilenamesJson("[]");
 
@@ -106,11 +107,9 @@ public class RmRegistroApplicationService {
         for (RmPayloadModels.EntradaDetalle d : payload.detalles()) {
             RmRegistroEntradaDetalle row = new RmRegistroEntradaDetalle();
             row.setRegistroEntrada(ent);
-            row.setProveedor(trimMax(d.proveedor(), 512));
             row.setMaterial(trimMax(d.material(), 512));
-            row.setColorModelo(trimMaxNullable(d.colorModelo(), 256));
-            row.setCantidadRecibida(trimMaxNullable(d.cantidadRecibida(), 64));
-            row.setUnidad(trimMaxNullable(d.unidad(), 64));
+            row.setCantidad(trimMax(d.cantidad(), 64));
+            row.setUnidad(trimMax(d.unidad(), 64));
             row.setPhotoFilenamesJson("[]");
             ent.getDetalles().add(row);
         }
@@ -211,20 +210,18 @@ public class RmRegistroApplicationService {
             sal.setChoferValidacionEmpleadoId(null);
             sal.setChoferValidacionNombre(null);
         }
+        sal.setDestino(trimMax(payload.destino(), 512));
+        sal.setNumeroGuia(trimMaxNullable(payload.numeroGuia(), 128));
+        sal.setOrdenCompra(trimMaxNullable(payload.ordenCompra(), 128));
         sal.setCabeceraPhotoFilenamesJson("[]");
 
         for (RmPayloadModels.SalidaDetalle d : payload.detalles()) {
             RmRegistroSalidaDetalle row = new RmRegistroSalidaDetalle();
             row.setRegistroSalida(sal);
             row.setHora(trimMaxNullable(d.hora(), 16));
-            row.setDestino(trimMax(d.destino(), 512));
-            row.setNoRqmVale(trimMaxNullable(d.noRqmVale(), 128));
-            row.setNoGuia(trimMaxNullable(d.noGuia(), 128));
             row.setMaterialProducto(trimMax(d.materialProducto(), 512));
             row.setCantidad(trimMax(d.cantidad(), 64));
             row.setUnidad(trimMax(d.unidad(), 64));
-            row.setRecibeFirma(trimMaxNullable(d.recibeFirma(), 256));
-            row.setEntregaRci(trimMaxNullable(d.entregaRci(), 256));
             row.setPhotoFilenamesJson("[]");
             sal.getDetalles().add(row);
         }
@@ -371,6 +368,7 @@ public class RmRegistroApplicationService {
         ent.setTipoDocumento("AMBOS");
         ent.setOcNumero(trimMax(entPayload.ocNumero(), 128));
         ent.setGuiaNumero(trimMax(entPayload.guiaNumero(), 128));
+        ent.setDestino(trimMaxNullable(entPayload.destino(), 512));
         ent.setCreatedByEmail(trimMaxNullable(createdByEmail, 320));
         ent.setDocumentoPhotoFilenamesJson("[]");
 
@@ -389,11 +387,9 @@ public class RmRegistroApplicationService {
         for (RmPayloadModels.EntradaDetalle d : entPayload.detalles()) {
             RmRegistroEntradaDetalle row = new RmRegistroEntradaDetalle();
             row.setRegistroEntrada(ent);
-            row.setProveedor(trimMax(d.proveedor(), 512));
             row.setMaterial(trimMax(d.material(), 512));
-            row.setColorModelo(trimMaxNullable(d.colorModelo(), 256));
-            row.setCantidadRecibida(trimMaxNullable(d.cantidadRecibida(), 64));
-            row.setUnidad(trimMaxNullable(d.unidad(), 64));
+            row.setCantidad(trimMax(d.cantidad(), 64));
+            row.setUnidad(trimMax(d.unidad(), 64));
             row.setPhotoFilenamesJson("[]");
             ent.getDetalles().add(row);
         }
@@ -620,10 +616,6 @@ public class RmRegistroApplicationService {
             throw new ResponseStatusException(BAD_REQUEST, "documentoFotosCount invalido");
         }
         if (Boolean.TRUE.equals(payload.recepcionConformidadCerrada())) {
-            if (payload.documentoFotosCount() < 1) {
-                throw new ResponseStatusException(
-                        BAD_REQUEST, "Debe incluir al menos una foto del documento (documentoFotosCount >= 1)");
-            }
             if (payload.choferValidacionEmpleadoId() == null || payload.choferValidacionEmpleadoId() <= 0) {
                 throw new ResponseStatusException(BAD_REQUEST, "Chofer que valida (empleado) obligatorio");
             }
@@ -632,11 +624,14 @@ public class RmRegistroApplicationService {
             }
         }
         for (RmPayloadModels.EntradaDetalle d : payload.detalles()) {
-            if (d.proveedor() == null || d.proveedor().isBlank()) {
-                throw new ResponseStatusException(BAD_REQUEST, "Proveedor obligatorio en cada producto");
-            }
             if (d.material() == null || d.material().isBlank()) {
                 throw new ResponseStatusException(BAD_REQUEST, "Material obligatorio en cada producto");
+            }
+            if (d.cantidad() == null || d.cantidad().isBlank()) {
+                throw new ResponseStatusException(BAD_REQUEST, "Cantidad obligatoria en cada producto");
+            }
+            if (d.unidad() == null || d.unidad().isBlank()) {
+                throw new ResponseStatusException(BAD_REQUEST, "Unidad obligatoria en cada producto");
             }
             if (d.fotosCount() < 0) {
                 throw new ResponseStatusException(BAD_REQUEST, "fotosCount invalido");
@@ -711,10 +706,10 @@ public class RmRegistroApplicationService {
                 throw new ResponseStatusException(BAD_REQUEST, "Nombre de chofer que valida la salida obligatorio");
             }
         }
+        if (payload.destino() == null || payload.destino().isBlank()) {
+            throw new ResponseStatusException(BAD_REQUEST, "Destino obligatorio en cabecera");
+        }
         for (RmPayloadModels.SalidaDetalle d : payload.detalles()) {
-            if (d.destino() == null || d.destino().isBlank()) {
-                throw new ResponseStatusException(BAD_REQUEST, "Destino obligatorio");
-            }
             if (d.materialProducto() == null || d.materialProducto().isBlank()) {
                 throw new ResponseStatusException(BAD_REQUEST, "Material/producto obligatorio");
             }
@@ -743,8 +738,8 @@ public class RmRegistroApplicationService {
         if (p.chofer() == null || p.chofer().isBlank()) {
             throw new ResponseStatusException(BAD_REQUEST, "Chofer obligatorio");
         }
-        if (p.fotosCount() < 1) {
-            throw new ResponseStatusException(BAD_REQUEST, "Debe incluir al menos una foto del vehiculo (fotosCount >= 1)");
+        if (p.fotosCount() < 0) {
+            throw new ResponseStatusException(BAD_REQUEST, "fotosCount invalido");
         }
     }
 

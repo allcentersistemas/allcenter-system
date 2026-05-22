@@ -28,10 +28,53 @@ public class GuiaSchemaAligner implements ApplicationRunner {
             return;
         }
         ensureOrigenColumns();
+        ensureRmSalidaHeaderColumns();
+        ensureRmEntradaDestinoColumn();
         ensureRmSalidaGuiaColumn();
         ensureRmSalidaDetalleOptionalColumns();
         relaxLegacyColumns();
         dropLegacyColumns();
+    }
+
+    private void ensureRmSalidaHeaderColumns() {
+        if (!tableExists("rm_registro_salida")) {
+            return;
+        }
+        addColumnIfMissing("rm_registro_salida", "destino", "VARCHAR(512)");
+        addColumnIfMissing("rm_registro_salida", "numero_guia", "VARCHAR(128)");
+        addColumnIfMissing("rm_registro_salida", "orden_compra", "VARCHAR(128)");
+    }
+
+    private void ensureRmEntradaDestinoColumn() {
+        if (!tableExists("rm_registro_entrada")) {
+            return;
+        }
+        addColumnIfMissing("rm_registro_entrada", "destino", "VARCHAR(512)");
+        if (tableExists("rm_registro_entrada_detalle") && !columnExists("rm_registro_entrada_detalle", "cantidad")) {
+            if (columnExists("rm_registro_entrada_detalle", "cantidad_recibida")) {
+                try {
+                    jdbc.execute(
+                            "ALTER TABLE rm_registro_entrada_detalle RENAME COLUMN cantidad_recibida TO cantidad");
+                    log.info("rm_registro_entrada_detalle.cantidad_recibida renombrada a cantidad");
+                } catch (Exception ex) {
+                    addColumnIfMissing("rm_registro_entrada_detalle", "cantidad", "VARCHAR(64)");
+                }
+            } else {
+                addColumnIfMissing("rm_registro_entrada_detalle", "cantidad", "VARCHAR(64)");
+            }
+        }
+    }
+
+    private void addColumnIfMissing(String table, String column, String sqlType) {
+        if (columnExists(table, column)) {
+            return;
+        }
+        try {
+            jdbc.execute("ALTER TABLE " + table + " ADD COLUMN " + column + " " + sqlType);
+            log.info("{}.{} creada", table, column);
+        } catch (Exception ex) {
+            log.warn("No se pudo crear {}.{}: {}", table, column, ex.getMessage());
+        }
     }
 
     private void ensureRmSalidaGuiaColumn() {
@@ -53,7 +96,17 @@ public class GuiaSchemaAligner implements ApplicationRunner {
         if (!tableExists("rm_registro_salida_detalle")) {
             return;
         }
-        for (String col : new String[] {"recibe_firma", "entrega_rci"}) {
+        for (String col :
+                new String[] {
+                    "recibe_firma",
+                    "entrega_rci",
+                    "destino",
+                    "no_guia",
+                    "no_rqm_vale",
+                    "proveedor",
+                    "color_modelo",
+                    "cantidad_recibida"
+                }) {
             if (!columnExists("rm_registro_salida_detalle", col)) {
                 continue;
             }
@@ -62,6 +115,19 @@ public class GuiaSchemaAligner implements ApplicationRunner {
                 log.info("rm_registro_salida_detalle.{} admite NULL", col);
             } catch (Exception ex) {
                 log.warn("No se pudo relajar NOT NULL en rm_registro_salida_detalle.{}: {}", col, ex.getMessage());
+            }
+        }
+        if (tableExists("rm_registro_entrada_detalle")) {
+            for (String col : new String[] {"proveedor", "color_modelo", "cantidad_recibida"}) {
+                if (!columnExists("rm_registro_entrada_detalle", col)) {
+                    continue;
+                }
+                try {
+                    jdbc.execute("ALTER TABLE rm_registro_entrada_detalle ALTER COLUMN " + col + " DROP NOT NULL");
+                    log.info("rm_registro_entrada_detalle.{} admite NULL", col);
+                } catch (Exception ex) {
+                    log.warn("No se pudo relajar NOT NULL en rm_registro_entrada_detalle.{}: {}", col, ex.getMessage());
+                }
             }
         }
     }

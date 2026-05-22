@@ -29,20 +29,12 @@ public class RmRegistroEntradaDetalle {
     private RmRegistroEntrada registroEntrada;
 
     @Column(nullable = false, length = 512)
-    private String proveedor;
-
-
-
-    @Column(nullable = false, length = 512)
     private String material;
 
-    @Column(length = 256)
-    private String colorModelo;
+    @Column(name = "cantidad", nullable = false, length = 64)
+    private String cantidad;
 
-    @Column(length = 64)
-    private String cantidadRecibida;
-
-    @Column(length = 64)
+    @Column(nullable = false, length = 64)
     private String unidad;
 
     @Column(columnDefinition = "TEXT")

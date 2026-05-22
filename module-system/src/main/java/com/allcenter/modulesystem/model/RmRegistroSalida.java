@@ -32,6 +32,9 @@ public class RmRegistroSalida {
     @Column(nullable = false)
     private LocalDate fecha;
 
+    @Column(nullable = false, length = 512)
+    private String destino;
+
     /** Hora de cabecera (formato HH:MM). */
     @Column(nullable = false, length = 16)
     private String horaCabecera;
@@ -55,6 +58,12 @@ public class RmRegistroSalida {
 
     @Column(length = 32)
     private String recepcionEstado;
+
+    @Column(name = "numero_guia")
+    private String numeroGuia;
+
+    @Column(name = "orden_compra")
+    private String ordenCompra;
 
     private Instant validadoAt;
 

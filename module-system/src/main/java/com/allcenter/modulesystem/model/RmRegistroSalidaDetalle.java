@@ -32,15 +32,6 @@ public class RmRegistroSalidaDetalle {
     private String hora;
 
     @Column(nullable = false, length = 512)
-    private String destino;
-
-    @Column(length = 128)
-    private String noRqmVale;
-
-    @Column(length = 128)
-    private String noGuia;
-
-    @Column(nullable = false, length = 512)
     private String materialProducto;
 
     @Column(nullable = false, length = 64)
@@ -48,13 +39,6 @@ public class RmRegistroSalidaDetalle {
 
     @Column(nullable = false, length = 64)
     private String unidad;
-
-    /** Opcional desde salida RM vía guía inventario (ya no se captura en Android). */
-    @Column(length = 256)
-    private String recibeFirma;
-
-    @Column(length = 256)
-    private String entregaRci;
 
     @Column(columnDefinition = "TEXT")
     private String photoFilenamesJson;
