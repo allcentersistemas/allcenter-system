@@ -84,6 +84,8 @@ public final class RmPayloadModels {
             String razonSocialNombre,
             String guiaRemisionNum,
             String facturaOrdenCompraNum,
+            Long transporteId,
+            String choferNombre,
             String transportistaNombrePlaca,
             List<NcTipo> tipos,
             String descripcionAmpliada,

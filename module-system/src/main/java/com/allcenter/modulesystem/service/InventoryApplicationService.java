@@ -6,6 +6,9 @@ import com.allcenter.modulesystem.model.InvStockMovement;
 import com.allcenter.modulesystem.repository.InvItemRepository;
 import com.allcenter.modulesystem.repository.InvStockMovementRepository;
 import java.math.BigDecimal;
+import java.util.List;
+import java.util.Locale;
+import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
@@ -22,6 +25,9 @@ import static org.springframework.http.HttpStatus.NOT_FOUND;
 @Service
 @RequiredArgsConstructor
 public class InventoryApplicationService {
+
+    private static final String UNIT_PIEZAS = "piezas";
+    private static final Pattern SKU_SAFE = Pattern.compile("[^A-Za-z0-9]+");
 
     private final InvItemRepository itemRepository;
     private final InvStockMovementRepository movementRepository;
@@ -85,6 +91,90 @@ public class InventoryApplicationService {
         m.setExternalRef(trimNullable(req.externalRef(), 128));
         m.setCreatedByEmail(trimNullable(createdByEmail, 320));
         return movementRepository.save(m).getId();
+    }
+
+    /**
+     * Acredita stock en piezas por cada línea recibida en un ingreso RM validado.
+     *
+     * @param lines material + cantidad por línea
+     * @param entradaId id de {@code rm_registro_entrada} (referencia en movimiento)
+     */
+    @Transactional
+    public void creditStockFromRmIngreso(
+            List<RmIngresoStockLine> lines, long entradaId, String createdByEmail) {
+        if (lines == null || lines.isEmpty()) {
+            return;
+        }
+        String ref = "rm_entrada:" + entradaId;
+        for (RmIngresoStockLine line : lines) {
+            String material = line.material() == null ? "" : line.material().trim();
+            if (material.isEmpty()) {
+                continue;
+            }
+            BigDecimal qty = parsePositiveQuantity(line.cantidad());
+            if (qty == null) {
+                throw new ResponseStatusException(
+                        BAD_REQUEST, "Cantidad invalida para inventario: " + material);
+            }
+            long itemId = findOrCreatePiezasItem(material);
+            addMovement(
+                    itemId,
+                    new InventoryDtos.CreateMovementRequest(
+                            qty, "Ingreso RM (recepción mercadería)", ref),
+                    createdByEmail);
+        }
+    }
+
+    public record RmIngresoStockLine(String material, String cantidad) {}
+
+    private long findOrCreatePiezasItem(String materialName) {
+        String sku = toSku(materialName);
+        return itemRepository
+                .findBySkuIgnoreCase(sku)
+                .map(InvItem::getId)
+                .orElseGet(
+                        () -> {
+                            InvItem i = new InvItem();
+                            i.setSku(sku);
+                            i.setName(materialName.length() > 512 ? materialName.substring(0, 512) : materialName);
+                            i.setUnit(UNIT_PIEZAS);
+                            i.setActive(true);
+                            try {
+                                return itemRepository.save(i).getId();
+                            } catch (DataIntegrityViolationException e) {
+                                return itemRepository
+                                        .findBySkuIgnoreCase(sku)
+                                        .map(InvItem::getId)
+                                        .orElseThrow(
+                                                () ->
+                                                        new ResponseStatusException(
+                                                                CONFLICT, "No se pudo crear articulo de inventario", e));
+                            }
+                        });
+    }
+
+    private static String toSku(String materialName) {
+        String base = SKU_SAFE.matcher(materialName.trim().toUpperCase(Locale.ROOT)).replaceAll("-");
+        if (base.isEmpty()) {
+            base = "MAT";
+        }
+        if (base.length() > 60) {
+            base = base.substring(0, 60);
+        }
+        return "RM-" + base;
+    }
+
+    private static BigDecimal parsePositiveQuantity(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        String t = raw.trim().replace(',', '.');
+        try {
+            BigDecimal v = new BigDecimal(t);
+            return v.compareTo(BigDecimal.ZERO) > 0 ? v : null;
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     private static String trimNullable(String s, int max) {

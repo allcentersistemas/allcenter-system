@@ -52,6 +52,9 @@ public class RmRegistroEntrada {
     @Column(length = 128)
     private String guiaNumero;
 
+    @Column(name = "guia_inventario_id")
+    private Long guiaInventarioId;
+
     @Column(length = 512)
     private String destino;
 

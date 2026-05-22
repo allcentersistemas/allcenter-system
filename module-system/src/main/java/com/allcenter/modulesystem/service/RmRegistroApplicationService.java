@@ -11,6 +11,8 @@ import com.allcenter.modulesystem.model.RmRegistroVehiculo;
 import com.allcenter.modulesystem.model.Sucursal;
 import com.allcenter.modulesystem.repository.RmActaConformidadRepository;
 import com.allcenter.modulesystem.repository.SucursalRepository;
+import com.allcenter.modulesystem.repository.TransporteRepository;
+import com.allcenter.modulesystem.model.Transporte;
 import com.allcenter.modulesystem.repository.RmRegistroEntradaDetalleRepository;
 import com.allcenter.modulesystem.repository.RmRegistroEntradaRepository;
 import com.allcenter.modulesystem.repository.RmRegistroSalidaDetalleRepository;
@@ -59,6 +61,8 @@ public class RmRegistroApplicationService {
     private final RmActaConformidadRepository actaRepository;
     private final EmployeeAuthService employeeAuthService;
     private final SucursalRepository sucursalRepository;
+    private final TransporteRepository transporteRepository;
+    private final InventoryApplicationService inventoryApplicationService;
 
     @PostConstruct
     void initStorage() throws IOException {
@@ -378,6 +382,7 @@ public class RmRegistroApplicationService {
         ent.setTipoDocumento("AMBOS");
         ent.setOcNumero(trimMax(entPayload.ocNumero(), 128));
         ent.setGuiaNumero(trimMax(entPayload.guiaNumero(), 128));
+        ent.setGuiaInventarioId(entPayload.guiaInventarioId());
         ent.setCreatedByEmail(trimMaxNullable(createdByEmail, 320));
         ent.setDocumentoPhotoFilenamesJson("[]");
 
@@ -433,8 +438,15 @@ public class RmRegistroApplicationService {
         }
         entradaDetalleRepository.saveAll(ent.getDetalles());
 
-        if (Boolean.TRUE.equals(entPayload.recepcionConformidadCerrada()) && entPayload.guiaInventarioId() != null) {
-            guiaInventoryService.markGuiaCerrada(entPayload.guiaInventarioId());
+        if (Boolean.TRUE.equals(entPayload.recepcionConformidadCerrada())) {
+            if (entPayload.guiaInventarioId() != null) {
+                guiaInventoryService.markGuiaEntregada(entPayload.guiaInventarioId());
+            }
+            List<InventoryApplicationService.RmIngresoStockLine> stockLines =
+                    entPayload.detalles().stream()
+                            .map(d -> new InventoryApplicationService.RmIngresoStockLine(d.material(), d.cantidad()))
+                            .toList();
+            inventoryApplicationService.creditStockFromRmIngreso(stockLines, ent.getId(), createdByEmail);
         }
 
         return new RmApiModels.Created(ent.getId());
@@ -466,7 +478,14 @@ public class RmRegistroApplicationService {
         a.setRazonSocialNombre(trimMax(payload.razonSocialNombre(), 512));
         a.setGuiaRemisionNum(trimMaxNullable(payload.guiaRemisionNum(), 128));
         a.setFacturaOrdenCompraNum(trimMaxNullable(payload.facturaOrdenCompraNum(), 128));
-        a.setTransportistaNombrePlaca(trimMaxNullable(payload.transportistaNombrePlaca(), 512));
+        a.setTransporteId(payload.transporteId());
+        a.setChoferNombre(trimMaxNullable(payload.choferNombre(), 256));
+        a.setTransportistaNombrePlaca(
+                trimMaxNullable(
+                        payload.transportistaNombrePlaca() != null
+                                ? payload.transportistaNombrePlaca()
+                                : buildActaTransportistaLabel(payload.transporteId(), payload.choferNombre()),
+                        512));
         try {
             a.setTiposJson(objectMapper.writeValueAsString(payload.tipos() == null ? List.of() : payload.tipos()));
         } catch (RuntimeException e) {
@@ -789,6 +808,26 @@ public class RmRegistroApplicationService {
         if (p.fotosCount() < 0) {
             throw new ResponseStatusException(BAD_REQUEST, "fotosCount invalido");
         }
+        if (p.transporteId() == null || p.transporteId() <= 0) {
+            throw new ResponseStatusException(BAD_REQUEST, "Vehiculo de flota (transporte) obligatorio");
+        }
+        if (p.choferNombre() == null || p.choferNombre().isBlank()) {
+            throw new ResponseStatusException(BAD_REQUEST, "Chofer obligatorio");
+        }
+    }
+
+    private String buildActaTransportistaLabel(Long transporteId, String choferNombre) {
+        String chofer = choferNombre == null ? "" : choferNombre.trim();
+        if (transporteId == null || transporteId <= 0) {
+            return chofer;
+        }
+        Transporte t =
+                transporteRepository
+                        .findById(transporteId)
+                        .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Vehiculo de flota no encontrado"));
+        String placa = t.getPlaca() != null ? t.getPlaca().trim() : "";
+        String marca = t.getMarca() != null ? t.getMarca().trim() : "";
+        return (chofer + " · " + marca + " · " + placa).replaceAll("\\s+", " ").trim();
     }
 
     private RmRegistroVehiculo persistVehiculo(

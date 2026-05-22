@@ -39,6 +39,12 @@ public class RmActaConformidad {
     @Column(length = 512)
     private String transportistaNombrePlaca;
 
+    @Column(name = "transporte_id")
+    private Long transporteId;
+
+    @Column(name = "chofer_nombre", length = 256)
+    private String choferNombre;
+
     @Column(nullable = false, columnDefinition = "TEXT")
     private String tiposJson;
 

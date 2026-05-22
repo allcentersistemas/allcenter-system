@@ -51,4 +51,7 @@ public class Pale {
 
     @Column(name = "estado_envio")
     private String estadoEnvio;
+
+    @Column(name = "en_guia")
+    private Boolean enGuia;
 }

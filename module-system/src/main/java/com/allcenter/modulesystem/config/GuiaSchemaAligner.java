@@ -30,6 +30,8 @@ public class GuiaSchemaAligner implements ApplicationRunner {
         ensureOrigenColumns();
         ensureRmSalidaHeaderColumns();
         ensureRmEntradaDestinoColumn();
+        ensureRmEntradaGuiaColumn();
+        ensureRmActaTransporteColumns();
         ensureRmSalidaGuiaColumn();
         ensureRmSalidaDetalleOptionalColumns();
         relaxLegacyColumns();
@@ -43,6 +45,21 @@ public class GuiaSchemaAligner implements ApplicationRunner {
         addColumnIfMissing("rm_registro_salida", "destino", "VARCHAR(512)");
         addColumnIfMissing("rm_registro_salida", "numero_guia", "VARCHAR(128)");
         addColumnIfMissing("rm_registro_salida", "orden_compra", "VARCHAR(128)");
+    }
+
+    private void ensureRmEntradaGuiaColumn() {
+        if (!tableExists("rm_registro_entrada")) {
+            return;
+        }
+        addColumnIfMissing("rm_registro_entrada", "guia_inventario_id", "BIGINT");
+    }
+
+    private void ensureRmActaTransporteColumns() {
+        if (!tableExists("rm_acta_conformidad")) {
+            return;
+        }
+        addColumnIfMissing("rm_acta_conformidad", "transporte_id", "BIGINT");
+        addColumnIfMissing("rm_acta_conformidad", "chofer_nombre", "VARCHAR(256)");
     }
 
     private void ensureRmEntradaDestinoColumn() {

@@ -43,6 +43,7 @@ public class GuiaInventoryService {
     private static final String ESTADO_EN_CAMINO = "EN_CAMINO";
     private static final String ESTADO_BORRADOR = "BORRADOR";
     private static final String ESTADO_CERRADA = "CERRADA";
+    private static final String ESTADO_ENTREGADO = "ENTREGADO";
     private static final String ESTADO_ENVIO_ESCANEADO = "ESCANEADO";
     private static final String UNIDAD_PIEZAS = "piezas";
 
@@ -73,6 +74,23 @@ public class GuiaInventoryService {
                         .findById(guiaId)
                         .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Guia no encontrada"));
         guia.setEstado(ESTADO_CERRADA);
+        guiaRepository.save(guia);
+    }
+
+    /** Recepción RM validada: la guía en camino queda entregada en destino. */
+    @Transactional
+    public void markGuiaEntregada(long guiaId) {
+        Guia guia =
+                guiaRepository
+                        .findById(guiaId)
+                        .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Guia no encontrada"));
+        String actual = guia.getEstado() != null ? guia.getEstado().trim() : "";
+        if (!ESTADO_EN_CAMINO.equalsIgnoreCase(actual)) {
+            throw new ResponseStatusException(
+                    BAD_REQUEST,
+                    "Solo se puede marcar entregada una guia en estado EN_CAMINO. Actual: " + actual);
+        }
+        guia.setEstado(ESTADO_ENTREGADO);
         guiaRepository.save(guia);
     }
 
@@ -298,7 +316,9 @@ public class GuiaInventoryService {
 
     private void ensureEditable(Guia guia) {
         String e = guia.getEstado() != null ? guia.getEstado().trim() : "";
-        if (ESTADO_CERRADA.equalsIgnoreCase(e) || ESTADO_EN_CAMINO.equalsIgnoreCase(e)) {
+        if (ESTADO_CERRADA.equalsIgnoreCase(e)
+                || ESTADO_EN_CAMINO.equalsIgnoreCase(e)
+                || ESTADO_ENTREGADO.equalsIgnoreCase(e)) {
             throw new ResponseStatusException(BAD_REQUEST, "La guia no admite cambios en su estado actual");
         }
     }
@@ -348,7 +368,8 @@ public class GuiaInventoryService {
         if (!ESTADO_CREADA.equals(e)
                 && !ESTADO_EN_CAMINO.equals(e)
                 && !ESTADO_BORRADOR.equals(e)
-                && !ESTADO_CERRADA.equals(e)) {
+                && !ESTADO_CERRADA.equals(e)
+                && !ESTADO_ENTREGADO.equals(e)) {
             throw new ResponseStatusException(BAD_REQUEST, "Estado de guia no valido");
         }
         return e;
