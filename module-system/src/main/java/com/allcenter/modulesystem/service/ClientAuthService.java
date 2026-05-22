@@ -76,9 +76,7 @@ public class ClientAuthService {
         client.setEmail(email);
         client.setPassword(passwordEncoder.encode(request.password()));
         client.setDisplayName(request.displayName().trim());
-        client.setCompanyName(request.companyName() != null ? request.companyName().trim() : null);
         client.setPhone(request.phone() != null ? request.phone().trim() : null);
-        client.setTaxId(request.taxId() != null ? request.taxId().trim() : null);
         client.setActive(true);
         clientUserRepository.save(client);
         ClientUserDetails principal = new ClientUserDetails(client);
