@@ -54,4 +54,8 @@ public class Pale {
 
     @Column(name = "en_guia")
     private Boolean enGuia;
+
+    /** Almacén / sucursal del empleado que creó el palé. */
+    @Column(name = "sucursal_id")
+    private Long sucursalId;
 }

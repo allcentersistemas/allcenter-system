@@ -14,6 +14,8 @@ import com.allcenter.modulesystem.dto.PaleDtos.SucursalDto;
 import com.allcenter.modulesystem.dto.PaleDtos.UbicacionDto;
 import com.allcenter.modulesystem.dto.PaleDtos.UpdatePaleRequest;
 import com.allcenter.modulesystem.service.PaleService;
+import com.allcenter.modulesystem.support.AuthenticatedEmployeeResolver;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
@@ -36,6 +38,7 @@ import java.util.List;
 public class PaleEnvioController {
 
     private final PaleService paleService;
+    private final AuthenticatedEmployeeResolver employeeResolver;
 
     @GetMapping("/catalogs")
     public ResponseEntity<CatalogDto> catalogs() {
@@ -56,8 +59,21 @@ public class PaleEnvioController {
     }
 
     @PostMapping
-    public ResponseEntity<PaleDetailResponse> create(@Valid @RequestBody CreatePaleRequest request) {
-        return ResponseEntity.ok(paleService.createPale(request));
+    public ResponseEntity<PaleDetailResponse> create(
+            @Valid @RequestBody CreatePaleRequest request, HttpServletRequest httpRequest) {
+        AuthenticatedEmployeeResolver.Context actor =
+                employeeResolver.resolve(httpRequest).orElse(null);
+        Long branchId = actor == null ? null : actor.branchId();
+        Long employeeId = actor == null ? request.createdBy() : actor.employeeId();
+        CreatePaleRequest enriched =
+                new CreatePaleRequest(
+                        request.code(),
+                        request.branchId() != null ? request.branchId() : branchId,
+                        request.originLocationId(),
+                        request.notes(),
+                        employeeId);
+        return ResponseEntity.ok(
+                paleService.createPale(enriched, branchId, trimHeaderEmail(httpRequest)));
     }
 
     @GetMapping("/{id}")
@@ -90,8 +106,23 @@ public class PaleEnvioController {
     }
 
     @PostMapping("/{id}/close")
-    public ResponseEntity<ApiMessage> close(@PathVariable Long id, @RequestBody(required = false) ClosePaleRequest request) {
-        return ResponseEntity.ok(paleService.closePale(id, request == null ? new ClosePaleRequest(null) : request));
+    public ResponseEntity<ApiMessage> close(
+            @PathVariable Long id,
+            @RequestBody(required = false) ClosePaleRequest request,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(
+                paleService.closePale(
+                        id,
+                        request == null ? new ClosePaleRequest(null) : request,
+                        trimHeaderEmail(httpRequest)));
     }
 
+    private static String trimHeaderEmail(HttpServletRequest request) {
+        String h = request.getHeader("X-User-Email");
+        if (h == null) {
+            return null;
+        }
+        String t = h.trim();
+        return t.isEmpty() ? null : t.substring(0, Math.min(320, t.length()));
+    }
 }

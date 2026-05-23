@@ -49,7 +49,13 @@ public final class RmApiModels {
     public record ActaListRow(Long id, String razonSocialNombre, String decision, Instant createdAt) {}
 
     public record EntradaDetalleResponse(
-            Long id, String material, String cantidad, String unidad, List<String> photoUrls) {}
+            Long id,
+            String material,
+            String cantidad,
+            String unidad,
+            String categoriaCodigo,
+            String observaciones,
+            List<String> photoUrls) {}
 
     public record RegistroEntradaResponse(
             Long id,
@@ -68,11 +74,19 @@ public final class RmApiModels {
             String choferValidacionNombre,
             Instant createdAt,
             String createdByEmail,
+            String observaciones,
             List<String> documentoPhotoUrls,
             List<EntradaDetalleResponse> detalles) {}
 
     public record SalidaDetalleResponse(
-            Long id, String hora, String materialProducto, String cantidad, String unidad, List<String> photoUrls) {}
+            Long id,
+            String hora,
+            String materialProducto,
+            String cantidad,
+            String unidad,
+            String categoriaCodigo,
+            String observaciones,
+            List<String> photoUrls) {}
 
     public record RegistroSalidaResponse(
             Long id,
@@ -94,6 +108,7 @@ public final class RmApiModels {
             String choferValidacionNombre,
             Instant createdAt,
             String createdByEmail,
+            String observaciones,
             List<String> cabeceraPhotoUrls,
             List<SalidaDetalleResponse> detalles) {}
 

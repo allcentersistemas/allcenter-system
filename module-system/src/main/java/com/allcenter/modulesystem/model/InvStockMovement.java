@@ -40,6 +40,17 @@ public class InvStockMovement {
     @Column(length = 128)
     private String externalRef;
 
+    /** Sucursal (almacén) donde aplica el movimiento; null = legado global. */
+    @Column(name = "sucursal_id")
+    private Long sucursalId;
+
+    /** {@code DISPONIBLE}, {@code MERCA}, {@code REUTILIZABLE}. */
+    @Column(name = "categoria_codigo", length = 32)
+    private String categoriaCodigo;
+
+    @Column(columnDefinition = "TEXT")
+    private String observaciones;
+
     @Column(nullable = false)
     private Instant createdAt;
 

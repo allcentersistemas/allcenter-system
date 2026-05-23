@@ -63,6 +63,7 @@ public class PaleService {
     private final PaleAuditEntryRepository auditEntryRepository;
     private final SucursalRepository sucursalRepository;
     private final UbicacionRepository ubicacionRepository;
+    private final InventoryApplicationService inventoryApplicationService;
     private final JdbcTemplate jdbcTemplate;
     private final RestTemplate restTemplate = new RestTemplate();
 
@@ -153,7 +154,8 @@ public class PaleService {
     }
 
     @Transactional
-    public PaleDetailResponse createPale(CreatePaleRequest req) {
+    public PaleDetailResponse createPale(CreatePaleRequest req, Long branchId, String createdByEmail) {
+        Long sucursalId = req.branchId() != null ? req.branchId() : branchId;
         String code = nextPaleCode();
         paleRepository.findByCodigoIgnoreCase(code).ifPresent(p ->
                 { throw new ResponseStatusException(CONFLICT, "Ya existe un pale con ese codigo"); });
@@ -166,9 +168,11 @@ public class PaleService {
         pale.setOrdenesResumen("");
         pale.setNotas(req.notes());
         pale.setCreadoPor(req.createdBy());
+        pale.setSucursalId(sucursalId);
         pale.setFechaCreacion(LocalDateTime.now());
         pale = paleRepository.save(pale);
-        recordAudit("CREATE", "Pale", String.valueOf(pale.getId()), pale, "Pale creado");
+        inventoryApplicationService.registerPaleInWarehouse(pale, sucursalId, createdByEmail);
+        recordAudit("CREATE", "Pale", String.valueOf(pale.getId()), pale, "Pale creado en almacén de sucursal");
         return toDetailResponse(pale);
     }
 
@@ -325,7 +329,7 @@ public class PaleService {
     }
 
     @Transactional
-    public ApiMessage closePale(Long paleId, ClosePaleRequest req) {
+    public ApiMessage closePale(Long paleId, ClosePaleRequest req, String createdByEmail) {
         Pale pale = paleRepository.findById(paleId)
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Pale no encontrado"));
         if (!"ABIERTO".equalsIgnoreCase(pale.getEstado())) {
@@ -338,8 +342,10 @@ public class PaleService {
             pale.setNotas(req.notes());
         }
         paleRepository.save(pale);
-        recordAudit("CLOSE", "Pale", String.valueOf(pale.getId()), pale, "Pale cerrado");
-        return new ApiMessage(true, "Pale cerrado correctamente");
+        List<PaleDetalle> detalles = detalleRepository.findByPale_IdOrderByFechaAgregadoDesc(paleId);
+        inventoryApplicationService.creditStockFromPaleClose(pale, detalles, pale.getSucursalId(), createdByEmail);
+        recordAudit("CLOSE", "Pale", String.valueOf(pale.getId()), pale, "Pale cerrado; piezas acreditadas en inventario");
+        return new ApiMessage(true, "Pale cerrado e inventario actualizado");
     }
 
     private void refreshPaleSummary(Pale pale) {
@@ -512,6 +518,12 @@ public class PaleService {
     }
 
     private PaleHeaderDto toHeader(Pale p) {
+        Long sucursalId = p.getSucursalId();
+        String sucursalNombre = null;
+        if (sucursalId != null) {
+            sucursalNombre =
+                    sucursalRepository.findById(sucursalId).map(Sucursal::getNombre).orElse(null);
+        }
         return new PaleHeaderDto(
                 p.getId(),
                 p.getCodigo(),
@@ -520,8 +532,8 @@ public class PaleService {
                 p.getCantidadOrdenes(),
                 p.getOrdenesResumen(),
                 p.getNotas(),
-                null,
-                null,
+                sucursalId,
+                sucursalNombre,
                 null,
                 null,
                 null,

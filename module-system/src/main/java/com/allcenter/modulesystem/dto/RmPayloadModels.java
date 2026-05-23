@@ -8,7 +8,18 @@ public final class RmPayloadModels {
     private RmPayloadModels() {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record EntradaDetalle(String material, String cantidad, String unidad, int fotosCount) {}
+    public record EntradaDetalle(
+            String material,
+            String cantidad,
+            String unidad,
+            int fotosCount,
+            String categoriaCodigo,
+            String observaciones) {
+
+        public EntradaDetalle(String material, String cantidad, String unidad, int fotosCount) {
+            this(material, cantidad, unidad, fotosCount, null, null);
+        }
+    }
 
     /** Vehículo en borrador + documento; un solo envío al validar (Android). */
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -37,12 +48,57 @@ public final class RmPayloadModels {
             Long choferValidacionEmpleadoId,
             String choferValidacionNombre,
             List<EntradaDetalle> detalles,
+            String observaciones,
             /** Contraseña del chofer que valida; obligatoria si recepcionConformidadCerrada. */
-            String confirmPassword) {}
+            String confirmPassword) {
+
+        public EntradaPayload(
+                Long registroVehiculoId,
+                String fecha,
+                String hora,
+                String destino,
+                String ocNumero,
+                String guiaNumero,
+                Long guiaInventarioId,
+                int documentoFotosCount,
+                Boolean recepcionConformidadCerrada,
+                Long choferValidacionEmpleadoId,
+                String choferValidacionNombre,
+                List<EntradaDetalle> detalles,
+                String confirmPassword) {
+            this(
+                    registroVehiculoId,
+                    fecha,
+                    hora,
+                    destino,
+                    ocNumero,
+                    guiaNumero,
+                    guiaInventarioId,
+                    documentoFotosCount,
+                    recepcionConformidadCerrada,
+                    choferValidacionEmpleadoId,
+                    choferValidacionNombre,
+                    detalles,
+                    null,
+                    confirmPassword);
+        }
+    }
 
     /** Línea de salida: solo ítems (cabecera lleva destino, guía y OC). */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record SalidaDetalle(String hora, String materialProducto, String cantidad, String unidad, int fotosCount) {}
+    public record SalidaDetalle(
+            String hora,
+            String materialProducto,
+            String cantidad,
+            String unidad,
+            int fotosCount,
+            String categoriaCodigo,
+            String observaciones) {
+
+        public SalidaDetalle(String hora, String materialProducto, String cantidad, String unidad, int fotosCount) {
+            this(hora, materialProducto, cantidad, unidad, fotosCount, null, null);
+        }
+    }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record SalidaPayload(
@@ -62,7 +118,46 @@ public final class RmPayloadModels {
             String ordenCompra,
             Long guiaInventarioId,
             List<SalidaDetalle> detalles,
-            String confirmPassword) {}
+            String observaciones,
+            String confirmPassword) {
+
+        public SalidaPayload(
+                Long registroVehiculoId,
+                String fecha,
+                String hora,
+                int cabeceraFotosCount,
+                Long transporteId,
+                Long choferSalidaEmpleadoId,
+                String choferSalidaNombre,
+                Boolean salidaConformidadCerrada,
+                Long choferValidacionEmpleadoId,
+                String choferValidacionNombre,
+                String destino,
+                String numeroGuia,
+                String ordenCompra,
+                Long guiaInventarioId,
+                List<SalidaDetalle> detalles,
+                String confirmPassword) {
+            this(
+                    registroVehiculoId,
+                    fecha,
+                    hora,
+                    cabeceraFotosCount,
+                    transporteId,
+                    choferSalidaEmpleadoId,
+                    choferSalidaNombre,
+                    salidaConformidadCerrada,
+                    choferValidacionEmpleadoId,
+                    choferValidacionNombre,
+                    destino,
+                    numeroGuia,
+                    ordenCompra,
+                    guiaInventarioId,
+                    detalles,
+                    null,
+                    confirmPassword);
+        }
+    }
 
     /** Registro de ingreso del vehiculo (paso 1 del flujo de entradas). */
     @JsonIgnoreProperties(ignoreUnknown = true)

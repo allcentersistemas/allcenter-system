@@ -99,7 +99,9 @@ public class RmApiController {
         MultipartFile data = requireDataPart(request);
         List<MultipartFile> photos = request.getFiles("photos");
         String user = trimHeaderEmail(request);
-        return registroService.createIngresoCompleto(data.getBytes(), photos, user);
+        Long branchId =
+                employeeResolver.resolve(request).map(AuthenticatedEmployeeResolver.Context::branchId).orElse(null);
+        return registroService.createIngresoCompleto(data.getBytes(), photos, user, branchId);
     }
 
     /** Vehículo en borrador + salida en una sola transacción (Android). */
@@ -283,6 +285,7 @@ public class RmApiController {
                 e.getChoferValidacionNombre(),
                 e.getCreatedAt(),
                 e.getCreatedByEmail(),
+                e.getObservaciones(),
                 photoUrls(RmMediaKinds.ENTRADA_DOCUMENTO, e.getId(), docNames),
                 detalles);
     }
@@ -294,6 +297,8 @@ public class RmApiController {
                 d.getMaterial(),
                 d.getCantidad(),
                 d.getUnidad(),
+                d.getCategoriaCodigo(),
+                d.getObservaciones(),
                 photoUrls(RmMediaKinds.ENTRADA_DETALLE, d.getId(), names));
     }
 
@@ -322,6 +327,7 @@ public class RmApiController {
                 s.getChoferValidacionNombre(),
                 s.getCreatedAt(),
                 s.getCreatedByEmail(),
+                s.getObservaciones(),
                 photoUrls(RmMediaKinds.SALIDA_CABECERA, s.getId(), cabNames),
                 detalles);
     }
@@ -334,6 +340,8 @@ public class RmApiController {
                 d.getMaterialProducto(),
                 d.getCantidad(),
                 d.getUnidad(),
+                d.getCategoriaCodigo(),
+                d.getObservaciones(),
                 photoUrls(RmMediaKinds.SALIDA_DETALLE, d.getId(), names));
     }
 

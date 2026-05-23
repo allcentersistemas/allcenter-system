@@ -15,6 +15,8 @@ public final class InventoryDtos {
 
     public record Created(long id) {}
 
+    public record CategoriaRow(String codigo, String etiqueta) {}
+
     public record CreateItemRequest(
             @NotBlank @Size(max = 64) String sku,
             @NotBlank @Size(max = 512) String name,
@@ -23,7 +25,15 @@ public final class InventoryDtos {
     public record CreateMovementRequest(
             @NotNull BigDecimal quantityChange,
             @NotBlank @Size(max = 256) String reason,
-            @Size(max = 128) String externalRef) {}
+            @Size(max = 128) String externalRef,
+            Long sucursalId,
+            @Size(max = 32) String categoriaCodigo,
+            String observaciones) {
+
+        public CreateMovementRequest(BigDecimal quantityChange, String reason, String externalRef) {
+            this(quantityChange, reason, externalRef, null, null, null);
+        }
+    }
 
     public record ItemRow(long id, String sku, String name, String unit, boolean active, Instant createdAt) {}
 
@@ -32,8 +42,18 @@ public final class InventoryDtos {
             BigDecimal quantityChange,
             String reason,
             String externalRef,
+            Long sucursalId,
+            String categoriaCodigo,
+            String observaciones,
             Instant createdAt,
             String createdByEmail) {}
 
-    public record ItemDetail(ItemRow item, BigDecimal balanceOnHand, List<MovementRow> recentMovements) {}
+    public record BalanceByCategoria(String categoriaCodigo, String categoriaEtiqueta, BigDecimal balance) {}
+
+    public record ItemDetail(
+            ItemRow item,
+            BigDecimal balanceOnHand,
+            Long sucursalId,
+            List<BalanceByCategoria> balancesByCategoria,
+            List<MovementRow> recentMovements) {}
 }

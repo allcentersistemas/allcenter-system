@@ -94,6 +94,9 @@ public class RmRegistroEntrada {
     @Column(length = 256)
     private String estadoEntrega;
 
+    @Column(columnDefinition = "TEXT")
+    private String observaciones;
+
     @Column(nullable = false)
     private Instant createdAt;
 

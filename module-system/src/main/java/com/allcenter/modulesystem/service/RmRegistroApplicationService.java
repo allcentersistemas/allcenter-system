@@ -115,12 +115,16 @@ public class RmRegistroApplicationService {
             ent.setChoferValidacionNombre(trimMaxNullable(payload.choferValidacionNombre(), 256));
         }
 
+        ent.setObservaciones(trimMaxNullable(payload.observaciones(), 4000));
+
         for (RmPayloadModels.EntradaDetalle d : payload.detalles()) {
             RmRegistroEntradaDetalle row = new RmRegistroEntradaDetalle();
             row.setRegistroEntrada(ent);
             row.setMaterial(trimMax(d.material(), 512));
             row.setCantidad(trimMax(d.cantidad(), 64));
             row.setUnidad(trimMax(d.unidad(), 64));
+            row.setCategoriaCodigo(InventoryApplicationService.normalizeCategoria(d.categoriaCodigo()));
+            row.setObservaciones(trimMaxNullable(d.observaciones(), 4000));
             row.setPhotoFilenamesJson("[]");
             ent.getDetalles().add(row);
         }
@@ -274,6 +278,7 @@ public class RmRegistroApplicationService {
         sal.setDestino(trimMax(payload.destino(), 512));
         sal.setNumeroGuia(trimMaxNullable(payload.numeroGuia(), 128));
         sal.setOrdenCompra(trimMaxNullable(payload.ordenCompra(), 128));
+        sal.setObservaciones(trimMaxNullable(payload.observaciones(), 4000));
         sal.setCabeceraPhotoFilenamesJson("[]");
 
         for (RmPayloadModels.SalidaDetalle d : payload.detalles()) {
@@ -283,6 +288,8 @@ public class RmRegistroApplicationService {
             row.setMaterialProducto(trimMax(d.materialProducto(), 512));
             row.setCantidad(trimMax(d.cantidad(), 64));
             row.setUnidad(trimMax(d.unidad(), 64));
+            row.setCategoriaCodigo(InventoryApplicationService.normalizeCategoria(d.categoriaCodigo()));
+            row.setObservaciones(trimMaxNullable(d.observaciones(), 4000));
             row.setPhotoFilenamesJson("[]");
             sal.getDetalles().add(row);
         }
@@ -315,8 +322,22 @@ public class RmRegistroApplicationService {
             }
         }
         salidaDetalleRepository.saveAll(sal.getDetalles());
-        if (Boolean.TRUE.equals(payload.salidaConformidadCerrada()) && payload.guiaInventarioId() != null) {
-            guiaInventoryService.markGuiaEnCamino(payload.guiaInventarioId());
+        if (Boolean.TRUE.equals(payload.salidaConformidadCerrada())) {
+            if (payload.guiaInventarioId() != null) {
+                guiaInventoryService.markGuiaEnCamino(payload.guiaInventarioId());
+            }
+            List<InventoryApplicationService.StockLine> stockLines =
+                    payload.detalles().stream()
+                            .map(
+                                    d ->
+                                            new InventoryApplicationService.StockLine(
+                                                    d.materialProducto(),
+                                                    d.cantidad(),
+                                                    d.categoriaCodigo(),
+                                                    d.observaciones()))
+                            .toList();
+            inventoryApplicationService.debitStockFromRmSalida(
+                    stockLines, sal.getId(), actorBranchId, createdByEmail);
         }
         return new RmApiModels.Created(sal.getId());
     }
@@ -350,7 +371,7 @@ public class RmRegistroApplicationService {
     /** Registra vehículo y entrada (OC + guía) en una transacción; fotos: vehículo, documento, productos. */
     @Transactional
     public RmApiModels.Created createIngresoCompleto(
-            byte[] dataJsonBytes, List<MultipartFile> photos, String createdByEmail) {
+            byte[] dataJsonBytes, List<MultipartFile> photos, String createdByEmail, Long actorBranchId) {
         RmPayloadModels.IngresoCompletoPayload full =
                 readJson(dataJsonBytes, RmPayloadModels.IngresoCompletoPayload.class);
         if (full.vehiculo() == null || full.entrada() == null) {
@@ -392,7 +413,18 @@ public class RmRegistroApplicationService {
         ent.setGuiaNumero(trimMax(entPayload.guiaNumero(), 128));
         ent.setGuiaInventarioId(entPayload.guiaInventarioId());
         ent.setCreatedByEmail(trimMaxNullable(createdByEmail, 320));
+        ent.setObservaciones(trimMaxNullable(entPayload.observaciones(), 4000));
         ent.setDocumentoPhotoFilenamesJson("[]");
+        if (actorBranchId != null) {
+            Sucursal suc =
+                    sucursalRepository
+                            .findById(actorBranchId)
+                            .orElseThrow(
+                                    () ->
+                                            new ResponseStatusException(
+                                                    BAD_REQUEST, "Sucursal del usuario no encontrada"));
+            ent.setSucursalDestino(suc);
+        }
 
         if (Boolean.TRUE.equals(entPayload.recepcionConformidadCerrada())) {
             if (createdByEmail == null || createdByEmail.isBlank()) {
@@ -412,6 +444,8 @@ public class RmRegistroApplicationService {
             row.setMaterial(trimMax(d.material(), 512));
             row.setCantidad(trimMax(d.cantidad(), 64));
             row.setUnidad(trimMax(d.unidad(), 64));
+            row.setCategoriaCodigo(InventoryApplicationService.normalizeCategoria(d.categoriaCodigo()));
+            row.setObservaciones(trimMaxNullable(d.observaciones(), 4000));
             row.setPhotoFilenamesJson("[]");
             ent.getDetalles().add(row);
         }
@@ -450,11 +484,18 @@ public class RmRegistroApplicationService {
             if (entPayload.guiaInventarioId() != null) {
                 guiaInventoryService.markGuiaEntregada(entPayload.guiaInventarioId());
             }
-            List<InventoryApplicationService.RmIngresoStockLine> stockLines =
+            List<InventoryApplicationService.StockLine> stockLines =
                     entPayload.detalles().stream()
-                            .map(d -> new InventoryApplicationService.RmIngresoStockLine(d.material(), d.cantidad()))
+                            .map(
+                                    d ->
+                                            new InventoryApplicationService.StockLine(
+                                                    d.material(),
+                                                    d.cantidad(),
+                                                    d.categoriaCodigo(),
+                                                    d.observaciones()))
                             .toList();
-            inventoryApplicationService.creditStockFromRmIngreso(stockLines, ent.getId(), createdByEmail);
+            inventoryApplicationService.creditStockFromRmIngreso(
+                    stockLines, ent.getId(), actorBranchId, createdByEmail);
         }
 
         return new RmApiModels.Created(ent.getId());

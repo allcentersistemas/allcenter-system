@@ -84,6 +84,9 @@ public class RmRegistroSalida {
     @Formula("(select count(*) from rm_registro_salida_detalle d where d.registro_salida_id = id)")
     private long lineas;
 
+    @Column(columnDefinition = "TEXT")
+    private String observaciones;
+
     @Column(nullable = false)
     private Instant createdAt;
 

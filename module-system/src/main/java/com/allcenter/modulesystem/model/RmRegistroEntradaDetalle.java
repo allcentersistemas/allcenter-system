@@ -39,4 +39,10 @@ public class RmRegistroEntradaDetalle {
 
     @Column(columnDefinition = "TEXT")
     private String photoFilenamesJson;
+
+    @Column(name = "categoria_codigo", length = 32)
+    private String categoriaCodigo;
+
+    @Column(columnDefinition = "TEXT")
+    private String observaciones;
 }

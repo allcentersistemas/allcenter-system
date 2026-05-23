@@ -31,6 +31,11 @@ public class InventoryController {
     private final GuiaInventoryService guiaInventoryService;
     private final AuthenticatedEmployeeResolver employeeResolver;
 
+    @GetMapping("/categorias")
+    public java.util.List<InventoryDtos.CategoriaRow> listCategorias() {
+        return inventoryService.listCategorias();
+    }
+
     @GetMapping("/items")
     public Page<InventoryDtos.ItemRow> listItems(
             @RequestParam(required = false) String q,
@@ -39,8 +44,9 @@ public class InventoryController {
     }
 
     @GetMapping("/items/{id}")
-    public InventoryDtos.ItemDetail getItem(@PathVariable long id) {
-        return inventoryService.getItemDetail(id);
+    public InventoryDtos.ItemDetail getItem(
+            @PathVariable long id, @RequestParam(required = false) Long sucursalId) {
+        return inventoryService.getItemDetail(id, sucursalId);
     }
 
     @PostMapping("/items")

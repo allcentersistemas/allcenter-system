@@ -14,4 +14,19 @@ public interface InvStockMovementRepository extends JpaRepository<InvStockMoveme
 
     @Query("select coalesce(sum(m.quantityChange), 0) from InvStockMovement m where m.item.id = :itemId")
     BigDecimal sumQuantityChangeByItemId(@Param("itemId") long itemId);
+
+    @Query(
+            """
+            select coalesce(sum(m.quantityChange), 0) from InvStockMovement m
+            where m.item.id = :itemId
+              and (:sucursalId is null and m.sucursalId is null or m.sucursalId = :sucursalId)
+              and (:categoria is null or m.categoriaCodigo = :categoria
+                   or (:categoria = 'DISPONIBLE' and m.categoriaCodigo is null))
+            """)
+    BigDecimal sumQuantityChangeByItemIdSucursalCategoria(
+            @Param("itemId") long itemId,
+            @Param("sucursalId") Long sucursalId,
+            @Param("categoria") String categoria);
+
+    boolean existsByExternalRef(String externalRef);
 }

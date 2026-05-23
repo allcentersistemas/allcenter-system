@@ -3,6 +3,8 @@ package com.allcenter.modulesystem.service;
 import com.allcenter.modulesystem.dto.InventoryDtos;
 import com.allcenter.modulesystem.model.InvItem;
 import com.allcenter.modulesystem.model.InvStockMovement;
+import com.allcenter.modulesystem.model.Pale;
+import com.allcenter.modulesystem.model.PaleDetalle;
 import com.allcenter.modulesystem.repository.InvItemRepository;
 import com.allcenter.modulesystem.repository.InvStockMovementRepository;
 import java.math.BigDecimal;
@@ -26,11 +28,22 @@ import static org.springframework.http.HttpStatus.NOT_FOUND;
 @RequiredArgsConstructor
 public class InventoryApplicationService {
 
+    public static final String CAT_DISPONIBLE = "DISPONIBLE";
+    public static final String CAT_MERCA = "MERCA";
+    public static final String CAT_REUTILIZABLE = "REUTILIZABLE";
+
     private static final String UNIT_PIEZAS = "piezas";
     private static final Pattern SKU_SAFE = Pattern.compile("[^A-Za-z0-9]+");
 
     private final InvItemRepository itemRepository;
     private final InvStockMovementRepository movementRepository;
+
+    public List<InventoryDtos.CategoriaRow> listCategorias() {
+        return List.of(
+                new InventoryDtos.CategoriaRow(CAT_DISPONIBLE, "Disponible"),
+                new InventoryDtos.CategoriaRow(CAT_MERCA, "Merma / merca"),
+                new InventoryDtos.CategoriaRow(CAT_REUTILIZABLE, "Reutilizable"));
+    }
 
     @Transactional(readOnly = true)
     public Page<InventoryDtos.ItemRow> pageItems(String q, Pageable pageable) {
@@ -62,73 +75,230 @@ public class InventoryApplicationService {
     }
 
     @Transactional(readOnly = true)
-    public InventoryDtos.ItemDetail getItemDetail(long id) {
+    public InventoryDtos.ItemDetail getItemDetail(long id, Long sucursalId) {
         InvItem item =
                 itemRepository.findById(id).orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Artículo no encontrado"));
-        BigDecimal balance = movementRepository.sumQuantityChangeByItemId(id);
+        BigDecimal balance =
+                sucursalId != null
+                        ? movementRepository.sumQuantityChangeByItemIdSucursalCategoria(id, sucursalId, null)
+                        : movementRepository.sumQuantityChangeByItemId(id);
+        List<InventoryDtos.BalanceByCategoria> balancesByCategoria = new java.util.ArrayList<>();
+        if (sucursalId != null) {
+            for (InventoryDtos.CategoriaRow cat : listCategorias()) {
+                BigDecimal b =
+                        movementRepository.sumQuantityChangeByItemIdSucursalCategoria(
+                                id, sucursalId, cat.codigo());
+                balancesByCategoria.add(
+                        new InventoryDtos.BalanceByCategoria(cat.codigo(), cat.etiqueta(), b));
+            }
+        }
         Page<InvStockMovement> moves = movementRepository.findByItem_IdOrderByCreatedAtDesc(id, PageRequest.of(0, 50));
+        List<InvStockMovement> filtered =
+                sucursalId == null
+                        ? moves.getContent()
+                        : moves.getContent().stream()
+                                .filter(m -> sucursalId.equals(m.getSucursalId()))
+                                .toList();
         return new InventoryDtos.ItemDetail(
                 toRow(item),
                 balance,
-                moves.getContent().stream().map(this::toMovementRow).toList());
+                sucursalId,
+                balancesByCategoria,
+                filtered.stream().map(this::toMovementRow).toList());
     }
 
     @Transactional
     public long addMovement(long itemId, InventoryDtos.CreateMovementRequest req, String createdByEmail) {
+        return addMovementInternal(
+                itemId,
+                req.quantityChange(),
+                req.reason(),
+                req.externalRef(),
+                req.sucursalId(),
+                normalizeCategoria(req.categoriaCodigo()),
+                req.observaciones(),
+                createdByEmail,
+                req.sucursalId() != null);
+    }
+
+    /**
+     * Registra el palé en el almacén de la sucursal (unidad logística).
+     */
+    @Transactional
+    public void registerPaleInWarehouse(Pale pale, Long sucursalId, String createdByEmail) {
+        if (sucursalId == null) {
+            throw new ResponseStatusException(BAD_REQUEST, "El empleado debe tener sucursal asignada para registrar el palé en almacén");
+        }
+        String ref = "pale_open:" + pale.getId();
+        if (movementRepository.existsByExternalRef(ref)) {
+            return;
+        }
+        String sku = "PALET-" + pale.getCodigo();
+        long itemId = findOrCreateItem(sku, "Palé " + pale.getCodigo(), UNIT_PIEZAS);
+        addMovementInternal(
+                itemId,
+                BigDecimal.ONE,
+                "Registro de palé en almacén",
+                ref,
+                sucursalId,
+                CAT_DISPONIBLE,
+                pale.getNotas(),
+                createdByEmail,
+                false);
+    }
+
+    /** Acredita piezas escaneadas al cerrar el palé en la sucursal correspondiente. */
+    @Transactional
+    public void creditStockFromPaleClose(
+            Pale pale, List<PaleDetalle> detalles, Long sucursalId, String createdByEmail) {
+        if (sucursalId == null || detalles == null || detalles.isEmpty()) {
+            return;
+        }
+        String refBase = "pale_close:" + pale.getId() + ":";
+        for (PaleDetalle d : detalles) {
+            String material = resolvePalePieceMaterial(d);
+            if (material.isEmpty()) {
+                continue;
+            }
+            String ref = refBase + d.getId();
+            if (movementRepository.existsByExternalRef(ref)) {
+                continue;
+            }
+            long itemId = findOrCreateItem(toSku(material), material, UNIT_PIEZAS);
+            addMovementInternal(
+                    itemId,
+                    BigDecimal.ONE,
+                    "Ingreso por cierre de palé " + pale.getCodigo(),
+                    ref,
+                    sucursalId,
+                    CAT_DISPONIBLE,
+                    null,
+                    createdByEmail,
+                    false);
+        }
+    }
+
+    @Transactional
+    public void creditStockFromRmIngreso(
+            List<StockLine> lines, long entradaId, Long sucursalId, String createdByEmail) {
+        if (lines == null || lines.isEmpty()) {
+            return;
+        }
+        if (sucursalId == null) {
+            throw new ResponseStatusException(
+                    BAD_REQUEST, "Sucursal del usuario requerida para acreditar inventario en ingreso");
+        }
+        String refPrefix = "rm_entrada:" + entradaId + ":";
+        int i = 0;
+        for (StockLine line : lines) {
+            applyStockDelta(line, refPrefix + i++, sucursalId, true, "Ingreso RM (recepción mercadería)", createdByEmail);
+        }
+    }
+
+    @Transactional
+    public void debitStockFromRmSalida(
+            List<StockLine> lines, long salidaId, Long sucursalId, String createdByEmail) {
+        if (lines == null || lines.isEmpty()) {
+            return;
+        }
+        if (sucursalId == null) {
+            throw new ResponseStatusException(
+                    BAD_REQUEST, "Sucursal del usuario requerida para descontar inventario en salida");
+        }
+        String refPrefix = "rm_salida:" + salidaId + ":";
+        int i = 0;
+        for (StockLine line : lines) {
+            applyStockDelta(line, refPrefix + i++, sucursalId, false, "Salida RM (despacho mercadería)", createdByEmail);
+        }
+    }
+
+    public record StockLine(String material, String cantidad, String categoriaCodigo, String observaciones) {}
+
+    /** Compatibilidad con llamadas previas sin categoría. */
+    public record RmIngresoStockLine(String material, String cantidad) {
+        public StockLine toStockLine() {
+            return new StockLine(material, cantidad, CAT_DISPONIBLE, null);
+        }
+    }
+
+    private void applyStockDelta(
+            StockLine line,
+            String externalRef,
+            Long sucursalId,
+            boolean credit,
+            String reason,
+            String createdByEmail) {
+        if (movementRepository.existsByExternalRef(externalRef)) {
+            return;
+        }
+        String material = line.material() == null ? "" : line.material().trim();
+        if (material.isEmpty()) {
+            return;
+        }
+        BigDecimal qty = parsePositiveQuantity(line.cantidad());
+        if (qty == null) {
+            throw new ResponseStatusException(BAD_REQUEST, "Cantidad invalida para inventario: " + material);
+        }
+        String categoria = normalizeCategoria(line.categoriaCodigo());
+        long itemId = findOrCreateItem(toSku(material), material, UNIT_PIEZAS);
+        BigDecimal delta = credit ? qty : qty.negate();
+        addMovementInternal(
+                itemId,
+                delta,
+                reason,
+                externalRef,
+                sucursalId,
+                categoria,
+                line.observaciones(),
+                createdByEmail,
+                !credit);
+    }
+
+    private long addMovementInternal(
+            long itemId,
+            BigDecimal delta,
+            String reason,
+            String externalRef,
+            Long sucursalId,
+            String categoriaCodigo,
+            String observaciones,
+            String createdByEmail,
+            boolean checkBalance) {
         InvItem item =
                 itemRepository.findById(itemId).orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Artículo no encontrado"));
         if (!item.isActive()) {
             throw new ResponseStatusException(BAD_REQUEST, "Artículo inactivo");
         }
-        BigDecimal delta = req.quantityChange();
         if (delta == null || delta.compareTo(BigDecimal.ZERO) == 0) {
             throw new ResponseStatusException(BAD_REQUEST, "quantityChange no puede ser cero");
+        }
+        String cat = normalizeCategoria(categoriaCodigo);
+        if (checkBalance && sucursalId != null && delta.signum() < 0) {
+            BigDecimal onHand =
+                    movementRepository.sumQuantityChangeByItemIdSucursalCategoria(itemId, sucursalId, cat);
+            if (onHand.add(delta).compareTo(BigDecimal.ZERO) < 0) {
+                throw new ResponseStatusException(
+                        BAD_REQUEST,
+                        "Stock insuficiente en sucursal para "
+                                + item.getSku()
+                                + " (categoría "
+                                + cat
+                                + ")");
+            }
         }
         InvStockMovement m = new InvStockMovement();
         m.setItem(item);
         m.setQuantityChange(delta);
-        m.setReason(req.reason().trim());
-        m.setExternalRef(trimNullable(req.externalRef(), 128));
+        m.setReason(reason.trim());
+        m.setExternalRef(trimNullable(externalRef, 128));
+        m.setSucursalId(sucursalId);
+        m.setCategoriaCodigo(cat);
+        m.setObservaciones(trimNullable(observaciones, 4000));
         m.setCreatedByEmail(trimNullable(createdByEmail, 320));
         return movementRepository.save(m).getId();
     }
 
-    /**
-     * Acredita stock en piezas por cada línea recibida en un ingreso RM validado.
-     *
-     * @param lines material + cantidad por línea
-     * @param entradaId id de {@code rm_registro_entrada} (referencia en movimiento)
-     */
-    @Transactional
-    public void creditStockFromRmIngreso(
-            List<RmIngresoStockLine> lines, long entradaId, String createdByEmail) {
-        if (lines == null || lines.isEmpty()) {
-            return;
-        }
-        String ref = "rm_entrada:" + entradaId;
-        for (RmIngresoStockLine line : lines) {
-            String material = line.material() == null ? "" : line.material().trim();
-            if (material.isEmpty()) {
-                continue;
-            }
-            BigDecimal qty = parsePositiveQuantity(line.cantidad());
-            if (qty == null) {
-                throw new ResponseStatusException(
-                        BAD_REQUEST, "Cantidad invalida para inventario: " + material);
-            }
-            long itemId = findOrCreatePiezasItem(material);
-            addMovement(
-                    itemId,
-                    new InventoryDtos.CreateMovementRequest(
-                            qty, "Ingreso RM (recepción mercadería)", ref),
-                    createdByEmail);
-        }
-    }
-
-    public record RmIngresoStockLine(String material, String cantidad) {}
-
-    private long findOrCreatePiezasItem(String materialName) {
-        String sku = toSku(materialName);
+    private long findOrCreateItem(String sku, String name, String unit) {
         return itemRepository
                 .findBySkuIgnoreCase(sku)
                 .map(InvItem::getId)
@@ -136,8 +306,8 @@ public class InventoryApplicationService {
                         () -> {
                             InvItem i = new InvItem();
                             i.setSku(sku);
-                            i.setName(materialName.length() > 512 ? materialName.substring(0, 512) : materialName);
-                            i.setUnit(UNIT_PIEZAS);
+                            i.setName(name.length() > 512 ? name.substring(0, 512) : name);
+                            i.setUnit(unit);
                             i.setActive(true);
                             try {
                                 return itemRepository.save(i).getId();
@@ -151,6 +321,30 @@ public class InventoryApplicationService {
                                                                 CONFLICT, "No se pudo crear articulo de inventario", e));
                             }
                         });
+    }
+
+    private static String resolvePalePieceMaterial(PaleDetalle d) {
+        if (d.getDescripcion() != null && !d.getDescripcion().isBlank()) {
+            return d.getDescripcion().trim();
+        }
+        if (d.getPartCode() != null && !d.getPartCode().isBlank()) {
+            return d.getPartCode().trim();
+        }
+        if (d.getOrderName() != null && !d.getOrderName().isBlank()) {
+            return d.getOrderName().trim() + " #" + d.getPiezaId();
+        }
+        return "Pieza " + d.getPiezaId();
+    }
+
+    public static String normalizeCategoria(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return CAT_DISPONIBLE;
+        }
+        String u = raw.trim().toUpperCase(Locale.ROOT);
+        return switch (u) {
+            case CAT_MERCA, CAT_REUTILIZABLE -> u;
+            default -> CAT_DISPONIBLE;
+        };
     }
 
     private static String toSku(String materialName) {
@@ -194,6 +388,9 @@ public class InventoryApplicationService {
                 m.getQuantityChange(),
                 m.getReason(),
                 m.getExternalRef(),
+                m.getSucursalId(),
+                m.getCategoriaCodigo(),
+                m.getObservaciones(),
                 m.getCreatedAt(),
                 m.getCreatedByEmail());
     }
