@@ -266,6 +266,24 @@ public class PaleService {
     }
 
     @Transactional
+    public void deletePale(Long id) {
+        Pale pale =
+                paleRepository
+                        .findById(id)
+                        .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Pale no encontrado"));
+        if (Boolean.TRUE.equals(pale.getEnGuia())) {
+            throw new ResponseStatusException(
+                    BAD_REQUEST, "No se puede eliminar un pale que está en una guía de despacho");
+        }
+        List<PaleDetalle> detalles = detalleRepository.findByPale_IdOrderByFechaAgregadoDesc(id);
+        if (!detalles.isEmpty()) {
+            detalleRepository.deleteAll(detalles);
+        }
+        recordAudit("DELETE", "Pale", String.valueOf(pale.getId()), pale, "Pale eliminado");
+        paleRepository.delete(pale);
+    }
+
+    @Transactional
     public PaleDetailResponse removeDetail(Long paleId, Long detailId) {
         Pale pale = paleRepository.findById(paleId)
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Pale no encontrado"));

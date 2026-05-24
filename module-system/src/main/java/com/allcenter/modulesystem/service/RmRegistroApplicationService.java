@@ -325,19 +325,14 @@ public class RmRegistroApplicationService {
         if (Boolean.TRUE.equals(payload.salidaConformidadCerrada())) {
             if (payload.guiaInventarioId() != null) {
                 guiaInventoryService.markGuiaEnCamino(payload.guiaInventarioId());
+                List<InventoryApplicationService.StockLine> stockLines =
+                        inventoryApplicationService.buildStockLinesForRmSalida(
+                                payload.guiaInventarioId(), payload.detalles());
+                if (!stockLines.isEmpty()) {
+                    inventoryApplicationService.debitStockFromRmSalida(
+                            stockLines, sal.getId(), actorBranchId, createdByEmail);
+                }
             }
-            List<InventoryApplicationService.StockLine> stockLines =
-                    payload.detalles().stream()
-                            .map(
-                                    d ->
-                                            new InventoryApplicationService.StockLine(
-                                                    d.materialProducto(),
-                                                    d.cantidad(),
-                                                    d.categoriaCodigo(),
-                                                    d.observaciones()))
-                            .toList();
-            inventoryApplicationService.debitStockFromRmSalida(
-                    stockLines, sal.getId(), actorBranchId, createdByEmail);
         }
         return new RmApiModels.Created(sal.getId());
     }
@@ -484,18 +479,7 @@ public class RmRegistroApplicationService {
             if (entPayload.guiaInventarioId() != null) {
                 guiaInventoryService.markGuiaEntregada(entPayload.guiaInventarioId());
             }
-            List<InventoryApplicationService.StockLine> stockLines =
-                    entPayload.detalles().stream()
-                            .map(
-                                    d ->
-                                            new InventoryApplicationService.StockLine(
-                                                    d.material(),
-                                                    d.cantidad(),
-                                                    d.categoriaCodigo(),
-                                                    d.observaciones()))
-                            .toList();
-            inventoryApplicationService.creditStockFromRmIngreso(
-                    stockLines, ent.getId(), actorBranchId, createdByEmail);
+            // Inventario manual por RM ingreso deshabilitado: solo palés y piezas al cerrar palé.
         }
 
         return new RmApiModels.Created(ent.getId());

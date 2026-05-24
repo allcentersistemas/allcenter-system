@@ -21,6 +21,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -89,14 +90,23 @@ public class PaleEnvioController {
     }
 
     @PatchMapping("/{id}")
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
     public ResponseEntity<PaleDetailResponse> update(
             @PathVariable Long id, @RequestBody(required = false) UpdatePaleRequest request) {
         return ResponseEntity.ok(paleService.updatePale(id, request));
     }
 
     @DeleteMapping("/{id}/details/{detailId}")
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
     public ResponseEntity<PaleDetailResponse> deleteDetail(@PathVariable Long id, @PathVariable Long detailId) {
         return ResponseEntity.ok(paleService.removeDetail(id, detailId));
+    }
+
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
+    public ResponseEntity<ApiMessage> deletePale(@PathVariable Long id) {
+        paleService.deletePale(id);
+        return ResponseEntity.ok(new ApiMessage(true, "Pale eliminado"));
     }
 
     @GetMapping("/by-code/{code}")

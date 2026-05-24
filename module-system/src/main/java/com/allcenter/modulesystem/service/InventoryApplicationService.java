@@ -1,13 +1,20 @@
 package com.allcenter.modulesystem.service;
 
 import com.allcenter.modulesystem.dto.InventoryDtos;
+import com.allcenter.modulesystem.model.Guia;
+import com.allcenter.modulesystem.model.Guiadetalle;
 import com.allcenter.modulesystem.model.InvItem;
 import com.allcenter.modulesystem.model.InvStockMovement;
 import com.allcenter.modulesystem.model.Pale;
 import com.allcenter.modulesystem.model.PaleDetalle;
+import com.allcenter.modulesystem.dto.RmPayloadModels;
+import com.allcenter.modulesystem.repository.GuiaRepository;
 import com.allcenter.modulesystem.repository.InvItemRepository;
 import com.allcenter.modulesystem.repository.InvStockMovementRepository;
+import com.allcenter.modulesystem.repository.PaleDetalleRepository;
+import com.allcenter.modulesystem.repository.PaleRepository;
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.regex.Pattern;
@@ -37,6 +44,9 @@ public class InventoryApplicationService {
 
     private final InvItemRepository itemRepository;
     private final InvStockMovementRepository movementRepository;
+    private final GuiaRepository guiaRepository;
+    private final PaleRepository paleRepository;
+    private final PaleDetalleRepository paleDetalleRepository;
 
     public List<InventoryDtos.CategoriaRow> listCategorias() {
         return List.of(
@@ -58,20 +68,9 @@ public class InventoryApplicationService {
 
     @Transactional
     public long createItem(InventoryDtos.CreateItemRequest req, String createdByEmail) {
-        if (itemRepository.findBySkuIgnoreCase(req.sku().trim()).isPresent()) {
-            throw new ResponseStatusException(CONFLICT, "SKU ya existe");
-        }
-        InvItem i = new InvItem();
-        i.setSku(req.sku().trim());
-        i.setName(req.name().trim());
-        String u = req.unit() == null || req.unit().isBlank() ? "UN" : req.unit().trim();
-        i.setUnit(u.length() > 32 ? u.substring(0, 32) : u);
-        i.setActive(true);
-        try {
-            return itemRepository.save(i).getId();
-        } catch (DataIntegrityViolationException e) {
-            throw new ResponseStatusException(CONFLICT, "SKU duplicado", e);
-        }
+        throw new ResponseStatusException(
+                BAD_REQUEST,
+                "La creación manual de artículos está deshabilitada. El inventario se genera desde palés y piezas.");
     }
 
     @Transactional(readOnly = true)
@@ -80,7 +79,8 @@ public class InventoryApplicationService {
                 itemRepository.findById(id).orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Artículo no encontrado"));
         BigDecimal balance =
                 sucursalId != null
-                        ? movementRepository.sumQuantityChangeByItemIdSucursalCategoria(id, sucursalId, null)
+                        ? movementRepository.sumQuantityChangeByItemIdSucursalCategoria(
+                                id, sucursalId, CAT_DISPONIBLE)
                         : movementRepository.sumQuantityChangeByItemId(id);
         List<InventoryDtos.BalanceByCategoria> balancesByCategoria = new java.util.ArrayList<>();
         if (sucursalId != null) {
@@ -109,16 +109,9 @@ public class InventoryApplicationService {
 
     @Transactional
     public long addMovement(long itemId, InventoryDtos.CreateMovementRequest req, String createdByEmail) {
-        return addMovementInternal(
-                itemId,
-                req.quantityChange(),
-                req.reason(),
-                req.externalRef(),
-                req.sucursalId(),
-                normalizeCategoria(req.categoriaCodigo()),
-                req.observaciones(),
-                createdByEmail,
-                req.sucursalId() != null);
+        throw new ResponseStatusException(
+                BAD_REQUEST,
+                "Los movimientos manuales están deshabilitados. El kardex se actualiza al crear/cerrar palés y al despachar guías con palés.");
     }
 
     /**
@@ -212,6 +205,96 @@ public class InventoryApplicationService {
         }
     }
 
+    /**
+     * Kardex solo por palés: al validar salida con guía, descuenta SKU del palé y cada pieza escaneada.
+     * No hay movimiento de inventario por líneas manuales (RM ni guía manual).
+     */
+    @Transactional(readOnly = true)
+    public List<StockLine> buildStockLinesForRmSalida(
+            Long guiaInventarioId, List<RmPayloadModels.SalidaDetalle> salidaDetalles) {
+        if (guiaInventarioId == null || salidaDetalles == null || salidaDetalles.isEmpty()) {
+            return List.of();
+        }
+        Guia guia =
+                guiaRepository
+                        .findByIdWithDetalles(guiaInventarioId)
+                        .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Guía de inventario no encontrada"));
+        List<StockLine> out = new ArrayList<>();
+        for (RmPayloadModels.SalidaDetalle sd : salidaDetalles) {
+            Guiadetalle gd = findMatchingGuiaDetalle(guia, sd).orElse(null);
+            if (gd != null && gd.getPaleId() != null) {
+                expandPaleSalidaStockLines(gd.getPaleId(), sd.categoriaCodigo(), sd.observaciones(), out);
+            }
+        }
+        return out;
+    }
+
+    private void expandPaleSalidaStockLines(
+            Long paleId, String categoriaCodigo, String observaciones, List<StockLine> out) {
+        Pale pale =
+                paleRepository
+                        .findById(paleId)
+                        .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Palé no encontrado para salida"));
+        String paleSku = "PALET-" + pale.getCodigo().trim().toUpperCase(Locale.ROOT);
+        out.add(new StockLine(paleSku, "1", CAT_DISPONIBLE, observaciones));
+        List<PaleDetalle> piezas = paleDetalleRepository.findByPale_IdOrderByFechaAgregadoDesc(paleId);
+        for (PaleDetalle d : piezas) {
+            String material = resolvePalePieceMaterial(d);
+            if (material.isEmpty()) {
+                continue;
+            }
+            out.add(new StockLine(material, "1", categoriaCodigo, observaciones));
+        }
+    }
+
+    private java.util.Optional<Guiadetalle> findMatchingGuiaDetalle(
+            Guia guia, RmPayloadModels.SalidaDetalle sd) {
+        String salidaMat = normalizeSalidaMaterialKey(sd.materialProducto());
+        if (salidaMat.isEmpty()) {
+            return java.util.Optional.empty();
+        }
+        for (Guiadetalle gd : guia.getDetalles()) {
+            if (salidaMat.equals(normalizeSalidaMaterialKey(buildGuiaSalidaMaterialLabel(gd)))) {
+                return java.util.Optional.of(gd);
+            }
+            if (gd.getPaleId() != null) {
+                String codigo =
+                        paleRepository
+                                .findById(gd.getPaleId())
+                                .map(p -> p.getCodigo() == null ? "" : p.getCodigo().trim().toLowerCase(Locale.ROOT))
+                                .orElse("");
+                if (!codigo.isEmpty() && salidaMat.contains(codigo)) {
+                    return java.util.Optional.of(gd);
+                }
+            }
+        }
+        return java.util.Optional.empty();
+    }
+
+    /** Etiqueta como la app Android al cargar líneas desde guía. */
+    private String buildGuiaSalidaMaterialLabel(Guiadetalle gd) {
+        String desc = gd.getDescripcion() == null ? "" : gd.getDescripcion().trim();
+        if (gd.getPaleId() == null) {
+            return desc;
+        }
+        String codigo =
+                paleRepository
+                        .findById(gd.getPaleId())
+                        .map(p -> p.getCodigo() == null ? "" : p.getCodigo().trim())
+                        .orElse(String.valueOf(gd.getPaleId()));
+        if (codigo.isEmpty()) {
+            return desc;
+        }
+        return ("Palé " + codigo + ": " + desc).trim();
+    }
+
+    private static String normalizeSalidaMaterialKey(String raw) {
+        if (raw == null) {
+            return "";
+        }
+        return raw.trim().toLowerCase(Locale.ROOT).replaceAll("\\s+", " ");
+    }
+
     public record StockLine(String material, String cantidad, String categoriaCodigo, String observaciones) {}
 
     /** Compatibilidad con llamadas previas sin categoría. */
@@ -240,7 +323,8 @@ public class InventoryApplicationService {
             throw new ResponseStatusException(BAD_REQUEST, "Cantidad invalida para inventario: " + material);
         }
         String categoria = normalizeCategoria(line.categoriaCodigo());
-        long itemId = findOrCreateItem(toSku(material), material, UNIT_PIEZAS);
+        String sku = resolveItemSku(material);
+        long itemId = findOrCreateItem(sku, material, UNIT_PIEZAS);
         BigDecimal delta = credit ? qty : qty.negate();
         addMovementInternal(
                 itemId,
@@ -277,13 +361,19 @@ public class InventoryApplicationService {
             BigDecimal onHand =
                     movementRepository.sumQuantityChangeByItemIdSucursalCategoria(itemId, sucursalId, cat);
             if (onHand.add(delta).compareTo(BigDecimal.ZERO) < 0) {
+                BigDecimal solicitado = delta.abs();
                 throw new ResponseStatusException(
                         BAD_REQUEST,
-                        "Stock insuficiente en sucursal para "
+                        "Stock insuficiente en sucursal "
+                                + sucursalId
+                                + " para "
                                 + item.getSku()
                                 + " (categoría "
                                 + cat
-                                + ")");
+                                + "): disponible "
+                                + onHand
+                                + ", solicitado "
+                                + solicitado);
             }
         }
         InvStockMovement m = new InvStockMovement();
@@ -345,6 +435,14 @@ public class InventoryApplicationService {
             case CAT_MERCA, CAT_REUTILIZABLE -> u;
             default -> CAT_DISPONIBLE;
         };
+    }
+
+    private static String resolveItemSku(String material) {
+        String m = material.trim();
+        if (m.length() >= 6 && m.regionMatches(true, 0, "PALET-", 0, 6)) {
+            return m.toUpperCase(Locale.ROOT);
+        }
+        return toSku(material);
     }
 
     private static String toSku(String materialName) {
