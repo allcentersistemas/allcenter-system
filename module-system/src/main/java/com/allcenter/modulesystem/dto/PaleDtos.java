@@ -52,7 +52,10 @@ public class PaleDtos {
             String ubicacionDestinoNombre,
             String estadoEnvio,
             LocalDateTime fechaCreacion,
-            LocalDateTime fechaCierre) {}
+            LocalDateTime fechaCierre,
+            Boolean enGuia,
+            Long guiaInventarioId,
+            String guiaNumero) {}
 
     public record PaleDetailItemDto(
             Long paleenviodetalleid,
@@ -72,6 +75,14 @@ public class PaleDtos {
             String medida) {}
 
     public record PaleDetailResponse(PaleHeaderDto pallet, List<PaleDetailItemDto> details) {}
+
+    public record PaleOrderLinkDto(
+            Long paleId,
+            String codigo,
+            String estado,
+            Boolean enGuia,
+            Long guiaInventarioId,
+            String guiaNumero) {}
 
     public record ScanPieceToPaleRequest(@NotNull Long pieceId, Long addedBy) {}
 

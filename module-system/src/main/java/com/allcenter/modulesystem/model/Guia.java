@@ -40,6 +40,10 @@ public class Guia {
     @Column(name = "notas", columnDefinition = "TEXT")
     private String notas;
 
+  /** Orden de compra asociada al despacho (opcional). */
+    @Column(name = "orden_compra", length = 128)
+    private String ordenCompra;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "sucursal_origen_id")
     private Sucursal sucursalOrigen;

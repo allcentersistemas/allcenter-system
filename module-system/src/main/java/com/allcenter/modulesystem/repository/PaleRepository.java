@@ -17,6 +17,7 @@ public interface PaleRepository extends JpaRepository<Pale, Long> {
                     SELECT COALESCE(
                         MAX(
                             CASE
+                                WHEN codigo ~ '^P-[0-9]+$' THEN CAST(SUBSTRING(codigo FROM 3) AS BIGINT)
                                 WHEN codigo ~ '^[0-9]{10}$' THEN CAST(codigo AS BIGINT)
                                 ELSE NULL
                             END

@@ -14,6 +14,7 @@ import com.allcenter.modulesystem.dto.PaleDtos.PaleDetailItemDto;
 import com.allcenter.modulesystem.dto.PaleDtos.PaleDetailResponse;
 import com.allcenter.modulesystem.dto.PaleDtos.PaleAuditEntryDto;
 import com.allcenter.modulesystem.dto.PaleDtos.PaleHeaderDto;
+import com.allcenter.modulesystem.dto.PaleDtos.PaleOrderLinkDto;
 import com.allcenter.modulesystem.dto.PaleDtos.ScanPieceToPaleRequest;
 import com.allcenter.modulesystem.dto.PaleDtos.SucursalDto;
 import com.allcenter.modulesystem.dto.PaleDtos.UbicacionDto;
@@ -21,10 +22,13 @@ import com.allcenter.modulesystem.dto.PaleDtos.UpdatePaleRequest;
 import com.allcenter.modulesystem.model.Pale;
 import com.allcenter.modulesystem.model.PaleAuditEntry;
 import com.allcenter.modulesystem.model.PaleDetalle;
+import com.allcenter.modulesystem.model.Guia;
+import com.allcenter.modulesystem.model.Guiadetalle;
 import com.allcenter.modulesystem.support.PaleAuditSourceCapture;
 import com.allcenter.modulesystem.repository.PaleAuditEntryRepository;
 import com.allcenter.modulesystem.repository.PaleDetalleRepository;
 import com.allcenter.modulesystem.repository.PaleRepository;
+import com.allcenter.modulesystem.repository.GuiadetalleRepository;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -64,6 +68,7 @@ public class PaleService {
     private final SucursalRepository sucursalRepository;
     private final UbicacionRepository ubicacionRepository;
     private final InventoryApplicationService inventoryApplicationService;
+    private final GuiadetalleRepository guiadetalleRepository;
     private final JdbcTemplate jdbcTemplate;
     private final RestTemplate restTemplate = new RestTemplate();
 
@@ -71,6 +76,39 @@ public class PaleService {
     private String biesseBaseUrl;
 
 
+
+    public List<PaleOrderLinkDto> findPalesByOrderId(long orderId) {
+        return detalleRepository.findDistinctPaleIdsByOrderId(orderId).stream()
+                .map(paleRepository::findById)
+                .flatMap(java.util.Optional::stream)
+                .map(this::toOrderLink)
+                .toList();
+    }
+
+    private PaleOrderLinkDto toOrderLink(Pale p) {
+        GuiaRef ref = resolveGuiaRef(p.getId());
+        return new PaleOrderLinkDto(
+                p.getId(),
+                p.getCodigo(),
+                p.getEstado(),
+                p.getEnGuia(),
+                ref.guiaId(),
+                ref.guiaNumero());
+    }
+
+    private record GuiaRef(Long guiaId, String guiaNumero) {}
+
+    private GuiaRef resolveGuiaRef(Long paleId) {
+        if (paleId == null) {
+            return new GuiaRef(null, null);
+        }
+        return guiadetalleRepository
+                .findByPaleIdWithGuia(paleId, org.springframework.data.domain.PageRequest.of(0, 1))
+                .stream()
+                .findFirst()
+                .map(gd -> new GuiaRef(gd.getGuia().getId(), gd.getGuia().getNumeroGuia()))
+                .orElse(new GuiaRef(null, null));
+    }
 
     public List<PaleHeaderDto> listPallets() {
         return paleRepository.findAll().stream()
@@ -169,6 +207,7 @@ public class PaleService {
         pale.setNotas(req.notes());
         pale.setCreadoPor(req.createdBy());
         pale.setSucursalId(sucursalId);
+        pale.setEnGuia(false);
         pale.setFechaCreacion(LocalDateTime.now());
         pale = paleRepository.save(pale);
         inventoryApplicationService.registerPaleInWarehouse(pale, sucursalId, createdByEmail);
@@ -524,6 +563,7 @@ public class PaleService {
             sucursalNombre =
                     sucursalRepository.findById(sucursalId).map(Sucursal::getNombre).orElse(null);
         }
+        GuiaRef guiaRef = resolveGuiaRef(p.getId());
         return new PaleHeaderDto(
                 p.getId(),
                 p.getCodigo(),
@@ -541,7 +581,10 @@ public class PaleService {
                 null,
                 p.getEstadoEnvio(),
                 p.getFechaCreacion(),
-                p.getFechaCierre());
+                p.getFechaCierre(),
+                p.getEnGuia(),
+                guiaRef.guiaId(),
+                guiaRef.guiaNumero());
     }
 
     private void recordAudit(String action, String entityType, String entityId, Pale pale, String details) {
@@ -580,7 +623,7 @@ public class PaleService {
     private String nextPaleCode() {
         Long max = paleRepository.findMaxNumericCode();
         long next = (max == null ? 0L : max) + 1L;
-        return String.format("%010d", next);
+        return String.format("P-%07d", next);
     }
 
     private static String firstString(Map<?, ?> map, String... keys) {

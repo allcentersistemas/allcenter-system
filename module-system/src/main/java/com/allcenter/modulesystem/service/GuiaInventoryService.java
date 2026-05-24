@@ -149,6 +149,10 @@ public class GuiaInventoryService {
                         "Solo se pueden agregar pales con estado de envio ESCANEADO. Actual: "
                                 + pale.getEstadoEnvio());
             }
+            if (Boolean.TRUE.equals(pale.getEnGuia())) {
+                throw new ResponseStatusException(
+                        CONFLICT, "El pale " + pale.getCodigo() + " ya esta asignado a una guia");
+            }
             pales.add(pale);
         }
 
@@ -159,6 +163,7 @@ public class GuiaInventoryService {
         guia.setNumeroGuia(numero);
         guia.setEstado(ESTADO_CREADA);
         guia.setNotas(trimOptional(request.notas()));
+        guia.setOrdenCompra(trimOptional(request.ordenCompra()));
         applyOrigen(guia, originBranchId);
         if (request.destinationBranchId() != null || request.destinationLocationId() != null) {
             applyDestino(guia, request.destinationBranchId(), request.destinationLocationId());
@@ -170,6 +175,7 @@ public class GuiaInventoryService {
         for (Pale pale : pales) {
             Guiadetalle row = buildDetalleFromPale(guia, pale);
             detalleRepository.save(row);
+            markPaleEnGuia(pale, true);
             if (guia.getDetalles() == null) {
                 guia.setDetalles(new ArrayList<>());
             }
@@ -190,6 +196,9 @@ public class GuiaInventoryService {
         }
         if (request.notas() != null) {
             guia.setNotas(trimOptional(request.notas()));
+        }
+        if (request.ordenCompra() != null) {
+            guia.setOrdenCompra(trimOptional(request.ordenCompra()));
         }
         if (request.destinationBranchId() != null || request.destinationLocationId() != null) {
             applyDestino(guia, request.destinationBranchId(), request.destinationLocationId());
@@ -242,8 +251,13 @@ public class GuiaInventoryService {
                     "Solo se pueden agregar pales con estado de envio ESCANEADO. Actual: "
                             + pale.getEstadoEnvio());
         }
+        if (Boolean.TRUE.equals(pale.getEnGuia())) {
+            throw new ResponseStatusException(
+                    CONFLICT, "El pale " + pale.getCodigo() + " ya esta asignado a otra guia");
+        }
         Guiadetalle row = buildDetalleFromPale(guia, pale);
         detalleRepository.save(row);
+        markPaleEnGuia(pale, true);
         if (guia.getDetalles() == null) {
             guia.setDetalles(new ArrayList<>());
         }
@@ -275,8 +289,12 @@ public class GuiaInventoryService {
         if (!row.getGuia().getId().equals(guiaId)) {
             throw new ResponseStatusException(BAD_REQUEST, "La linea no pertenece a la guia");
         }
+        Long paleId = row.getPaleId();
         guia.getDetalles().remove(row);
         detalleRepository.delete(row);
+        if (paleId != null) {
+            paleRepository.findById(paleId).ifPresent(p -> markPaleEnGuia(p, false));
+        }
         return toResponse(guia);
     }
 
@@ -285,6 +303,7 @@ public class GuiaInventoryService {
         String q = trimOptional(codigoQuery);
         return paleRepository.findAll().stream()
                 .filter(p -> isEstadoEnvioEscaneado(p.getEstadoEnvio()))
+                .filter(p -> !Boolean.TRUE.equals(p.getEnGuia()))
                 .filter(p -> q == null || matchesCodigoQuery(p.getCodigo(), q))
                 .sorted((a, b) -> b.getFechaCreacion().compareTo(a.getFechaCreacion()))
                 .map(this::toPaleEscaneado)
@@ -399,6 +418,7 @@ public class GuiaInventoryService {
                 guia.getNumeroGuia(),
                 guia.getEstado(),
                 guia.getNotas(),
+                guia.getOrdenCompra(),
                 origenId,
                 origenNom,
                 sucId,
@@ -431,8 +451,14 @@ public class GuiaInventoryService {
                 p.getCodigo(),
                 p.getEstado(),
                 p.getEstadoEnvio(),
+                p.getEnGuia(),
                 p.getCantidadPiezas(),
                 p.getOrdenesResumen());
+    }
+
+    private void markPaleEnGuia(Pale pale, boolean enGuia) {
+        pale.setEnGuia(enGuia);
+        paleRepository.save(pale);
     }
 
     private static String trimRequired(String value, String field) {

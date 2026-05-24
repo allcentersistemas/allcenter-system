@@ -8,6 +8,7 @@ import com.allcenter.modulesystem.dto.PaleDtos.CreateSucursalRequest;
 import com.allcenter.modulesystem.dto.PaleDtos.CreateUbicacionRequest;
 import com.allcenter.modulesystem.dto.PaleDtos.PaleDetailResponse;
 import com.allcenter.modulesystem.dto.PaleDtos.PaleAuditEntryDto;
+import com.allcenter.modulesystem.dto.PaleDtos.PaleOrderLinkDto;
 import com.allcenter.modulesystem.dto.PaleDtos.PaleHeaderDto;
 import com.allcenter.modulesystem.dto.PaleDtos.ScanPieceToPaleRequest;
 import com.allcenter.modulesystem.dto.PaleDtos.SucursalDto;
@@ -56,6 +57,12 @@ public class PaleEnvioController {
             @RequestParam(required = false) String action,
             @RequestParam(defaultValue = "100") int limit) {
         return ResponseEntity.ok(paleService.listAudit(paleId, action, limit));
+    }
+
+    @GetMapping("/by-order/{orderId}")
+    public ResponseEntity<List<PaleOrderLinkDto>> byOrder(
+            @PathVariable long orderId) {
+        return ResponseEntity.ok(paleService.findPalesByOrderId(orderId));
     }
 
     @PostMapping

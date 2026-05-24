@@ -41,11 +41,12 @@ class GuiaInventoryIntegrationTest {
     void flujoCompleto_numeroCorrelativo_lineaManual_yPaleEscaneado() {
         Sucursal origen = sucursalRepository.save(sucursal("Sucursal test guia"));
         Pale paleEscaneado = paleRepository.save(pale("P-ESC-001", "ESCANEADO", 8, "OC-100, OC-101"));
+        final long paleEscaneadoId = paleEscaneado.getId();
         Pale palePendiente = paleRepository.save(pale("P-PEN-001", "PENDIENTE", 3, "OC-200"));
 
         GuiaResponse creada =
                 guiaInventoryService.createGuia(
-                        new CreateGuiaRequest("Notas prueba", null, null, 99L, List.of(paleEscaneado.getId())),
+                        new CreateGuiaRequest("Notas prueba", null, null, 99L, List.of(paleEscaneadoId)),
                         origen.getId());
         assertThat(creada.guia().numeroGuia()).isEqualTo("G-000001");
         assertThat(creada.guia().estado()).isEqualTo("CREADA");
@@ -76,9 +77,11 @@ class GuiaInventoryIntegrationTest {
         assertThat(desdePale.unidadMedida()).isEqualTo("piezas");
         assertThat(desdePale.cantidad()).isEqualTo("8");
 
+        assertThat(paleRepository.findById(paleEscaneadoId).orElseThrow().getEnGuia()).isTrue();
+
         assertThat(guiaInventoryService.listPalesEscaneados(null))
                 .extracting(p -> p.paleId())
-                .contains(paleEscaneado.getId());
+                .doesNotContain(paleEscaneadoId);
 
         assertThatThrownBy(
                         () ->
@@ -93,7 +96,7 @@ class GuiaInventoryIntegrationTest {
         assertThatThrownBy(
                         () ->
                                 guiaInventoryService.addDetalleFromPale(
-                                        guiaId, new AddGuiaDetallePaleRequest(paleEscaneado.getId())))
+                                        guiaId, new AddGuiaDetallePaleRequest(paleEscaneadoId)))
                 .isInstanceOf(ResponseStatusException.class)
                 .satisfies(
                         ex ->
@@ -107,6 +110,10 @@ class GuiaInventoryIntegrationTest {
                         origen.getId());
         assertThat(segunda.guia().numeroGuia()).isEqualTo("G-000002");
 
+        assertThat(guiaInventoryService.listPalesEscaneados(null))
+                .extracting(p -> p.paleId())
+                .doesNotContain(paleEscaneadoId, paleEscaneado2.getId());
+
         assertThatThrownBy(
                         () ->
                                 guiaInventoryService.createGuia(
@@ -115,7 +122,7 @@ class GuiaInventoryIntegrationTest {
                                                 null,
                                                 null,
                                                 null,
-                                                List.of(paleEscaneado.getId(), paleEscaneado.getId())),
+                                                List.of(paleEscaneadoId, paleEscaneadoId)),
                                         origen.getId()))
                 .isInstanceOf(ResponseStatusException.class)
                 .satisfies(

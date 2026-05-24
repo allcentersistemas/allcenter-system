@@ -35,8 +35,47 @@ public class GuiaSchemaAligner implements ApplicationRunner {
         ensureRmActaTransporteColumns();
         ensureRmSalidaGuiaColumn();
         ensureRmSalidaDetalleOptionalColumns();
+        ensureGuiaOrdenCompraColumn();
+        syncPaleEnGuiaFromDetalles();
         relaxLegacyColumns();
         dropLegacyColumns();
+    }
+
+    private void ensureGuiaOrdenCompraColumn() {
+        addColumnIfMissing("guia", "orden_compra", "VARCHAR(128)");
+    }
+
+    /** Marca en_guia=true en pales que ya figuran en guiadetalle (migración). */
+    private void syncPaleEnGuiaFromDetalles() {
+        if (!tableExists("pale") || !tableExists("guiadetalle") || !columnExists("pale", "en_guia")) {
+            return;
+        }
+        if (!columnExists("guiadetalle", "pale_id")) {
+            return;
+        }
+        try {
+            jdbc.execute(
+                    """
+                    UPDATE pale SET en_guia = true
+                    WHERE paleeid IN (
+                        SELECT DISTINCT pale_id FROM guiadetalle WHERE pale_id IS NOT NULL
+                    )
+                    """);
+        } catch (Exception ex) {
+            log.warn("No se pudo sincronizar pale.en_guia desde guiadetalle: {}", ex.getMessage());
+        }
+    }
+
+    private void addColumnIfMissing(String table, String column, String sqlType) {
+        if (!tableExists(table) || columnExists(table, column)) {
+            return;
+        }
+        try {
+            jdbc.execute("ALTER TABLE " + table + " ADD COLUMN " + column + " " + sqlType);
+            log.info("{}.{} creada", table, column);
+        } catch (Exception ex) {
+            log.warn("No se pudo crear {}.{}: {}", table, column, ex.getMessage());
+        }
     }
 
     private void ensureRmSalidaHeaderColumns() {
@@ -88,18 +127,6 @@ public class GuiaSchemaAligner implements ApplicationRunner {
             } else {
                 addColumnIfMissing("rm_registro_entrada_detalle", "cantidad", "VARCHAR(64)");
             }
-        }
-    }
-
-    private void addColumnIfMissing(String table, String column, String sqlType) {
-        if (columnExists(table, column)) {
-            return;
-        }
-        try {
-            jdbc.execute("ALTER TABLE " + table + " ADD COLUMN " + column + " " + sqlType);
-            log.info("{}.{} creada", table, column);
-        } catch (Exception ex) {
-            log.warn("No se pudo crear {}.{}: {}", table, column, ex.getMessage());
         }
     }
 

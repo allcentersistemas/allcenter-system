@@ -25,6 +25,7 @@ public final class GuiaDtos {
             String numeroGuia,
             String estado,
             String notas,
+            String ordenCompra,
             Long sucursalOrigenId,
             String sucursalOrigenNombre,
             Long sucursalDestinoId,
@@ -38,12 +39,29 @@ public final class GuiaDtos {
 
     public record CreateGuiaRequest(
             String notas,
+            String ordenCompra,
             Long destinationBranchId,
             Long destinationLocationId,
             Long creadoPor,
-            List<Long> paleIds) {}
+            List<Long> paleIds) {
 
-    public record UpdateGuiaRequest(String estado, String notas, Long destinationBranchId, Long destinationLocationId) {}
+        public CreateGuiaRequest(
+                String notas,
+                Long destinationBranchId,
+                Long destinationLocationId,
+                Long creadoPor,
+                List<Long> paleIds) {
+            this(notas, null, destinationBranchId, destinationLocationId, creadoPor, paleIds);
+        }
+    }
+
+    public record UpdateGuiaRequest(
+            String estado, String notas, String ordenCompra, Long destinationBranchId, Long destinationLocationId) {
+
+        public UpdateGuiaRequest(String estado, String notas, Long destinationBranchId, Long destinationLocationId) {
+            this(estado, notas, null, destinationBranchId, destinationLocationId);
+        }
+    }
 
     public record AddGuiaDetalleManualRequest(
             @NotBlank String descripcion,
@@ -57,6 +75,7 @@ public final class GuiaDtos {
             String codigo,
             String estado,
             String estadoEnvio,
+            Boolean enGuia,
             Integer cantidadPiezas,
             String ordenesResumen) {}
 }
