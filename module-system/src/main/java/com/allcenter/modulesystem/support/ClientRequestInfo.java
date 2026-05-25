@@ -32,6 +32,10 @@ public record ClientRequestInfo(String clientIp, String clientHostname) {
         if (realIp != null && !realIp.isBlank()) {
             return realIp.trim();
         }
-        return request.getRemoteAddr();
+        String remote = request.getRemoteAddr();
+        if (remote != null && !remote.isBlank()) {
+            return remote.trim();
+        }
+        return null;
     }
 }

@@ -113,6 +113,23 @@ public class EmployeeRefreshTokenService {
         }
     }
 
+    /** Revoca refresh caducados en toda la tabla (arranque y mantenimiento). */
+    @Transactional
+    public int revokeExpiredTokensGlobally() {
+        return refreshTokenRepository.revokeAllExpired(Instant.now());
+    }
+
+    /**
+     * Antes de un login nuevo: limpia tokens vencidos y cierra cualquier sesión activa previa del
+     * empleado (política de una sola sesión: la nueva sustituye a la anterior).
+     */
+    @Transactional
+    public void replaceSessionForLogin(Long employeeId) {
+        revokeExpiredTokensGlobally();
+        refreshTokenRepository.revokeAllActiveForEmployee(employeeId);
+        clearEmployeeSession(employeeId);
+    }
+
     @Transactional(readOnly = true)
     public ClientRequestInfo activeSessionInfo(Long employeeId) {
         return refreshTokenRepository

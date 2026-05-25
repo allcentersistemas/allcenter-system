@@ -7,7 +7,6 @@ import com.allcenter.modulesystem.exception.BadRequestException;
 import com.allcenter.modulesystem.exception.ConflictException;
 import com.allcenter.modulesystem.exception.ForbiddenException;
 import com.allcenter.modulesystem.exception.NotFoundException;
-import com.allcenter.modulesystem.exception.SessionAlreadyActiveException;
 import com.allcenter.modulesystem.support.ClientRequestInfo;
 import com.allcenter.modulesystem.model.ContractType;
 import com.allcenter.modulesystem.model.DirectorySource;
@@ -165,11 +164,7 @@ public class EmployeeAuthService {
     protected EmployeeAuthSessionResponse completeLoginSession(
             EmployeeUserDetails principal, ClientRequestInfo connection) {
         Long employeeId = principal.getEmployee().getId();
-        refreshTokenService.clearStaleSessionIfNeeded(employeeId);
-        if (refreshTokenService.hasActiveSession(employeeId)) {
-            ClientRequestInfo active = refreshTokenService.activeSessionInfo(employeeId);
-            throw new SessionAlreadyActiveException(active.clientIp(), active.clientHostname());
-        }
+        refreshTokenService.replaceSessionForLogin(employeeId);
         auditService.recordLoginSuccess(employeeId, principal.getEmployee().getEmail());
         String refresh = refreshTokenService.issue(employeeId, connection);
         return buildSession(principal, refresh);

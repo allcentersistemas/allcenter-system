@@ -26,4 +26,8 @@ public interface EmployeeRefreshTokenRepository extends JpaRepository<EmployeeRe
 
     Optional<EmployeeRefreshToken> findFirstByEmployeeIdAndRevokedIsFalseAndExpiresAtAfterOrderByCreatedAtDesc(
             Long employeeId, Instant now);
+
+    @Modifying
+    @Query("UPDATE EmployeeRefreshToken r SET r.revoked = true WHERE r.revoked = false AND r.expiresAt <= :now")
+    int revokeAllExpired(@Param("now") Instant now);
 }
