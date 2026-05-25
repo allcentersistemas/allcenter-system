@@ -15,6 +15,7 @@ import jakarta.persistence.JoinTable;
 import jakarta.persistence.ManyToMany;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.HashSet;
@@ -208,6 +209,19 @@ public class Employee {
 
     @Column(nullable = false)
     private boolean active = true;
+
+    /** true mientras exista un refresh token activo (sesión única). */
+    @Column(name = "session_connected", nullable = false)
+    private boolean sessionConnected = false;
+
+    @Column(name = "session_client_ip", length = 64)
+    private String sessionClientIp;
+
+    @Column(name = "session_client_hostname", length = 255)
+    private String sessionClientHostname;
+
+    @Column(name = "session_last_seen_at")
+    private Instant sessionLastSeenAt;
 
     @CreatedBy
     @Column(name = "created_by")

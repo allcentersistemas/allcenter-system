@@ -40,4 +40,13 @@ public class EmployeeRefreshToken {
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt = Instant.now();
+
+    @Column(name = "client_ip", length = 64)
+    private String clientIp;
+
+    @Column(name = "client_hostname", length = 255)
+    private String clientHostname;
+
+    @Column(name = "last_activity_at")
+    private Instant lastActivityAt = Instant.now();
 }

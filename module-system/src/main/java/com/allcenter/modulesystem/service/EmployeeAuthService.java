@@ -7,6 +7,8 @@ import com.allcenter.modulesystem.exception.BadRequestException;
 import com.allcenter.modulesystem.exception.ConflictException;
 import com.allcenter.modulesystem.exception.ForbiddenException;
 import com.allcenter.modulesystem.exception.NotFoundException;
+import com.allcenter.modulesystem.exception.SessionAlreadyActiveException;
+import com.allcenter.modulesystem.support.ClientRequestInfo;
 import com.allcenter.modulesystem.model.ContractType;
 import com.allcenter.modulesystem.model.DirectorySource;
 import com.allcenter.modulesystem.model.Employee;
@@ -142,17 +144,17 @@ public class EmployeeAuthService {
                         .findByIdWithRoles(employee.getId())
                         .orElseThrow(() -> new IllegalStateException("Empleado no recargado tras guardar"));
         EmployeeUserDetails principal = new EmployeeUserDetails(loaded);
-        return completeLoginSession(principal);
+        return completeLoginSession(principal, ClientRequestInfo.from(null));
     }
 
-    public EmployeeAuthSessionResponse login(LoginRequest request) {
+    public EmployeeAuthSessionResponse login(LoginRequest request, ClientRequestInfo connection) {
         String username = normalizeLoginUsername(request.username());
         try {
             Authentication auth =
                     authenticationManager.authenticate(
                             new UsernamePasswordAuthenticationToken(username, request.password()));
             EmployeeUserDetails principal = (EmployeeUserDetails) auth.getPrincipal();
-            return completeLoginSession(principal);
+            return completeLoginSession(principal, connection);
         } catch (RuntimeException ex) {
             auditService.recordLoginFailure(username, ex.getMessage());
             throw ex;
@@ -160,10 +162,16 @@ public class EmployeeAuthService {
     }
 
     @Transactional
-    protected EmployeeAuthSessionResponse completeLoginSession(EmployeeUserDetails principal) {
-        auditService.recordLoginSuccess(
-                principal.getEmployee().getId(), principal.getEmployee().getEmail());
-        String refresh = refreshTokenService.issue(principal.getEmployee().getId());
+    protected EmployeeAuthSessionResponse completeLoginSession(
+            EmployeeUserDetails principal, ClientRequestInfo connection) {
+        Long employeeId = principal.getEmployee().getId();
+        refreshTokenService.clearStaleSessionIfNeeded(employeeId);
+        if (refreshTokenService.hasActiveSession(employeeId)) {
+            ClientRequestInfo active = refreshTokenService.activeSessionInfo(employeeId);
+            throw new SessionAlreadyActiveException(active.clientIp(), active.clientHostname());
+        }
+        auditService.recordLoginSuccess(employeeId, principal.getEmployee().getEmail());
+        String refresh = refreshTokenService.issue(employeeId, connection);
         return buildSession(principal, refresh);
     }
 
@@ -232,7 +240,7 @@ public class EmployeeAuthService {
                 employeeRepository
                         .findByIdWithRoles(employee.getId())
                         .orElseThrow(() -> new IllegalStateException("Empleado no recargado tras guardar"));
-        return completeLoginSession(new EmployeeUserDetails(loaded));
+        return completeLoginSession(new EmployeeUserDetails(loaded), ClientRequestInfo.from(null));
     }
 
     private static String normalizeLoginUsername(String raw) {
@@ -249,10 +257,11 @@ public class EmployeeAuthService {
     }
 
     @Transactional
-    public EmployeeAuthSessionResponse refreshSession(RefreshTokenRequest request) {
+    public EmployeeAuthSessionResponse refreshSession(
+            RefreshTokenRequest request, ClientRequestInfo connection) {
         EmployeeUserDetails principal =
-                refreshTokenService.validateAndRevokeForRotation(request.refreshToken());
-        String newRefresh = refreshTokenService.issue(principal.getEmployee().getId());
+                refreshTokenService.validateAndRevokeForRotation(request.refreshToken(), connection);
+        String newRefresh = refreshTokenService.issue(principal.getEmployee().getId(), connection);
         return buildSession(principal, newRefresh);
     }
 

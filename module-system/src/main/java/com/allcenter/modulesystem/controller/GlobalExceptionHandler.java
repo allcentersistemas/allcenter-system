@@ -1,6 +1,7 @@
 package com.allcenter.modulesystem.controller;
 
 import com.allcenter.modulesystem.exception.ApiException;
+import com.allcenter.modulesystem.exception.SessionAlreadyActiveException;
 import com.allcenter.modulesystem.dto.ApiErrorResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.LinkedHashMap;
@@ -35,6 +36,20 @@ public class GlobalExceptionHandler {
                 .body(
                         ApiErrorResponse.build(
                                 request, ex.getStatus(), ex.getCode(), ex.getMessage()));
+    }
+
+    @ExceptionHandler(SessionAlreadyActiveException.class)
+    public ResponseEntity<ApiErrorResponse> handleSessionAlreadyActive(
+            SessionAlreadyActiveException ex, HttpServletRequest request) {
+        logApiError(ex.getStatus(), ex, request, false);
+        return ResponseEntity.status(ex.getStatus())
+                .body(
+                        ApiErrorResponse.build(
+                                request,
+                                ex.getStatus(),
+                                ex.getCode(),
+                                ex.getMessage(),
+                                ex.getDetails()));
     }
 
     @ExceptionHandler(MaxUploadSizeExceededException.class)

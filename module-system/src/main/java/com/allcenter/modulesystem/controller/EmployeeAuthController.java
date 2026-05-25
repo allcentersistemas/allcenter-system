@@ -12,6 +12,8 @@ import com.allcenter.modulesystem.dto.VerifyPasswordRequest;
 import com.allcenter.modulesystem.security.EmployeeUserDetails;
 import com.allcenter.modulesystem.repository.EmployeeRepository;
 import com.allcenter.modulesystem.service.EmployeeAuthService;
+import com.allcenter.modulesystem.support.ClientRequestInfo;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -52,8 +54,9 @@ public class EmployeeAuthController {
     }
 
     @PostMapping("/login")
-    public ResponseEntity<EmployeeAuthSessionResponse> login(@Valid @RequestBody LoginRequest request) {
-        return ResponseEntity.ok(authService.login(request));
+    public ResponseEntity<EmployeeAuthSessionResponse> login(
+            @Valid @RequestBody LoginRequest request, HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(authService.login(request, ClientRequestInfo.from(httpRequest)));
     }
 
     @PostMapping("/register")
@@ -63,8 +66,9 @@ public class EmployeeAuthController {
     }
 
     @PostMapping("/refresh")
-    public ResponseEntity<EmployeeAuthSessionResponse> refresh(@Valid @RequestBody RefreshTokenRequest request) {
-        return ResponseEntity.ok(authService.refreshSession(request));
+    public ResponseEntity<EmployeeAuthSessionResponse> refresh(
+            @Valid @RequestBody RefreshTokenRequest request, HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(authService.refreshSession(request, ClientRequestInfo.from(httpRequest)));
     }
 
     @PostMapping("/logout")
