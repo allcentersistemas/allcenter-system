@@ -5,13 +5,12 @@ import lombok.Getter;
 import lombok.Setter;
 
 import java.time.LocalDateTime;
-import java.util.Date;
 
 @Entity
-@Table(name = "proyecto")
+@Table(name = "proyecto_optimizacion")
 @Getter
 @Setter
-public class Proyecto {
+public class ProyectoOptimizacion {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -35,5 +34,8 @@ public class Proyecto {
 
     @Column(name = "descripcion")
     private String descripcion;
+
+    @Column(name = "client_user_id")
+    private Long clientUserId;
 
 }

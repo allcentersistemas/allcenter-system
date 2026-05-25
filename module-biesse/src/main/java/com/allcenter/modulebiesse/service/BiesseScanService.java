@@ -60,6 +60,7 @@ public class BiesseScanService {
                         + req.scannedQuantity() + ", Diferencia=" + difference + ", Metodo=" + method,
                 method,
                 req.equipment());
+        repository.syncOrderScanProgress(orderId);
         repository.completeOrderIfNeeded(orderId, employeeId);
 
         return new ScanResultResponse(true, "Part scanned successfully with method " + method);
@@ -102,6 +103,8 @@ public class BiesseScanService {
         if (order == null) {
             throw new ResponseStatusException(NOT_FOUND, "Order not found");
         }
+        repository.syncOrderScanProgress(orderId);
+        order = repository.findOrderById(orderId);
         List<Map<String, Object>> parts = repository.findOrderParts(orderId);
         List<Map<String, Object>> pieces = repository.findOrderPieces(orderId);
 

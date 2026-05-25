@@ -174,6 +174,9 @@ public class BiesseScanRepository {
                 "Pieza " + pieceId + " escaneada de parte " + pieceInfo.get("partcode"),
                 "AUTOMATICO",
                 equipment);
+        Long orderId = ((Number) pieceInfo.get("orderid")).longValue();
+        syncOrderScanProgress(orderId);
+        completeOrderIfNeeded(orderId, employeeId);
         return true;
     }
 
@@ -201,6 +204,43 @@ public class BiesseScanRepository {
                         employeeId);
         return new UserScanStatsResponse(
                 totalScanned, scannedToday, scannedWeek, scannedMonth, totalDifference, contributedOrders);
+    }
+
+    /**
+     * Recalcula contadores y estado de escaneo de la orden (PENDIENTE → EN_PROCESO → COMPLETADA).
+     * No borra fecha_completado si la orden ya estaba completada.
+     */
+    public void syncOrderScanProgress(Long orderId) {
+        Map<String, Object> stats = findOrderPartStats(orderId);
+        long total = ((Number) stats.get("total")).longValue();
+        if (total <= 0) {
+            return;
+        }
+        long escaneadas = ((Number) stats.get("escaneadas")).longValue();
+        double pct = Math.min(100.0, (escaneadas * 100.0) / total);
+        String estado;
+        if (escaneadas >= total) {
+            estado = "COMPLETADA";
+        } else if (escaneadas > 0) {
+            estado = "EN_PROCESO";
+        } else {
+            estado = "PENDIENTE";
+        }
+        jdbcTemplate.update(
+                """
+                UPDATE ordenes
+                SET partes_escaneadas = ?,
+                    partes_totales = ?,
+                    porcentaje_completado = ?,
+                    estado_escaneo = ?,
+                    fecha_modificacion = CURRENT_TIMESTAMP
+                WHERE orderid = ?
+                """,
+                escaneadas,
+                total,
+                pct,
+                estado,
+                orderId);
     }
 
     public void completeOrderIfNeeded(Long orderId, Long employeeId) {

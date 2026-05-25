@@ -45,7 +45,7 @@ Un solo `.env` y `docker-compose.yml` en la raíz. Producción: `https://app.all
 ## IntelliJ IDEA
 
 1. **File → Open** → carpeta `allcenter-system` (o el `pom.xml` raíz).
-2. Clic derecho en el proyecto → **Maven → Reload project**.
+2. Clic derecho en el proyectoOptimizacion → **Maven → Reload project**.
 3. Run configuration: `ModuleSystemApplication` (módulo `module-system`).
 
 Si ves módulos fantasma de la estructura antigua, borra caché: **File → Invalidate Caches**.

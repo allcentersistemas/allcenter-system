@@ -1,8 +1,10 @@
 package com.allcenter.modulesystem.service;
 
+import com.allcenter.modulesystem.model.ClientUser;
 import com.allcenter.modulesystem.model.Orden;
 import com.allcenter.modulesystem.model.OrdenDetalle;
-import com.allcenter.modulesystem.model.Proyecto;
+import com.allcenter.modulesystem.model.ProyectoOptimizacion;
+import com.allcenter.modulesystem.repository.ClientUserRepository;
 import com.allcenter.modulesystem.repository.OrdenDetalleRepository;
 import com.allcenter.modulesystem.repository.OrdenRepository;
 import com.allcenter.modulesystem.repository.ProyectoRepository;
@@ -24,63 +26,173 @@ public class OrderPersistenceService {
     private final ProyectoRepository proyectoRepository;
     private final OrdenRepository ordenRepository;
     private final OrdenDetalleRepository ordenDetalleRepository;
+    private final ClientUserRepository clientUserRepository;
     private final ObjectMapper objectMapper;
 
     public OrderPersistenceService(
             ProyectoRepository proyectoRepository,
             OrdenRepository ordenRepository,
             OrdenDetalleRepository ordenDetalleRepository,
+            ClientUserRepository clientUserRepository,
             ObjectMapper objectMapper
     ) {
         this.proyectoRepository = proyectoRepository;
         this.ordenRepository = ordenRepository;
         this.ordenDetalleRepository = ordenDetalleRepository;
+        this.clientUserRepository = clientUserRepository;
         this.objectMapper = objectMapper;
     }
 
     @Transactional
     public OrderDtos.ProyectoConOrdenesResponse saveProjectTree(OrderDtos.ProyectoCompuestoPayload payload) {
+        return saveProjectTreeInternal(null, payload);
+    }
+
+    @Transactional
+    public OrderDtos.ProyectoConOrdenesResponse saveProjectTreeForClient(
+            long clientUserId, OrderDtos.ProyectoCompuestoPayload payload) {
+        return saveProjectTreeInternal(clientUserId, payload);
+    }
+
+    @Transactional(readOnly = true)
+    public List<OrderDtos.ProyectoResumenResponse> listProjectsForClient(long clientUserId) {
+        return proyectoRepository.findByClientUserIdOrderByFechacreacionDesc(clientUserId).stream()
+                .map(
+                        p ->
+                                new OrderDtos.ProyectoResumenResponse(
+                                        p.getId(),
+                                        p.getCodigoproyecto(),
+                                        p.getNombre(),
+                                        p.getReferencia(),
+                                        p.getDescripcion(),
+                                        p.getFechacreacion(),
+                                        ordenRepository.findByProyectoOptimizacionId_IdOrderByIdAsc(p.getId()).size()))
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public OrderDtos.ProyectoConOrdenesResponse getProjectTreeForClient(long clientUserId, Long proyectoId) {
+        ProyectoOptimizacion proyecto = requireOwnedProject(clientUserId, proyectoId);
+        return getProjectTree(proyecto.getId());
+    }
+
+    private OrderDtos.ProyectoConOrdenesResponse saveProjectTreeInternal(
+            Long clientUserId, OrderDtos.ProyectoCompuestoPayload payload) {
         if (payload == null || payload.project() == null) {
             throw new IllegalArgumentException("La información del proyecto es obligatoria");
         }
-        OrderDtos.ProyectoResponse proyecto = saveProyecto(payload.project());
-        if (payload.orders() != null) {
-            for (OrderDtos.OrdenCompuestaPayload order : payload.orders()) {
-                OrderDtos.OrdenResponse created = saveOrden(
-                        proyecto.id(),
-                        new OrderDtos.OrdenPayload(order.codigo(), order.descripcion())
-                );
-                replaceDetalles(created.id(), order.detalles());
+        OrderDtos.ProyectoResponse proyecto;
+        if (payload.projectId() != null) {
+            if (clientUserId == null) {
+                throw new IllegalArgumentException("No se puede actualizar un proyecto sin contexto de cliente");
+            }
+            proyecto = updateProyectoForClient(clientUserId, payload.projectId(), payload.project());
+            replaceProjectOrders(proyecto.id(), payload.orders());
+        } else {
+            proyecto = saveProyecto(payload.project(), clientUserId);
+            if (payload.orders() != null) {
+                for (OrderDtos.OrdenCompuestaPayload order : payload.orders()) {
+                    OrderDtos.OrdenResponse created = saveOrden(
+                            proyecto.id(),
+                            new OrderDtos.OrdenPayload(order.codigo(), order.descripcion()));
+                    replaceDetalles(created.id(), order.detalles());
+                }
             }
         }
         return getProjectTree(proyecto.id());
     }
 
-    @Transactional
-    public OrderDtos.ProyectoResponse saveProyecto(OrderDtos.ProyectoPayload payload) {
+    private void replaceProjectOrders(Long proyectoId, List<OrderDtos.OrdenCompuestaPayload> orders) {
+        List<Orden> existing = ordenRepository.findByProyectoOptimizacionId_IdOrderByIdAsc(proyectoId);
+        for (Orden orden : existing) {
+            ordenDetalleRepository.deleteByOrdenId_Id(orden.getId());
+        }
+        ordenRepository.deleteByProyectoOptimizacionId_Id(proyectoId);
+        if (orders == null) {
+            return;
+        }
+        for (OrderDtos.OrdenCompuestaPayload order : orders) {
+            OrderDtos.OrdenResponse created =
+                    saveOrden(proyectoId, new OrderDtos.OrdenPayload(order.codigo(), order.descripcion()));
+            replaceDetalles(created.id(), order.detalles());
+        }
+    }
+
+    private OrderDtos.ProyectoResponse updateProyectoForClient(
+            long clientUserId, Long proyectoId, OrderDtos.ProyectoPayload payload) {
+        ProyectoOptimizacion proyecto = requireOwnedProject(clientUserId, proyectoId);
         if (payload == null || payload.nombre() == null || payload.nombre().isBlank()) {
             throw new IllegalArgumentException("El nombre del proyecto es obligatorio");
         }
-        Proyecto proyecto = new Proyecto();
         proyecto.setNombre(payload.nombre().trim());
-        proyecto.setCliente(valueOrNull(payload.cliente()));
+        proyecto.setCliente(resolveClienteLabel(clientUserId, payload.cliente()));
         proyecto.setReferencia(valueOrNull(payload.referencia()));
         proyecto.setDescripcion(valueOrNull(payload.descripcion()));
-        proyecto.setFechacreacion(LocalDateTime.now());
-        proyecto.setCodigoproyecto(System.currentTimeMillis());
-        Proyecto saved = proyectoRepository.save(proyecto);
+        return toProyectoResponse(proyectoRepository.save(proyecto));
+    }
+
+    private ProyectoOptimizacion requireOwnedProject(long clientUserId, Long proyectoId) {
+        ProyectoOptimizacion proyecto =
+                proyectoRepository
+                        .findById(proyectoId)
+                        .orElseThrow(() -> new EntityNotFoundException("Proyecto no encontrado"));
+        if (proyecto.getClientUserId() == null || !proyecto.getClientUserId().equals(clientUserId)) {
+            throw new EntityNotFoundException("Proyecto no encontrado");
+        }
+        return proyecto;
+    }
+
+    private String resolveClienteLabel(long clientUserId, String payloadCliente) {
+        if (payloadCliente != null && !payloadCliente.isBlank()) {
+            return payloadCliente.trim();
+        }
+        ClientUser client =
+                clientUserRepository
+                        .findById(clientUserId)
+                        .orElseThrow(() -> new EntityNotFoundException("Cliente no encontrado"));
+        if (client.isJuridica() && client.getRazonSocial() != null && !client.getRazonSocial().isBlank()) {
+            return client.getRazonSocial().trim();
+        }
+        if (client.getDisplayName() != null && !client.getDisplayName().isBlank()) {
+            return client.getDisplayName().trim();
+        }
+        return client.getEmail();
+    }
+
+    @Transactional
+    public OrderDtos.ProyectoResponse saveProyecto(OrderDtos.ProyectoPayload payload) {
+        return saveProyecto(payload, null);
+    }
+
+    private OrderDtos.ProyectoResponse saveProyecto(OrderDtos.ProyectoPayload payload, Long clientUserId) {
+        if (payload == null || payload.nombre() == null || payload.nombre().isBlank()) {
+            throw new IllegalArgumentException("El nombre del proyecto es obligatorio");
+        }
+        ProyectoOptimizacion proyectoOptimizacion = new ProyectoOptimizacion();
+        proyectoOptimizacion.setNombre(payload.nombre().trim());
+        if (clientUserId != null) {
+            proyectoOptimizacion.setCliente(resolveClienteLabel(clientUserId, payload.cliente()));
+            proyectoOptimizacion.setClientUserId(clientUserId);
+        } else {
+            proyectoOptimizacion.setCliente(valueOrNull(payload.cliente()));
+        }
+        proyectoOptimizacion.setReferencia(valueOrNull(payload.referencia()));
+        proyectoOptimizacion.setDescripcion(valueOrNull(payload.descripcion()));
+        proyectoOptimizacion.setFechacreacion(LocalDateTime.now());
+        proyectoOptimizacion.setCodigoproyecto(System.currentTimeMillis());
+        ProyectoOptimizacion saved = proyectoRepository.save(proyectoOptimizacion);
         return toProyectoResponse(saved);
     }
 
     @Transactional
     public OrderDtos.OrdenResponse saveOrden(Long proyectoId, OrderDtos.OrdenPayload payload) {
-        Proyecto proyecto = proyectoRepository.findById(proyectoId)
+        ProyectoOptimizacion proyectoOptimizacion = proyectoRepository.findById(proyectoId)
                 .orElseThrow(() -> new EntityNotFoundException("Proyecto no encontrado"));
         if (payload == null || payload.codigo() == null || payload.codigo().isBlank()) {
             throw new IllegalArgumentException("El código de la orden es obligatorio");
         }
         Orden orden = new Orden();
-        orden.setProyectoId(proyecto);
+        orden.setProyectoOptimizacionId(proyectoOptimizacion);
         orden.setOrderCode(payload.codigo().trim());
         orden.setDescripcion(valueOrNull(payload.descripcion()));
         orden.setOrderName(payload.codigo().trim());
@@ -105,10 +217,11 @@ public class OrderPersistenceService {
 
     @Transactional(readOnly = true)
     public OrderDtos.ProyectoConOrdenesResponse getProjectTree(Long proyectoId) {
-        Proyecto proyecto = proyectoRepository.findById(proyectoId)
+        ProyectoOptimizacion proyectoOptimizacion = proyectoRepository.findById(proyectoId)
                 .orElseThrow(() -> new EntityNotFoundException("Proyecto no encontrado"));
 
-        List<OrderDtos.OrdenConDetallesResponse> orders = ordenRepository.findByProyectoId_IdOrderByIdAsc(proyectoId)
+        List<OrderDtos.OrdenConDetallesResponse> orders =
+                ordenRepository.findByProyectoOptimizacionId_IdOrderByIdAsc(proyectoId)
                 .stream()
                 .map(orden -> {
                     List<OrderDtos.DetalleResponse> detalles = ordenDetalleRepository.findByOrdenId_IdOrderByIdAsc(orden.getId())
@@ -117,32 +230,32 @@ public class OrderPersistenceService {
                             .toList();
                     return new OrderDtos.OrdenConDetallesResponse(
                             orden.getId(),
-                            orden.getProyectoId().getId(),
+                            orden.getProyectoOptimizacionId().getId(),
                             orden.getOrderCode(),
                             orden.getDescripcion(),
                             detalles
                     );
                 }).toList();
 
-        return new OrderDtos.ProyectoConOrdenesResponse(toProyectoResponse(proyecto), orders);
+        return new OrderDtos.ProyectoConOrdenesResponse(toProyectoResponse(proyectoOptimizacion), orders);
     }
 
-    private OrderDtos.ProyectoResponse toProyectoResponse(Proyecto proyecto) {
+    private OrderDtos.ProyectoResponse toProyectoResponse(ProyectoOptimizacion proyectoOptimizacion) {
         return new OrderDtos.ProyectoResponse(
-                proyecto.getId(),
-                proyecto.getCodigoproyecto(),
-                proyecto.getNombre(),
-                proyecto.getCliente(),
-                proyecto.getReferencia(),
-                proyecto.getDescripcion(),
-                proyecto.getFechacreacion()
+                proyectoOptimizacion.getId(),
+                proyectoOptimizacion.getCodigoproyecto(),
+                proyectoOptimizacion.getNombre(),
+                proyectoOptimizacion.getCliente(),
+                proyectoOptimizacion.getReferencia(),
+                proyectoOptimizacion.getDescripcion(),
+                proyectoOptimizacion.getFechacreacion()
         );
     }
 
     private OrderDtos.OrdenResponse toOrdenResponse(Orden orden) {
         return new OrderDtos.OrdenResponse(
                 orden.getId(),
-                orden.getProyectoId().getId(),
+                orden.getProyectoOptimizacionId().getId(),
                 orden.getOrderCode(),
                 orden.getDescripcion()
         );

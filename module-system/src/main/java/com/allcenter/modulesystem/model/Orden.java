@@ -26,5 +26,5 @@ public class Orden {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "proyectoid", nullable = false)
-    private Proyecto proyectoId;
+    private ProyectoOptimizacion proyectoOptimizacionId;
 }

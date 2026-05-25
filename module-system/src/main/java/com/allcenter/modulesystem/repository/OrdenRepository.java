@@ -6,5 +6,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.List;
 
 public interface OrdenRepository extends JpaRepository<Orden, Long> {
-    List<Orden> findByProyectoId_IdOrderByIdAsc(Long proyectoId);
+    List<Orden> findByProyectoOptimizacionId_IdOrderByIdAsc(Long proyectoId);
+
+    void deleteByProyectoOptimizacionId_Id(Long proyectoId);
 }

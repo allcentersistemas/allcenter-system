@@ -49,8 +49,20 @@ public final class OrderDtos {
     }
 
     public record ProyectoCompuestoPayload(
+            Long projectId,
             ProyectoPayload project,
             List<OrdenCompuestaPayload> orders
+    ) {
+    }
+
+    public record ProyectoResumenResponse(
+            Long id,
+            Long codigoProyecto,
+            String nombre,
+            String referencia,
+            String descripcion,
+            LocalDateTime fechaCreacion,
+            int cantidadOrdenes
     ) {
     }
 
