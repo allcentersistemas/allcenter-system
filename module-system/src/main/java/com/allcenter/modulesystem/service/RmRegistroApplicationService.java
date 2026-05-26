@@ -75,8 +75,12 @@ public class RmRegistroApplicationService {
         RmPayloadModels.EntradaPayload payload = readJson(dataJsonBytes, RmPayloadModels.EntradaPayload.class);
         validateEntradaPayload(payload);
         if (Boolean.TRUE.equals(payload.recepcionConformidadCerrada())) {
-            requireChoferValidacionPassword(
-                    payload.choferValidacionEmpleadoId(), payload.confirmPassword(), "recepción");
+            requireChoferValidacion(
+                    payload.validacionExterna(),
+                    payload.choferValidacionEmpleadoId(),
+                    payload.choferValidacionNombre(),
+                    payload.confirmPassword(),
+                    "recepción");
         }
         RmRegistroVehiculo vehiculo = vehiculoRepository
                 .findById(payload.registroVehiculoId())
@@ -100,6 +104,7 @@ public class RmRegistroApplicationService {
         ent.setTipoDocumento("AMBOS");
         ent.setOcNumero(trimMax(payload.ocNumero(), 128));
         ent.setGuiaNumero(trimMax(payload.guiaNumero(), 128));
+        ent.setProveedor(resolveProveedor(payload.proveedor()));
         ent.setCreatedByEmail(trimMaxNullable(createdByEmail, 320));
         ent.setDocumentoPhotoFilenamesJson("[]");
 
@@ -111,8 +116,9 @@ public class RmRegistroApplicationService {
             ent.setRecepcionEstado("VALIDADO");
             ent.setValidadoAt(Instant.now());
             ent.setValidadoPorEmail(trimMaxNullable(createdByEmail, 320));
-            ent.setChoferValidacionEmpleadoId(payload.choferValidacionEmpleadoId());
-            ent.setChoferValidacionNombre(trimMaxNullable(payload.choferValidacionNombre(), 256));
+            ent.setChoferValidacionEmpleadoId(
+                    Boolean.TRUE.equals(payload.validacionExterna()) ? null : payload.choferValidacionEmpleadoId());
+            ent.setChoferValidacionNombre(trimMaxNullable(formatValidacionNombre(payload), 256));
         }
 
         ent.setObservaciones(trimMaxNullable(payload.observaciones(), 4000));
@@ -189,8 +195,12 @@ public class RmRegistroApplicationService {
         RmPayloadModels.SalidaPayload payload = readJson(dataJsonBytes, RmPayloadModels.SalidaPayload.class);
         validateSalidaPayload(payload);
         if (Boolean.TRUE.equals(payload.salidaConformidadCerrada())) {
-            requireChoferValidacionPassword(
-                    payload.choferValidacionEmpleadoId(), payload.confirmPassword(), "salida");
+            requireChoferValidacion(
+                    payload.validacionExterna(),
+                    payload.choferValidacionEmpleadoId(),
+                    payload.choferValidacionNombre(),
+                    payload.confirmPassword(),
+                    "salida");
         }
         return persistSalida(payload, photos, createdByEmail, actorBranchId, null);
     }
@@ -210,8 +220,12 @@ public class RmRegistroApplicationService {
         requireTipoRegistro(veh, TIPO_REGISTRO_SALIDA);
         validateSalidaPayload(salPayload);
         if (Boolean.TRUE.equals(salPayload.salidaConformidadCerrada())) {
-            requireChoferValidacionPassword(
-                    salPayload.choferValidacionEmpleadoId(), salPayload.confirmPassword(), "salida");
+            requireChoferValidacion(
+                    salPayload.validacionExterna(),
+                    salPayload.choferValidacionEmpleadoId(),
+                    salPayload.choferValidacionNombre(),
+                    salPayload.confirmPassword(),
+                    "salida");
         }
 
         List<MultipartFile> plist = RmMultipartUtil.normalizePhotos(photos);
@@ -253,11 +267,16 @@ public class RmRegistroApplicationService {
         sal.setFecha(LocalDate.parse(payload.fecha().trim()));
         sal.setHoraCabecera(trimMax(payload.hora(), 16));
         sal.setOrigen(resolveOrigenSucursal(actorBranchId));
-        sal.setTransporteId(payload.transporteId());
+        if (payload.transporteId() != null && payload.transporteId() > 0) {
+            sal.setTransporteId(payload.transporteId());
+        }
         sal.setGuiaInventarioId(payload.guiaInventarioId());
         sal.setCreatedByEmail(trimMaxNullable(createdByEmail, 320));
-        sal.setChoferSalidaEmpleadoId(payload.choferSalidaEmpleadoId());
+        if (payload.choferSalidaEmpleadoId() != null && payload.choferSalidaEmpleadoId() > 0) {
+            sal.setChoferSalidaEmpleadoId(payload.choferSalidaEmpleadoId());
+        }
         sal.setChoferSalidaNombre(trimMaxNullable(payload.choferSalidaNombre(), 256));
+        sal.setProveedor(resolveProveedorNullable(payload.proveedor()));
         if (Boolean.TRUE.equals(payload.salidaConformidadCerrada())) {
             if (createdByEmail == null || createdByEmail.isBlank()) {
                 throw new ResponseStatusException(
@@ -266,8 +285,9 @@ public class RmRegistroApplicationService {
             sal.setRecepcionEstado("VALIDADO");
             sal.setValidadoAt(Instant.now());
             sal.setValidadoPorEmail(trimMaxNullable(createdByEmail, 320));
-            sal.setChoferValidacionEmpleadoId(payload.choferValidacionEmpleadoId());
-            sal.setChoferValidacionNombre(trimMaxNullable(payload.choferValidacionNombre(), 256));
+            sal.setChoferValidacionEmpleadoId(
+                    Boolean.TRUE.equals(payload.validacionExterna()) ? null : payload.choferValidacionEmpleadoId());
+            sal.setChoferValidacionNombre(trimMaxNullable(formatValidacionNombre(payload), 256));
         } else {
             sal.setRecepcionEstado(null);
             sal.setValidadoAt(null);
@@ -378,8 +398,12 @@ public class RmRegistroApplicationService {
         requireTipoRegistro(veh, TIPO_REGISTRO_INGRESO);
         validateEntradaPayloadSinVehiculo(entPayload);
         if (Boolean.TRUE.equals(entPayload.recepcionConformidadCerrada())) {
-            requireChoferValidacionPassword(
-                    entPayload.choferValidacionEmpleadoId(), entPayload.confirmPassword(), "recepción");
+            requireChoferValidacion(
+                    entPayload.validacionExterna(),
+                    entPayload.choferValidacionEmpleadoId(),
+                    entPayload.choferValidacionNombre(),
+                    entPayload.confirmPassword(),
+                    "recepción");
         }
 
         List<MultipartFile> plist = RmMultipartUtil.normalizePhotos(photos);
@@ -407,6 +431,7 @@ public class RmRegistroApplicationService {
         ent.setOcNumero(trimMax(entPayload.ocNumero(), 128));
         ent.setGuiaNumero(trimMax(entPayload.guiaNumero(), 128));
         ent.setGuiaInventarioId(entPayload.guiaInventarioId());
+        ent.setProveedor(resolveProveedor(entPayload.proveedor()));
         ent.setCreatedByEmail(trimMaxNullable(createdByEmail, 320));
         ent.setObservaciones(trimMaxNullable(entPayload.observaciones(), 4000));
         ent.setDocumentoPhotoFilenamesJson("[]");
@@ -429,8 +454,12 @@ public class RmRegistroApplicationService {
             ent.setRecepcionEstado("VALIDADO");
             ent.setValidadoAt(Instant.now());
             ent.setValidadoPorEmail(trimMaxNullable(createdByEmail, 320));
-            ent.setChoferValidacionEmpleadoId(entPayload.choferValidacionEmpleadoId());
-            ent.setChoferValidacionNombre(trimMaxNullable(entPayload.choferValidacionNombre(), 256));
+            ent.setChoferValidacionEmpleadoId(
+                    Boolean.TRUE.equals(entPayload.validacionExterna())
+                            ? null
+                            : entPayload.choferValidacionEmpleadoId());
+            ent.setChoferValidacionNombre(
+                    trimMaxNullable(formatValidacionNombre(entPayload), 256));
         }
 
         for (RmPayloadModels.EntradaDetalle d : entPayload.detalles()) {
@@ -511,14 +540,12 @@ public class RmRegistroApplicationService {
         a.setRazonSocialNombre(trimMax(payload.razonSocialNombre(), 512));
         a.setGuiaRemisionNum(trimMaxNullable(payload.guiaRemisionNum(), 128));
         a.setFacturaOrdenCompraNum(trimMaxNullable(payload.facturaOrdenCompraNum(), 128));
-        a.setTransporteId(payload.transporteId());
+        if (payload.transporteId() != null && payload.transporteId() > 0) {
+            a.setTransporteId(payload.transporteId());
+        }
         a.setChoferNombre(trimMaxNullable(payload.choferNombre(), 256));
         a.setTransportistaNombrePlaca(
-                trimMaxNullable(
-                        payload.transportistaNombrePlaca() != null
-                                ? payload.transportistaNombrePlaca()
-                                : buildActaTransportistaLabel(payload.transporteId(), payload.choferNombre()),
-                        512));
+                trimMaxNullable(resolveActaTransportistaLabel(payload), 512));
         try {
             a.setTiposJson(objectMapper.writeValueAsString(payload.tipos() == null ? List.of() : payload.tipos()));
         } catch (RuntimeException e) {
@@ -648,6 +675,43 @@ public class RmRegistroApplicationService {
         }
     }
 
+    private void requireChoferValidacion(
+            Boolean validacionExterna,
+            Long choferEmpleadoId,
+            String choferValidacionNombre,
+            String confirmPassword,
+            String flowLabel) {
+        if (Boolean.TRUE.equals(validacionExterna)) {
+            requireValidacionExternaNombre(choferValidacionNombre, flowLabel);
+            return;
+        }
+        requireChoferValidacionPassword(choferEmpleadoId, confirmPassword, flowLabel);
+        if (choferValidacionNombre == null || choferValidacionNombre.isBlank()) {
+            throw new ResponseStatusException(BAD_REQUEST, "Nombre de chofer que valida obligatorio");
+        }
+    }
+
+    private static void requireValidacionExternaNombre(String choferValidacionNombre, String flowLabel) {
+        if (choferValidacionNombre == null || choferValidacionNombre.isBlank()) {
+            throw new ResponseStatusException(
+                    BAD_REQUEST, "Nombre de la persona externa que valida es obligatorio para cerrar la " + flowLabel);
+        }
+    }
+
+    private static String formatValidacionNombre(RmPayloadModels.EntradaPayload payload) {
+        if (Boolean.TRUE.equals(payload.validacionExterna())) {
+            return "Externo: " + payload.choferValidacionNombre().trim();
+        }
+        return payload.choferValidacionNombre();
+    }
+
+    private static String formatValidacionNombre(RmPayloadModels.SalidaPayload payload) {
+        if (Boolean.TRUE.equals(payload.validacionExterna())) {
+            return "Externo: " + payload.choferValidacionNombre().trim();
+        }
+        return payload.choferValidacionNombre();
+    }
+
     /** Valida la contraseña del chofer seleccionado en conformidad (rol CHOFER en catálogo). */
     private void requireChoferValidacionPassword(Long choferEmpleadoId, String confirmPassword, String flowLabel) {
         if (choferEmpleadoId == null || choferEmpleadoId <= 0) {
@@ -679,11 +743,15 @@ public class RmRegistroApplicationService {
             throw new ResponseStatusException(BAD_REQUEST, "documentoFotosCount invalido");
         }
         if (Boolean.TRUE.equals(payload.recepcionConformidadCerrada())) {
-            if (payload.choferValidacionEmpleadoId() == null || payload.choferValidacionEmpleadoId() <= 0) {
-                throw new ResponseStatusException(BAD_REQUEST, "Chofer que valida (empleado) obligatorio");
-            }
-            if (payload.choferValidacionNombre() == null || payload.choferValidacionNombre().isBlank()) {
-                throw new ResponseStatusException(BAD_REQUEST, "Nombre de chofer que valida obligatorio");
+            if (Boolean.TRUE.equals(payload.validacionExterna())) {
+                requireValidacionExternaNombre(payload.choferValidacionNombre(), "recepción");
+            } else {
+                if (payload.choferValidacionEmpleadoId() == null || payload.choferValidacionEmpleadoId() <= 0) {
+                    throw new ResponseStatusException(BAD_REQUEST, "Chofer que valida (empleado) obligatorio");
+                }
+                if (payload.choferValidacionNombre() == null || payload.choferValidacionNombre().isBlank()) {
+                    throw new ResponseStatusException(BAD_REQUEST, "Nombre de chofer que valida obligatorio");
+                }
             }
         }
         for (RmPayloadModels.EntradaDetalle d : payload.detalles()) {
@@ -749,11 +817,8 @@ public class RmRegistroApplicationService {
         if (payload.hora() == null || payload.hora().isBlank()) {
             throw new ResponseStatusException(BAD_REQUEST, "Hora de cabecera obligatoria");
         }
-        if (payload.transporteId() == null) {
-            throw new ResponseStatusException(BAD_REQUEST, "Debe indicar transporteId del vehículo registrado");
-        }
-        if (payload.choferSalidaEmpleadoId() == null || payload.choferSalidaEmpleadoId() <= 0) {
-            throw new ResponseStatusException(BAD_REQUEST, "Chofer de salida (empleado) obligatorio");
+        if (payload.transporteId() != null && payload.transporteId() <= 0) {
+            // Tratar 0 como sin flota (transporte manual).
         }
         if (payload.choferSalidaNombre() == null || payload.choferSalidaNombre().isBlank()) {
             throw new ResponseStatusException(BAD_REQUEST, "Nombre de chofer de salida obligatorio");
@@ -762,11 +827,15 @@ public class RmRegistroApplicationService {
             throw new ResponseStatusException(BAD_REQUEST, "cabeceraFotosCount invalido");
         }
         if (Boolean.TRUE.equals(payload.salidaConformidadCerrada())) {
-            if (payload.choferValidacionEmpleadoId() == null || payload.choferValidacionEmpleadoId() <= 0) {
-                throw new ResponseStatusException(BAD_REQUEST, "Chofer que valida la salida (empleado) obligatorio");
-            }
-            if (payload.choferValidacionNombre() == null || payload.choferValidacionNombre().isBlank()) {
-                throw new ResponseStatusException(BAD_REQUEST, "Nombre de chofer que valida la salida obligatorio");
+            if (Boolean.TRUE.equals(payload.validacionExterna())) {
+                requireValidacionExternaNombre(payload.choferValidacionNombre(), "salida");
+            } else {
+                if (payload.choferValidacionEmpleadoId() == null || payload.choferValidacionEmpleadoId() <= 0) {
+                    throw new ResponseStatusException(BAD_REQUEST, "Chofer que valida la salida (empleado) obligatorio");
+                }
+                if (payload.choferValidacionNombre() == null || payload.choferValidacionNombre().isBlank()) {
+                    throw new ResponseStatusException(BAD_REQUEST, "Nombre de chofer que valida la salida obligatorio");
+                }
             }
         }
         if (payload.destino() == null || payload.destino().isBlank()) {
@@ -839,12 +908,44 @@ public class RmRegistroApplicationService {
         if (p.fotosCount() < 0) {
             throw new ResponseStatusException(BAD_REQUEST, "fotosCount invalido");
         }
-        if (p.transporteId() == null || p.transporteId() <= 0) {
-            throw new ResponseStatusException(BAD_REQUEST, "Vehiculo de flota (transporte) obligatorio");
+        boolean fleet = p.transporteId() != null && p.transporteId() > 0;
+        boolean manualPlaca = p.placaTransporte() != null && !p.placaTransporte().isBlank();
+        if (!fleet && !manualPlaca) {
+            throw new ResponseStatusException(
+                    BAD_REQUEST, "Indique vehiculo de flota o placa manual del transporte");
         }
         if (p.choferNombre() == null || p.choferNombre().isBlank()) {
             throw new ResponseStatusException(BAD_REQUEST, "Chofer obligatorio");
         }
+    }
+
+    private String resolveActaTransportistaLabel(RmPayloadModels.ActaPayload p) {
+        if (p.transportistaNombrePlaca() != null && !p.transportistaNombrePlaca().isBlank()) {
+            return p.transportistaNombrePlaca().trim();
+        }
+        if (p.transporteId() != null && p.transporteId() > 0) {
+            return buildActaTransportistaLabel(p.transporteId(), p.choferNombre());
+        }
+        String chofer = p.choferNombre() == null ? "" : p.choferNombre().trim();
+        String placa =
+                p.placaTransporte() == null
+                        ? ""
+                        : p.placaTransporte().trim().toUpperCase(Locale.ROOT);
+        return (chofer + " · " + placa).replaceAll("\\s+", " ").trim();
+    }
+
+    private static String resolveProveedor(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return "—";
+        }
+        return trimMax(raw, 16);
+    }
+
+    private static String resolveProveedorNullable(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        return trimMaxNullable(raw, 256);
     }
 
     private String buildActaTransportistaLabel(Long transporteId, String choferNombre) {

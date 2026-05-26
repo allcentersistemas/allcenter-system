@@ -30,4 +30,7 @@ public class Ubicacion {
     @Column
     private String ciudad;
 
+    @Column
+    private String estado;
+
 }

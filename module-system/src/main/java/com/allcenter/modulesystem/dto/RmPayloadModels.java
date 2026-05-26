@@ -49,7 +49,10 @@ public final class RmPayloadModels {
             String choferValidacionNombre,
             List<EntradaDetalle> detalles,
             String observaciones,
-            /** Contraseña del chofer que valida; obligatoria si recepcionConformidadCerrada. */
+            String proveedor,
+            /** Si true, validación por persona externa (sin empleado ni contraseña). */
+            Boolean validacionExterna,
+            /** Contraseña del chofer que valida; obligatoria si recepcionConformidadCerrada y no es externa. */
             String confirmPassword) {
 
         public EntradaPayload(
@@ -79,6 +82,8 @@ public final class RmPayloadModels {
                     choferValidacionEmpleadoId,
                     choferValidacionNombre,
                     detalles,
+                    null,
+                    null,
                     null,
                     confirmPassword);
         }
@@ -119,6 +124,8 @@ public final class RmPayloadModels {
             Long guiaInventarioId,
             List<SalidaDetalle> detalles,
             String observaciones,
+            String proveedor,
+            Boolean validacionExterna,
             String confirmPassword) {
 
         public SalidaPayload(
@@ -155,6 +162,8 @@ public final class RmPayloadModels {
                     guiaInventarioId,
                     detalles,
                     null,
+                    null,
+                    null,
                     confirmPassword);
         }
     }
@@ -182,6 +191,7 @@ public final class RmPayloadModels {
             String guiaRemisionNum,
             String facturaOrdenCompraNum,
             Long transporteId,
+            String placaTransporte,
             String choferNombre,
             String transportistaNombrePlaca,
             List<NcTipo> tipos,

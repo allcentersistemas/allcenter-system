@@ -45,6 +45,9 @@ public class RmRegistroEntrada {
     @Column(nullable = false, length = 16)
     private String hora;
 
+    @Column(nullable = false, length = 16)
+    private String proveedor;
+
     /** OC (orden de compra) o NG (numero de guia). */
     @Column(name = "tipo_documento", nullable = false, length = 8)
     private String tipoDocumento;

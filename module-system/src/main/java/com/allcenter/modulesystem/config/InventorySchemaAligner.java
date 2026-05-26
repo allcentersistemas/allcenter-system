@@ -45,6 +45,7 @@ public class InventorySchemaAligner implements ApplicationRunner {
     private void ensureRmObservacionesAndCategoria() {
         addColumnIfMissing("rm_registro_entrada", "observaciones", "TEXT");
         addColumnIfMissing("rm_registro_salida", "observaciones", "TEXT");
+        addColumnIfMissing("rm_registro_salida", "proveedor", "VARCHAR(256)");
         addColumnIfMissing("rm_registro_entrada_detalle", "categoria_codigo", "VARCHAR(32)");
         addColumnIfMissing("rm_registro_entrada_detalle", "observaciones", "TEXT");
         addColumnIfMissing("rm_registro_salida_detalle", "categoria_codigo", "VARCHAR(32)");

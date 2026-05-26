@@ -67,6 +67,9 @@ public class RmRegistroSalida {
     @Column(name = "orden_compra")
     private String ordenCompra;
 
+    @Column(length = 256)
+    private String proveedor;
+
     private Instant validadoAt;
 
     @Column(length = 320)
