@@ -29,6 +29,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
@@ -125,6 +126,15 @@ public class RmApiController {
         return toEntradaResponse(registroService.getEntrada(id));
     }
 
+    @PostMapping("/registros-entrada/{id}/cancelar")
+    public RmApiModels.Created cancelEntrada(
+            @PathVariable long id,
+            @RequestBody RmPayloadModels.CancelPayload body,
+            HttpServletRequest request) {
+        registroService.cancelRegistroEntrada(id, body, trimHeaderEmail(request));
+        return new RmApiModels.Created(id);
+    }
+
     @PostMapping(value = "/registros-salida", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public RmApiModels.Created postSalida(MultipartHttpServletRequest request) throws IOException {
         MultipartFile data = requireDataPart(request);
@@ -160,6 +170,15 @@ public class RmApiController {
         return toSalidaResponse(registroService.getSalida(id));
     }
 
+    @PostMapping("/registros-salida/{id}/cancelar")
+    public RmApiModels.Created cancelSalida(
+            @PathVariable long id,
+            @RequestBody RmPayloadModels.CancelPayload body,
+            HttpServletRequest request) {
+        registroService.cancelRegistroSalida(id, body, trimHeaderEmail(request));
+        return new RmApiModels.Created(id);
+    }
+
     @PostMapping(value = "/actas-conformidad", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public RmApiModels.Created postActa(MultipartHttpServletRequest request) throws IOException {
         MultipartFile data = requireDataPart(request);
@@ -173,12 +192,25 @@ public class RmApiController {
         return registroService
                 .pageActas(pageable)
                 .map(a -> new RmApiModels.ActaListRow(
-                        a.getId(), a.getRazonSocialNombre(), a.getDecision(), a.getCreatedAt()));
+                        a.getId(),
+                        a.getRazonSocialNombre(),
+                        a.getDecision(),
+                        resolveActaEstado(a.getEstado()),
+                        a.getCreatedAt()));
     }
 
     @GetMapping("/actas-conformidad/{id}")
     public RmApiModels.ActaConformidadResponse getActa(@PathVariable long id) {
         return toActaResponse(registroService.getActa(id));
+    }
+
+    @PostMapping("/actas-conformidad/{id}/cancelar")
+    public RmApiModels.Created cancelActa(
+            @PathVariable long id,
+            @RequestBody RmPayloadModels.CancelPayload body,
+            HttpServletRequest request) {
+        registroService.cancelActaConformidad(id, body, trimHeaderEmail(request));
+        return new RmApiModels.Created(id);
     }
 
     @GetMapping("/media/{kind}/{recordId}/{filename:.+}")
@@ -286,6 +318,9 @@ public class RmApiController {
                 e.getCreatedAt(),
                 e.getCreatedByEmail(),
                 e.getObservaciones(),
+                e.getMotivoCancelacion(),
+                e.getCanceladoAt(),
+                e.getCanceladoPorEmail(),
                 photoUrls(RmMediaKinds.ENTRADA_DOCUMENTO, e.getId(), docNames),
                 detalles);
     }
@@ -328,6 +363,9 @@ public class RmApiController {
                 s.getCreatedAt(),
                 s.getCreatedByEmail(),
                 s.getObservaciones(),
+                s.getMotivoCancelacion(),
+                s.getCanceladoAt(),
+                s.getCanceladoPorEmail(),
                 photoUrls(RmMediaKinds.SALIDA_CABECERA, s.getId(), cabNames),
                 detalles);
     }
@@ -389,9 +427,20 @@ public class RmApiController {
                 a.getDecision(),
                 a.getCantidadConformeUnidades(),
                 a.getObservacionesDecision(),
+                resolveActaEstado(a.getEstado()),
+                a.getMotivoCancelacion(),
+                a.getCanceladoAt(),
+                a.getCanceladoPorEmail(),
                 a.getCreatedAt(),
                 a.getCreatedByEmail(),
                 photoUrls(RmMediaKinds.ACTA, a.getId(), names));
+    }
+
+    private static String resolveActaEstado(String estado) {
+        if (estado == null || estado.isBlank()) {
+            return "REGISTRADA";
+        }
+        return estado.trim();
     }
 
     private static MediaType probeMediaType(String filename) {

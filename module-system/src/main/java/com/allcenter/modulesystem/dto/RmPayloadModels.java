@@ -186,6 +186,9 @@ public final class RmPayloadModels {
     public record NcTipo(String tipo, boolean marcado, String detalle) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
+    public record CancelPayload(String motivo) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record ActaPayload(
             String razonSocialNombre,
             String guiaRemisionNum,

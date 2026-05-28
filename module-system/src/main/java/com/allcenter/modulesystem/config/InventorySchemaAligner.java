@@ -24,6 +24,7 @@ public class InventorySchemaAligner implements ApplicationRunner {
         ensureInvMovementColumns();
         ensurePaleSucursal();
         ensureRmObservacionesAndCategoria();
+        ensureRmCancelColumns();
     }
 
     private void ensureInvMovementColumns() {
@@ -40,6 +41,18 @@ public class InventorySchemaAligner implements ApplicationRunner {
             return;
         }
         addColumnIfMissing("pale", "sucursal_id", "BIGINT");
+    }
+
+    private void ensureRmCancelColumns() {
+        for (String table : new String[] {"rm_registro_entrada", "rm_registro_salida", "rm_acta_conformidad"}) {
+            if (!tableExists(table)) {
+                continue;
+            }
+            addColumnIfMissing(table, "motivo_cancelacion", "TEXT");
+            addColumnIfMissing(table, "cancelado_at", "TIMESTAMP");
+            addColumnIfMissing(table, "cancelado_por_email", "VARCHAR(320)");
+        }
+        addColumnIfMissing("rm_acta_conformidad", "estado", "VARCHAR(32)");
     }
 
     private void ensureRmObservacionesAndCategoria() {

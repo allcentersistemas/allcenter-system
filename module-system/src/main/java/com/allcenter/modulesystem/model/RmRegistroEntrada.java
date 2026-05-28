@@ -98,6 +98,14 @@ public class RmRegistroEntrada {
     private String estadoEntrega;
 
     @Column(columnDefinition = "TEXT")
+    private String motivoCancelacion;
+
+    private Instant canceladoAt;
+
+    @Column(length = 320)
+    private String canceladoPorEmail;
+
+    @Column(columnDefinition = "TEXT")
     private String observaciones;
 
     @Column(nullable = false)

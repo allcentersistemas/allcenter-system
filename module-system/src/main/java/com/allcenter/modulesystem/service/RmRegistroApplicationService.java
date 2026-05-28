@@ -48,6 +48,8 @@ public class RmRegistroApplicationService {
 
     private static final String TIPO_REGISTRO_INGRESO = "ingreso";
     private static final String TIPO_REGISTRO_SALIDA = "salida";
+    private static final String ESTADO_CANCELADO = "CANCELADO";
+    private static final String ESTADO_ACTA_REGISTRADA = "REGISTRADA";
 
     private final ObjectMapper objectMapper;
     private final PhotoFilenameCodec photoFilenameCodec;
@@ -553,6 +555,7 @@ public class RmRegistroApplicationService {
         }
         a.setDescripcionAmpliada(payload.descripcionAmpliada().trim());
         a.setDecision(trimMax(payload.decision(), 64).toUpperCase(Locale.ROOT));
+        a.setEstado(ESTADO_ACTA_REGISTRADA);
         a.setCantidadConformeUnidades(payload.cantidadConformeUnidades());
         a.setObservacionesDecision(trimMaxNullable(payload.observacionesDecision(), 4000));
         a.setCreatedByEmail(trimMaxNullable(createdByEmail, 320));
@@ -582,6 +585,36 @@ public class RmRegistroApplicationService {
         return actaRepository
                 .findById(id)
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Acta no encontrada"));
+    }
+
+    @Transactional
+    public void cancelRegistroEntrada(long id, RmPayloadModels.CancelPayload payload, String actorEmail) {
+        RmRegistroEntrada ent =
+                entradaRepository
+                        .findById(id)
+                        .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Registro de entrada no encontrado"));
+        applyCancelEntrada(ent, payload.motivo(), actorEmail);
+        entradaRepository.save(ent);
+    }
+
+    @Transactional
+    public void cancelRegistroSalida(long id, RmPayloadModels.CancelPayload payload, String actorEmail) {
+        RmRegistroSalida sal =
+                salidaRepository
+                        .findById(id)
+                        .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Registro de salida no encontrado"));
+        applyCancelSalida(sal, payload.motivo(), actorEmail);
+        salidaRepository.save(sal);
+    }
+
+    @Transactional
+    public void cancelActaConformidad(long id, RmPayloadModels.CancelPayload payload, String actorEmail) {
+        RmActaConformidad acta =
+                actaRepository
+                        .findById(id)
+                        .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Acta no encontrada"));
+        applyCancelActa(acta, payload.motivo(), actorEmail);
+        actaRepository.save(acta);
     }
 
     @Transactional(readOnly = true)
@@ -932,6 +965,45 @@ public class RmRegistroApplicationService {
                         ? ""
                         : p.placaTransporte().trim().toUpperCase(Locale.ROOT);
         return (chofer + " · " + placa).replaceAll("\\s+", " ").trim();
+    }
+
+    private void applyCancelEntrada(RmRegistroEntrada ent, String motivo, String actorEmail) {
+        assertNotAlreadyCancelled(ent.getRecepcionEstado());
+        ent.setRecepcionEstado(ESTADO_CANCELADO);
+        ent.setMotivoCancelacion(trimMaxNullable(requireCancelMotivo(motivo), 4000));
+        ent.setCanceladoAt(Instant.now());
+        ent.setCanceladoPorEmail(trimMaxNullable(actorEmail, 320));
+    }
+
+    private void applyCancelSalida(RmRegistroSalida sal, String motivo, String actorEmail) {
+        assertNotAlreadyCancelled(sal.getRecepcionEstado());
+        sal.setRecepcionEstado(ESTADO_CANCELADO);
+        sal.setMotivoCancelacion(trimMaxNullable(requireCancelMotivo(motivo), 4000));
+        sal.setCanceladoAt(Instant.now());
+        sal.setCanceladoPorEmail(trimMaxNullable(actorEmail, 320));
+    }
+
+    private void applyCancelActa(RmActaConformidad acta, String motivo, String actorEmail) {
+        if (ESTADO_CANCELADO.equalsIgnoreCase(String.valueOf(acta.getEstado()))) {
+            throw new ResponseStatusException(BAD_REQUEST, "El acta ya está cancelada");
+        }
+        acta.setEstado(ESTADO_CANCELADO);
+        acta.setMotivoCancelacion(trimMaxNullable(requireCancelMotivo(motivo), 4000));
+        acta.setCanceladoAt(Instant.now());
+        acta.setCanceladoPorEmail(trimMaxNullable(actorEmail, 320));
+    }
+
+    private static void assertNotAlreadyCancelled(String recepcionEstado) {
+        if (ESTADO_CANCELADO.equalsIgnoreCase(String.valueOf(recepcionEstado))) {
+            throw new ResponseStatusException(BAD_REQUEST, "El registro ya está cancelado");
+        }
+    }
+
+    private static String requireCancelMotivo(String motivo) {
+        if (motivo == null || motivo.trim().length() < 3) {
+            throw new ResponseStatusException(BAD_REQUEST, "El motivo de cancelación es obligatorio (mín. 3 caracteres)");
+        }
+        return motivo.trim();
     }
 
     private static String resolveProveedor(String raw) {

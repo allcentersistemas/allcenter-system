@@ -54,6 +54,17 @@ public class RmActaConformidad {
     @Column(nullable = false, length = 64)
     private String decision;
 
+    @Column(length = 32)
+    private String estado;
+
+    @Column(columnDefinition = "TEXT")
+    private String motivoCancelacion;
+
+    private Instant canceladoAt;
+
+    @Column(length = 320)
+    private String canceladoPorEmail;
+
     private Integer cantidadConformeUnidades;
 
     @Column(columnDefinition = "TEXT")

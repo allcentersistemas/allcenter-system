@@ -46,7 +46,8 @@ public final class RmApiModels {
             String marca,
             Instant createdAt) {}
 
-    public record ActaListRow(Long id, String razonSocialNombre, String decision, Instant createdAt) {}
+    public record ActaListRow(
+            Long id, String razonSocialNombre, String decision, String estado, Instant createdAt) {}
 
     public record EntradaDetalleResponse(
             Long id,
@@ -75,6 +76,9 @@ public final class RmApiModels {
             Instant createdAt,
             String createdByEmail,
             String observaciones,
+            String motivoCancelacion,
+            Instant canceladoAt,
+            String canceladoPorEmail,
             List<String> documentoPhotoUrls,
             List<EntradaDetalleResponse> detalles) {}
 
@@ -109,6 +113,9 @@ public final class RmApiModels {
             Instant createdAt,
             String createdByEmail,
             String observaciones,
+            String motivoCancelacion,
+            Instant canceladoAt,
+            String canceladoPorEmail,
             List<String> cabeceraPhotoUrls,
             List<SalidaDetalleResponse> detalles) {}
 
@@ -141,6 +148,10 @@ public final class RmApiModels {
             String decision,
             Integer cantidadConformeUnidades,
             String observacionesDecision,
+            String estado,
+            String motivoCancelacion,
+            Instant canceladoAt,
+            String canceladoPorEmail,
             Instant createdAt,
             String createdByEmail,
             List<String> photoUrls) {}

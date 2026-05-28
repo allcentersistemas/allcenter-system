@@ -31,6 +31,6 @@ public class Ubicacion {
     private String ciudad;
 
     @Column
-    private String estado;
+    private Boolean activo;
 
 }

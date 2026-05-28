@@ -70,6 +70,14 @@ public class RmRegistroSalida {
     @Column(length = 256)
     private String proveedor;
 
+    @Column(columnDefinition = "TEXT")
+    private String motivoCancelacion;
+
+    private Instant canceladoAt;
+
+    @Column(length = 320)
+    private String canceladoPorEmail;
+
     private Instant validadoAt;
 
     @Column(length = 320)
