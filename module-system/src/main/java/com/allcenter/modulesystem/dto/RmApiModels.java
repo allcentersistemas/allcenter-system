@@ -22,6 +22,10 @@ public final class RmApiModels {
             String ocNumero,
             String guiaNumero,
             String recepcionEstado,
+            String motivoCancelacion,
+            Instant canceladoAt,
+            String canceladoPorEmail,
+            String canceladoPorNombre,
             Instant createdAt,
             long lineas) {}
 
@@ -33,6 +37,10 @@ public final class RmApiModels {
             String horaCabecera,
             Long transporteId,
             String recepcionEstado,
+            String motivoCancelacion,
+            Instant canceladoAt,
+            String canceladoPorEmail,
+            String canceladoPorNombre,
             Instant createdAt,
             long lineas) {}
 
@@ -47,7 +55,15 @@ public final class RmApiModels {
             Instant createdAt) {}
 
     public record ActaListRow(
-            Long id, String razonSocialNombre, String decision, String estado, Instant createdAt) {}
+            Long id,
+            String razonSocialNombre,
+            String decision,
+            String estado,
+            String motivoCancelacion,
+            Instant canceladoAt,
+            String canceladoPorEmail,
+            String canceladoPorNombre,
+            Instant createdAt) {}
 
     public record EntradaDetalleResponse(
             Long id,
@@ -79,6 +95,7 @@ public final class RmApiModels {
             String motivoCancelacion,
             Instant canceladoAt,
             String canceladoPorEmail,
+            String canceladoPorNombre,
             List<String> documentoPhotoUrls,
             List<EntradaDetalleResponse> detalles) {}
 
@@ -116,6 +133,7 @@ public final class RmApiModels {
             String motivoCancelacion,
             Instant canceladoAt,
             String canceladoPorEmail,
+            String canceladoPorNombre,
             List<String> cabeceraPhotoUrls,
             List<SalidaDetalleResponse> detalles) {}
 
@@ -152,6 +170,7 @@ public final class RmApiModels {
             String motivoCancelacion,
             Instant canceladoAt,
             String canceladoPorEmail,
+            String canceladoPorNombre,
             Instant createdAt,
             String createdByEmail,
             List<String> photoUrls) {}

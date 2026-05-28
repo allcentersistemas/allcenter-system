@@ -161,6 +161,10 @@ public class RmApiController {
                                         s.getHoraCabecera(),
                                         s.getTransporteId(),
                                         s.getRecepcionEstado(),
+                                        s.getMotivoCancelacion(),
+                                        s.getCanceladoAt(),
+                                        s.getCanceladoPorEmail(),
+                                        s.getCanceladoPorNombre(),
                                         s.getCreatedAt(),
                                         s.getLineas()));
     }
@@ -196,6 +200,10 @@ public class RmApiController {
                         a.getRazonSocialNombre(),
                         a.getDecision(),
                         resolveActaEstado(a.getEstado()),
+                        a.getMotivoCancelacion(),
+                        a.getCanceladoAt(),
+                        a.getCanceladoPorEmail(),
+                        a.getCanceladoPorNombre(),
                         a.getCreatedAt()));
     }
 
@@ -238,6 +246,10 @@ public class RmApiController {
                 e.getOcNumero(),
                 e.getGuiaNumero(),
                 e.getRecepcionEstado(),
+                e.getMotivoCancelacion(),
+                e.getCanceladoAt(),
+                e.getCanceladoPorEmail(),
+                e.getCanceladoPorNombre(),
                 e.getCreatedAt(),
                 e.getLineas());
     }
@@ -321,6 +333,7 @@ public class RmApiController {
                 e.getMotivoCancelacion(),
                 e.getCanceladoAt(),
                 e.getCanceladoPorEmail(),
+                e.getCanceladoPorNombre(),
                 photoUrls(RmMediaKinds.ENTRADA_DOCUMENTO, e.getId(), docNames),
                 detalles);
     }
@@ -366,6 +379,7 @@ public class RmApiController {
                 s.getMotivoCancelacion(),
                 s.getCanceladoAt(),
                 s.getCanceladoPorEmail(),
+                s.getCanceladoPorNombre(),
                 photoUrls(RmMediaKinds.SALIDA_CABECERA, s.getId(), cabNames),
                 detalles);
     }
@@ -431,6 +445,7 @@ public class RmApiController {
                 a.getMotivoCancelacion(),
                 a.getCanceladoAt(),
                 a.getCanceladoPorEmail(),
+                a.getCanceladoPorNombre(),
                 a.getCreatedAt(),
                 a.getCreatedByEmail(),
                 photoUrls(RmMediaKinds.ACTA, a.getId(), names));

@@ -105,6 +105,9 @@ public class RmRegistroEntrada {
     @Column(length = 320)
     private String canceladoPorEmail;
 
+    @Column(length = 255)
+    private String canceladoPorNombre;
+
     @Column(columnDefinition = "TEXT")
     private String observaciones;
 

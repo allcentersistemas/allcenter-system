@@ -7,8 +7,10 @@ import com.allcenter.modulesystem.model.RmRegistroEntrada;
 import com.allcenter.modulesystem.model.RmRegistroEntradaDetalle;
 import com.allcenter.modulesystem.model.RmRegistroSalida;
 import com.allcenter.modulesystem.model.RmRegistroSalidaDetalle;
+import com.allcenter.modulesystem.model.Employee;
 import com.allcenter.modulesystem.model.RmRegistroVehiculo;
 import com.allcenter.modulesystem.model.Sucursal;
+import com.allcenter.modulesystem.repository.EmployeeRepository;
 import com.allcenter.modulesystem.repository.RmActaConformidadRepository;
 import com.allcenter.modulesystem.repository.SucursalRepository;
 import com.allcenter.modulesystem.repository.TransporteRepository;
@@ -61,6 +63,7 @@ public class RmRegistroApplicationService {
     private final RmRegistroVehiculoRepository vehiculoRepository;
     private final GuiaInventoryService guiaInventoryService;
     private final RmActaConformidadRepository actaRepository;
+    private final EmployeeRepository employeeRepository;
     private final EmployeeAuthService employeeAuthService;
     private final SucursalRepository sucursalRepository;
     private final TransporteRepository transporteRepository;
@@ -973,6 +976,7 @@ public class RmRegistroApplicationService {
         ent.setMotivoCancelacion(trimMaxNullable(requireCancelMotivo(motivo), 4000));
         ent.setCanceladoAt(Instant.now());
         ent.setCanceladoPorEmail(trimMaxNullable(actorEmail, 320));
+        ent.setCanceladoPorNombre(trimMaxNullable(resolveCancelActorDisplayName(actorEmail), 255));
     }
 
     private void applyCancelSalida(RmRegistroSalida sal, String motivo, String actorEmail) {
@@ -981,6 +985,7 @@ public class RmRegistroApplicationService {
         sal.setMotivoCancelacion(trimMaxNullable(requireCancelMotivo(motivo), 4000));
         sal.setCanceladoAt(Instant.now());
         sal.setCanceladoPorEmail(trimMaxNullable(actorEmail, 320));
+        sal.setCanceladoPorNombre(trimMaxNullable(resolveCancelActorDisplayName(actorEmail), 255));
     }
 
     private void applyCancelActa(RmActaConformidad acta, String motivo, String actorEmail) {
@@ -991,6 +996,31 @@ public class RmRegistroApplicationService {
         acta.setMotivoCancelacion(trimMaxNullable(requireCancelMotivo(motivo), 4000));
         acta.setCanceladoAt(Instant.now());
         acta.setCanceladoPorEmail(trimMaxNullable(actorEmail, 320));
+        acta.setCanceladoPorNombre(trimMaxNullable(resolveCancelActorDisplayName(actorEmail), 255));
+    }
+
+    private String resolveCancelActorDisplayName(String actorEmail) {
+        if (actorEmail == null || actorEmail.isBlank()) {
+            return null;
+        }
+        String email = actorEmail.trim();
+        return employeeRepository
+                .findByEmailIgnoreCase(email)
+                .map(RmRegistroApplicationService::employeeDisplayName)
+                .orElse(email);
+    }
+
+    private static String employeeDisplayName(Employee e) {
+        String fn = e.getFirstName() == null ? "" : e.getFirstName().trim();
+        String ln = e.getLastName() == null ? "" : e.getLastName().trim();
+        String both = (fn + " " + ln).trim();
+        if (!both.isEmpty()) {
+            return both;
+        }
+        if (e.getEmail() != null && !e.getEmail().isBlank()) {
+            return e.getEmail().trim();
+        }
+        return "ID " + e.getId();
     }
 
     private static void assertNotAlreadyCancelled(String recepcionEstado) {

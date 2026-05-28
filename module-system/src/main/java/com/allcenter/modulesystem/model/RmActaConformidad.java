@@ -65,6 +65,9 @@ public class RmActaConformidad {
     @Column(length = 320)
     private String canceladoPorEmail;
 
+    @Column(length = 255)
+    private String canceladoPorNombre;
+
     private Integer cantidadConformeUnidades;
 
     @Column(columnDefinition = "TEXT")

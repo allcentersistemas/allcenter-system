@@ -51,6 +51,7 @@ public class InventorySchemaAligner implements ApplicationRunner {
             addColumnIfMissing(table, "motivo_cancelacion", "TEXT");
             addColumnIfMissing(table, "cancelado_at", "TIMESTAMP");
             addColumnIfMissing(table, "cancelado_por_email", "VARCHAR(320)");
+            addColumnIfMissing(table, "cancelado_por_nombre", "VARCHAR(255)");
         }
         addColumnIfMissing("rm_acta_conformidad", "estado", "VARCHAR(32)");
     }
