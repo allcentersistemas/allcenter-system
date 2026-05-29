@@ -6,6 +6,7 @@ import com.allcenter.modulesystem.repository.SucursalRepository;
 import com.allcenter.modulesystem.repository.UbicacionRepository;
 import com.allcenter.modulesystem.dto.PaleDtos.ApiMessage;
 import com.allcenter.modulesystem.dto.PaleDtos.CatalogDto;
+import com.allcenter.modulesystem.dto.PaleDtos.CancelPaleRequest;
 import com.allcenter.modulesystem.dto.PaleDtos.ClosePaleRequest;
 import com.allcenter.modulesystem.dto.PaleDtos.CreatePaleRequest;
 import com.allcenter.modulesystem.dto.PaleDtos.CreateSucursalRequest;
@@ -61,6 +62,7 @@ import static org.springframework.http.HttpStatus.NOT_FOUND;
 public class PaleService {
 
     private static final String ESTADO_ENVIO_ESCANEADO = "ESCANEADO";
+    private static final String ESTADO_CANCELADO = "CANCELADO";
 
     private final PaleRepository paleRepository;
     private final PaleDetalleRepository detalleRepository;
@@ -405,6 +407,39 @@ public class PaleService {
         return new ApiMessage(true, "Pale cerrado e inventario actualizado");
     }
 
+    @Transactional
+    public ApiMessage cancelPale(Long paleId, CancelPaleRequest req, String authorization, String actorEmail) {
+        Pale pale = paleRepository.findById(paleId)
+                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Pale no encontrado"));
+        if (ESTADO_CANCELADO.equalsIgnoreCase(String.valueOf(pale.getEstado()))) {
+            return new ApiMessage(true, "El pale ya estaba cancelado");
+        }
+        if (!"ABIERTO".equalsIgnoreCase(pale.getEstado())) {
+            throw new ResponseStatusException(BAD_REQUEST, "Solo se puede cancelar un pale abierto");
+        }
+        if (Boolean.TRUE.equals(pale.getEnGuia())) {
+            throw new ResponseStatusException(BAD_REQUEST, "No se puede cancelar un pale que está en una guía de despacho");
+        }
+        List<PaleDetalle> detalles = detalleRepository.findByPale_IdOrderByFechaAgregadoDesc(paleId);
+        for (PaleDetalle detail : detalles) {
+            unscanPieceInBiesse(authorization, detail.getPiezaId(), pale.getCodigo());
+        }
+        pale.setEstado(ESTADO_CANCELADO);
+        pale.setEstadoEnvio(ESTADO_ENVIO_ESCANEADO);
+        pale.setFechaCierre(LocalDateTime.now());
+        if (req != null && req.notes() != null && !req.notes().isBlank()) {
+            pale.setNotas(req.notes().trim());
+        }
+        paleRepository.save(pale);
+        recordAudit(
+                "CANCEL",
+                "Pale",
+                String.valueOf(pale.getId()),
+                pale,
+                "Pale cancelado; " + detalles.size() + " pieza(s) liberadas");
+        return new ApiMessage(true, "Pale cancelado; piezas liberadas para nuevo escaneo");
+    }
+
     private void refreshPaleSummary(Pale pale) {
         List<PaleDetalle> details = detalleRepository.findByPale_IdOrderByFechaAgregadoDesc(pale.getId());
         pale.setCantidadPiezas(details.size());
@@ -423,6 +458,36 @@ public class PaleService {
      * Marca la pieza como escaneada en module-biesse (tabla piezas). Si falla, la transacción revierte el detalle del
      * palé.
      */
+    private void unscanPieceInBiesse(String authorization, Long pieceId, String paleCode) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set(HttpHeaders.AUTHORIZATION, authorization);
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        Map<String, Object> body = new HashMap<>();
+        body.put("pieceId", pieceId);
+        body.put("observations", "Cancelación de pale " + paleCode);
+        body.put("equipment", "PALLET");
+        HttpEntity<Map<String, Object>> entity = new HttpEntity<>(body, headers);
+        try {
+            ResponseEntity<Map> response =
+                    restTemplate.postForEntity(
+                            biesseBaseUrl + "/api/biesse/scan/pieces/unscan", entity, Map.class);
+            Map<?, ?> resp = response.getBody();
+            if (resp != null && Boolean.FALSE.equals(resp.get("success"))) {
+                throw new ResponseStatusException(
+                        BAD_REQUEST,
+                        resp.get("message") != null ? resp.get("message").toString() : "No se pudo liberar pieza");
+            }
+        } catch (org.springframework.web.client.HttpStatusCodeException ex) {
+            throw new ResponseStatusException(
+                    ex.getStatusCode(),
+                    "No se pudo liberar pieza en module-biesse (piezaId=" + pieceId + ")");
+        } catch (ResponseStatusException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new ResponseStatusException(BAD_REQUEST, "Fallo de comunicacion con module-biesse al liberar pieza");
+        }
+    }
+
     private void registerPieceScanInBiesse(String authorization, Long pieceId, String paleCode) {
         HttpHeaders headers = new HttpHeaders();
         headers.set(HttpHeaders.AUTHORIZATION, authorization);

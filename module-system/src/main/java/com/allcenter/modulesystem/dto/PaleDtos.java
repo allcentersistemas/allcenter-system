@@ -88,6 +88,8 @@ public class PaleDtos {
 
     public record ClosePaleRequest(String notes) {}
 
+    public record CancelPaleRequest(String notes) {}
+
     public record UpdatePaleRequest(String code, String estado, String notes) {}
 
     public record PaleAuditEntryDto(

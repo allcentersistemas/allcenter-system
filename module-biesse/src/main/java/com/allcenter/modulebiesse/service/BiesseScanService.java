@@ -75,6 +75,15 @@ public class BiesseScanService {
         return new ScanResultResponse(true, "Piece scanned successfully");
     }
 
+    @Transactional
+    public ScanResultResponse unscanPiece(Long employeeId, ScanPieceRequest req) {
+        boolean ok = repository.unscanPiece(employeeId, req.pieceId(), req.observations(), req.equipment());
+        if (!ok) {
+            throw new ResponseStatusException(BAD_REQUEST, "Piece not found or not scanned");
+        }
+        return new ScanResultResponse(true, "Piece unscan successful");
+    }
+
     public UserScanStatsResponse getMyStats(Long employeeId) {
         return repository.getUserStats(employeeId);
     }

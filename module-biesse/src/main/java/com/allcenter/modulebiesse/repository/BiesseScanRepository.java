@@ -180,6 +180,86 @@ public class BiesseScanRepository {
         return true;
     }
 
+    public boolean unscanPiece(Long employeeId, Long pieceId, String observations, String equipment) {
+        String pieceSql =
+                """
+                SELECT z.piezaid, p.partid, p.orderid, p.partcode, p.cantidad
+                FROM piezas z
+                JOIN partes p ON z.partid = p.partid
+                WHERE z.piezaid = ?
+                """;
+        Map<String, Object> pieceInfo =
+                jdbcTemplate.query(
+                        pieceSql,
+                        rs -> rs.next() ? Map.of(
+                                "partid", rs.getLong("partid"),
+                                "orderid", rs.getLong("orderid"),
+                                "partcode", rs.getString("partcode"),
+                                "cantidad", rs.getInt("cantidad")) : null,
+                        pieceId);
+        if (pieceInfo == null) {
+            return false;
+        }
+
+        int updatedPiece =
+                jdbcTemplate.update(
+                        """
+                        UPDATE piezas
+                        SET escaneado = FALSE,
+                            fecha_escaneo = NULL,
+                            usuario_modificacion = ?,
+                            fecha_modificacion = CURRENT_TIMESTAMP
+                        WHERE piezaid = ? AND escaneado = TRUE
+                        """,
+                        employeeId,
+                        pieceId);
+        if (updatedPiece == 0) {
+            return false;
+        }
+
+        Long partId = ((Number) pieceInfo.get("partid")).longValue();
+        Integer scheduledQty = (Integer) pieceInfo.get("cantidad");
+        Integer scannedQty =
+                jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM piezas WHERE partid = ? AND escaneado = TRUE",
+                        Integer.class,
+                        partId);
+        int effectiveScanned = scannedQty == null ? 0 : scannedQty;
+        boolean completed = scheduledQty != null && scheduledQty > 0 && effectiveScanned >= scheduledQty;
+
+        jdbcTemplate.update(
+                """
+                UPDATE partes
+                SET cantidad_escaneada = ?,
+                    diferencia_cantidad = ? - COALESCE(cantidad, 0),
+                    escaneado = ?,
+                    usuario_modificacion = ?,
+                    observaciones_escaneo = COALESCE(?, observaciones_escaneo),
+                    equipo_escaneo = COALESCE(?, equipo_escaneo),
+                    fecha_modificacion = CURRENT_TIMESTAMP
+                WHERE partid = ?
+                """,
+                effectiveScanned,
+                effectiveScanned,
+                completed,
+                employeeId,
+                observations,
+                equipment,
+                partId);
+
+        insertScanAudit(
+                employeeId,
+                ((Number) pieceInfo.get("orderid")).longValue(),
+                partId,
+                "DESAESCANEAR_PIEZA",
+                "Pieza " + pieceId + " liberada de parte " + pieceInfo.get("partcode"),
+                "AUTOMATICO",
+                equipment);
+        Long orderId = ((Number) pieceInfo.get("orderid")).longValue();
+        syncOrderScanProgress(orderId);
+        return true;
+    }
+
     public UserScanStatsResponse getUserStats(Long employeeId) {
         long totalScanned = count("SELECT COUNT(*) FROM partes WHERE usuario_modificacion = ? AND escaneado = TRUE", employeeId);
         long scannedToday =

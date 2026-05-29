@@ -2,6 +2,7 @@ package com.allcenter.modulesystem.controller;
 
 import com.allcenter.modulesystem.dto.PaleDtos.ApiMessage;
 import com.allcenter.modulesystem.dto.PaleDtos.CatalogDto;
+import com.allcenter.modulesystem.dto.PaleDtos.CancelPaleRequest;
 import com.allcenter.modulesystem.dto.PaleDtos.ClosePaleRequest;
 import com.allcenter.modulesystem.dto.PaleDtos.CreatePaleRequest;
 import com.allcenter.modulesystem.dto.PaleDtos.CreateSucursalRequest;
@@ -131,6 +132,20 @@ public class PaleEnvioController {
                 paleService.closePale(
                         id,
                         request == null ? new ClosePaleRequest(null) : request,
+                        trimHeaderEmail(httpRequest)));
+    }
+
+    @PostMapping("/{id}/cancel")
+    public ResponseEntity<ApiMessage> cancel(
+            @PathVariable Long id,
+            @RequestBody(required = false) CancelPaleRequest request,
+            HttpServletRequest httpRequest) {
+        String auth = httpRequest.getHeader(HttpHeaders.AUTHORIZATION);
+        return ResponseEntity.ok(
+                paleService.cancelPale(
+                        id,
+                        request == null ? new CancelPaleRequest(null) : request,
+                        auth,
                         trimHeaderEmail(httpRequest)));
     }
 

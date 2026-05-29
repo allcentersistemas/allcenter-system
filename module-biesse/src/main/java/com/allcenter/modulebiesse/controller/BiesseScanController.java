@@ -56,6 +56,14 @@ public class BiesseScanController {
         return ResponseEntity.ok(scanService.scanPiece(employeeId, request));
     }
 
+    @PostMapping("/pieces/unscan")
+    public ResponseEntity<ScanResultResponse> unscanPiece(
+            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
+            @Valid @RequestBody ScanPieceRequest request) {
+        Long employeeId = authGatewayService.resolveEmployeeId(authorization);
+        return ResponseEntity.ok(scanService.unscanPiece(employeeId, request));
+    }
+
     @GetMapping("/users/me/stats")  
     public ResponseEntity<UserScanStatsResponse> myStats(
             @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization) {
