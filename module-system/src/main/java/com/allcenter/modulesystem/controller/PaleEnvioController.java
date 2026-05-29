@@ -132,7 +132,7 @@ public class PaleEnvioController {
     }
 
     @PostMapping("/{id}/close")
-    @PreAuthorize("@portalAuth.canUpdate()")
+    @PreAuthorize("@portalAuth.canClose()")
     public ResponseEntity<ApiMessage> close(
             @PathVariable Long id,
             @RequestBody(required = false) ClosePaleRequest request,

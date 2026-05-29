@@ -36,6 +36,11 @@ public class PortalRoleAuthorization {
         return isSystem() || isAdminOps();
     }
 
+    /** Cerrar palé: finaliza el flujo de creación/escaneo (roles operativos incluidos). */
+    public boolean canClose() {
+        return canCreate();
+    }
+
     public boolean canDelete() {
         return isSystem();
     }

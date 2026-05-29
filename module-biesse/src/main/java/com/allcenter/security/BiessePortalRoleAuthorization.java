@@ -56,6 +56,16 @@ public class BiessePortalRoleAuthorization {
         }
     }
 
+    public void requireClose(String authorization) {
+        if (!canClose(authorization)) {
+            deny();
+        }
+    }
+
+    public boolean canClose(String authorization) {
+        return canCreate(authorization);
+    }
+
     public boolean canCreate(String authorization) {
         Set<String> roles = rolesFromAuthorization(authorization);
         return hasAny(roles, SYSTEM) || hasAny(roles, ADMIN_OPS) || hasAny(roles, READ_CREATE);
