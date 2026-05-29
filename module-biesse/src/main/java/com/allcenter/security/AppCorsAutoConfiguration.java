@@ -28,6 +28,11 @@ public class AppCorsAutoConfiguration implements WebMvcConfigurer {
     }
 
     @Bean
+    BiessePortalRoleAuthorization biessePortalRoleAuthorization(SharedJwtValidator jwtValidator) {
+        return new BiessePortalRoleAuthorization(jwtValidator);
+    }
+
+    @Bean
     ProductionSecretsValidator productionSecretsValidator(
             org.springframework.core.env.Environment environment,
             AppSecurityProperties securityProperties,

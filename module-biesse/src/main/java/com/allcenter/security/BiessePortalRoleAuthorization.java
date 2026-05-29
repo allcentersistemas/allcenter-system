@@ -7,11 +7,9 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
-import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
 
 /** Misma matriz que module-system `PortalRoleAuthorization`. */
-@Component
 public class BiessePortalRoleAuthorization {
 
     private static final Set<String> SYSTEM = Set.of("MASTER", "SISTEMAS");
