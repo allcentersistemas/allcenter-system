@@ -26,6 +26,7 @@ import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -49,6 +50,7 @@ public class RmApiController {
     private final ObjectMapper objectMapper;
 
     @PostMapping(value = "/registros-vehiculo", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("@portalAuth.canCreate()")
     public RmApiModels.Created postVehiculo(MultipartHttpServletRequest request) throws IOException {
         MultipartFile data = requireDataPart(request);
         List<MultipartFile> photos = request.getFiles("photos");
@@ -57,6 +59,7 @@ public class RmApiController {
     }
 
     @GetMapping("/registros-vehiculo")
+    @PreAuthorize("@portalAuth.canRead()")
     public Page<RmApiModels.VehiculoListRow> listVehiculos(@PageableDefault(size = 20) Pageable pageable) {
         return registroService
                 .pageVehiculos(pageable)
@@ -74,6 +77,7 @@ public class RmApiController {
     }
 
     @GetMapping("/registros-vehiculo/{id}")
+    @PreAuthorize("@portalAuth.canRead()")
     public RmApiModels.RegistroVehiculoResponse getVehiculo(@PathVariable long id) {
         RmRegistroVehiculo v = registroService.getVehiculo(id);
         List<RmApiModels.EntradaListRow> entradas =
@@ -82,11 +86,13 @@ public class RmApiController {
     }
 
     @GetMapping("/registros-vehiculo/{id}/entradas")
+    @PreAuthorize("@portalAuth.canRead()")
     public List<RmApiModels.EntradaListRow> listEntradasByVehiculo(@PathVariable long id) {
         return registroService.listEntradasByVehiculo(id).stream().map(this::toEntradaListRow).toList();
     }
 
     @PostMapping(value = "/registros-entrada", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("@portalAuth.canCreate()")
     public RmApiModels.Created postEntrada(MultipartHttpServletRequest request) throws IOException {
         MultipartFile data = requireDataPart(request);
         List<MultipartFile> photos = request.getFiles("photos");
@@ -96,6 +102,7 @@ public class RmApiController {
 
     /** Vehículo en borrador + documento (OC y guía) en una sola transacción. */
     @PostMapping(value = "/registros-ingreso-completo", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("@portalAuth.canCreate()")
     public RmApiModels.Created postIngresoCompleto(MultipartHttpServletRequest request) throws IOException {
         MultipartFile data = requireDataPart(request);
         List<MultipartFile> photos = request.getFiles("photos");
@@ -107,6 +114,7 @@ public class RmApiController {
 
     /** Vehículo en borrador + salida en una sola transacción (Android). */
     @PostMapping(value = "/registros-salida-completo", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("@portalAuth.canCreate()")
     public RmApiModels.Created postSalidaCompleto(MultipartHttpServletRequest request) throws IOException {
         MultipartFile data = requireDataPart(request);
         List<MultipartFile> photos = request.getFiles("photos");
@@ -117,16 +125,19 @@ public class RmApiController {
     }
 
     @GetMapping("/registros-entrada")
+    @PreAuthorize("@portalAuth.canRead()")
     public Page<RmApiModels.EntradaListRow> listEntradas(@PageableDefault(size = 20) Pageable pageable) {
         return registroService.pageEntradas(pageable).map(this::toEntradaListRow);
     }
 
     @GetMapping("/registros-entrada/{id}")
+    @PreAuthorize("@portalAuth.canRead()")
     public RmApiModels.RegistroEntradaResponse getEntrada(@PathVariable long id) {
         return toEntradaResponse(registroService.getEntrada(id));
     }
 
     @PostMapping("/registros-entrada/{id}/cancelar")
+    @PreAuthorize("@portalAuth.canCancel()")
     public RmApiModels.Created cancelEntrada(
             @PathVariable long id,
             @RequestBody RmPayloadModels.CancelPayload body,
@@ -136,6 +147,7 @@ public class RmApiController {
     }
 
     @PostMapping(value = "/registros-salida", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("@portalAuth.canCreate()")
     public RmApiModels.Created postSalida(MultipartHttpServletRequest request) throws IOException {
         MultipartFile data = requireDataPart(request);
         List<MultipartFile> photos = request.getFiles("photos");
@@ -146,6 +158,7 @@ public class RmApiController {
     }
 
     @GetMapping("/registros-salida")
+    @PreAuthorize("@portalAuth.canRead()")
     public Page<RmApiModels.SalidaListRow> listSalidas(@PageableDefault(size = 20) Pageable pageable) {
         return registroService
                 .pageSalidas(pageable)
@@ -170,11 +183,13 @@ public class RmApiController {
     }
 
     @GetMapping("/registros-salida/{id}")
+    @PreAuthorize("@portalAuth.canRead()")
     public RmApiModels.RegistroSalidaResponse getSalida(@PathVariable long id) {
         return toSalidaResponse(registroService.getSalida(id));
     }
 
     @PostMapping("/registros-salida/{id}/cancelar")
+    @PreAuthorize("@portalAuth.canCancel()")
     public RmApiModels.Created cancelSalida(
             @PathVariable long id,
             @RequestBody RmPayloadModels.CancelPayload body,
@@ -184,6 +199,7 @@ public class RmApiController {
     }
 
     @PostMapping(value = "/actas-conformidad", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("@portalAuth.canCreate()")
     public RmApiModels.Created postActa(MultipartHttpServletRequest request) throws IOException {
         MultipartFile data = requireDataPart(request);
         List<MultipartFile> photos = request.getFiles("photos");
@@ -192,6 +208,7 @@ public class RmApiController {
     }
 
     @GetMapping("/actas-conformidad")
+    @PreAuthorize("@portalAuth.canRead()")
     public Page<RmApiModels.ActaListRow> listActas(@PageableDefault(size = 20) Pageable pageable) {
         return registroService
                 .pageActas(pageable)
@@ -208,11 +225,13 @@ public class RmApiController {
     }
 
     @GetMapping("/actas-conformidad/{id}")
+    @PreAuthorize("@portalAuth.canRead()")
     public RmApiModels.ActaConformidadResponse getActa(@PathVariable long id) {
         return toActaResponse(registroService.getActa(id));
     }
 
     @PostMapping("/actas-conformidad/{id}/cancelar")
+    @PreAuthorize("@portalAuth.canCancel()")
     public RmApiModels.Created cancelActa(
             @PathVariable long id,
             @RequestBody RmPayloadModels.CancelPayload body,
@@ -222,6 +241,7 @@ public class RmApiController {
     }
 
     @GetMapping("/media/{kind}/{recordId}/{filename:.+}")
+    @PreAuthorize("@portalAuth.canRead()")
     public ResponseEntity<Resource> getMedia(
             @PathVariable String kind,
             @PathVariable long recordId,

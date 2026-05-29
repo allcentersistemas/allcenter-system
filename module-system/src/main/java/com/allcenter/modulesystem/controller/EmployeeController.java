@@ -8,6 +8,7 @@ import com.allcenter.modulesystem.dto.EmployeeCatalogItem;
 import com.allcenter.modulesystem.dto.EmployeeResponse;
 import com.allcenter.modulesystem.dto.EmployeeRolesRequest;
 import com.allcenter.modulesystem.dto.EmployeeSelfPatchRequest;
+import com.allcenter.modulesystem.security.PortalRoleAuthorization;
 import com.allcenter.modulesystem.security.EmployeeUserDetails;
 import com.allcenter.modulesystem.service.EmployeeService;
 import jakarta.validation.Valid;
@@ -34,6 +35,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class EmployeeController {
 
     private final EmployeeService employeeService;
+    private final PortalRoleAuthorization portalAuth;
 
     @GetMapping("/me")
     public ResponseEntity<EmployeeResponse> me(@AuthenticationPrincipal EmployeeUserDetails principal) {
@@ -57,22 +59,17 @@ public class EmployeeController {
     @GetMapping("/{id}")
     public ResponseEntity<EmployeeResponse> getById(
             @AuthenticationPrincipal EmployeeUserDetails principal, @PathVariable Long id) {
-        if (!principal.getEmployee().getId().equals(id)
-                && !principal.getAuthorities().stream()
-                        .anyMatch(
-                                a ->
-                                        "ROLE_ADMIN".equals(a.getAuthority())
-                                                || "ROLE_MASTER".equals(a.getAuthority()))) {
+        if (!principal.getEmployee().getId().equals(id) && !portalAuth.canGestion()) {
             throw new ForbiddenException(
                     "No puede consultar el expediente del empleado con id "
                             + id
-                            + "; solo el propio usuario, un administrador o MASTER pueden hacerlo");
+                            + "; solo el propio usuario o un administrador de gestión pueden hacerlo");
         }
         return ResponseEntity.ok(employeeService.getById(id));
     }
 
     @GetMapping
-    @PreAuthorize("hasAnyRole('MASTER','ADMIN','ADMIN_PRODUCCION')")
+    @PreAuthorize("@portalAuth.canGestion()")
     public ResponseEntity<List<EmployeeResponse>> list(
             @RequestParam(defaultValue = "true") boolean activeOnly,
             @RequestParam(required = false) String q) {
@@ -80,7 +77,7 @@ public class EmployeeController {
     }
 
     @PostMapping("/{id}/reset-password")
-    @PreAuthorize("hasAnyRole('MASTER','ADMIN','ADMIN_PRODUCCION')")
+    @PreAuthorize("@portalAuth.canGestion()")
     public ResponseEntity<Void> resetPassword(
             @PathVariable Long id, @Valid @RequestBody AdminResetPasswordRequest request) {
         boolean notify = Boolean.TRUE.equals(request.notifyByEmail());
@@ -89,28 +86,28 @@ public class EmployeeController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAnyRole('MASTER','ADMIN','ADMIN_PRODUCCION')")
+    @PreAuthorize("@portalAuth.canGestion()")
     public ResponseEntity<EmployeeResponse> create(@Valid @RequestBody AdminCreateEmployeeRequest request) {
         EmployeeResponse body = employeeService.createByAdmin(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(body);
     }
 
     @PatchMapping("/{id}")
-    @PreAuthorize("hasAnyRole('MASTER','ADMIN','ADMIN_PRODUCCION')")
+    @PreAuthorize("@portalAuth.canGestion()")
     public ResponseEntity<EmployeeResponse> patchAdmin(
             @PathVariable Long id, @Valid @RequestBody EmployeeAdminPatchRequest request) {
         return ResponseEntity.ok(employeeService.patchAdmin(id, request));
     }
 
     @PutMapping("/{id}/roles")
-    @PreAuthorize("hasAnyRole('MASTER','ADMIN','ADMIN_PRODUCCION')")
+    @PreAuthorize("@portalAuth.canGestion()")
     public ResponseEntity<EmployeeResponse> replaceRoles(
             @PathVariable Long id, @Valid @RequestBody EmployeeRolesRequest request) {
         return ResponseEntity.ok(employeeService.replaceRoles(id, request.roleIds()));
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasAnyRole('MASTER','ADMIN','ADMIN_PRODUCCION')")
+    @PreAuthorize("@portalAuth.canDelete()")
     public ResponseEntity<Void> softDelete(@PathVariable Long id) {
         employeeService.softDelete(id);
         return ResponseEntity.noContent().build();

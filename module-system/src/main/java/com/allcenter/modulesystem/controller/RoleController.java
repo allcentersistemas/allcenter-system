@@ -27,31 +27,33 @@ public class RoleController {
     private final RoleService roleService;
 
     @GetMapping
+    @PreAuthorize("@portalAuth.canRead()")
     public ResponseEntity<List<RoleResponse>> list() {
         return ResponseEntity.ok(roleService.findAll());
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("@portalAuth.canRead()")
     public ResponseEntity<RoleResponse> getById(@PathVariable Long id) {
         return ResponseEntity.ok(roleService.getById(id));
     }
 
     @PostMapping
-    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
+    @PreAuthorize("@portalAuth.canGestion()")
     public ResponseEntity<RoleResponse> create(@Valid @RequestBody CreateRoleRequest request) {
         RoleResponse body = roleService.create(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(body);
     }
 
     @PatchMapping("/{id}")
-    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
+    @PreAuthorize("@portalAuth.canGestion()")
     public ResponseEntity<RoleResponse> patch(
             @PathVariable Long id, @Valid @RequestBody RolePatchRequest request) {
         return ResponseEntity.ok(roleService.patch(id, request));
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
+    @PreAuthorize("@portalAuth.canDelete()")
     public ResponseEntity<Void> delete(@PathVariable Long id) {
         roleService.delete(id);
         return ResponseEntity.noContent().build();

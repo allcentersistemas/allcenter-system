@@ -8,6 +8,7 @@ import com.allcenter.modulebiesse.dto.UpdateOrderRequest;
 import com.allcenter.modulebiesse.dto.UserScanStatsResponse;
 import com.allcenter.modulebiesse.service.AuthGatewayService;
 import com.allcenter.modulebiesse.service.BiesseScanService;
+import com.allcenter.security.BiessePortalRoleAuthorization;
 import jakarta.validation.Valid;
 import java.util.List;
 import java.util.Map;
@@ -31,12 +32,13 @@ public class BiesseScanController {
 
     private final BiesseScanService scanService;
     private final AuthGatewayService authGatewayService;
+    private final BiessePortalRoleAuthorization portalAuth;
 
     @GetMapping("/parts/pending")
     public ResponseEntity<List<PendingPartResponse>> getPendingParts(
             @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
             @RequestParam(defaultValue = "100") int limit) {
-        authGatewayService.resolveEmployeeId(authorization);
+        portalAuth.requireRead(authorization);
         return ResponseEntity.ok(scanService.getPendingParts(limit));
     }
 
@@ -44,6 +46,7 @@ public class BiesseScanController {
     public ResponseEntity<ScanResultResponse> scanPart(
             @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
             @Valid @RequestBody ScanPartRequest request) {
+        portalAuth.requireCreate(authorization);
         Long employeeId = authGatewayService.resolveEmployeeId(authorization);
         return ResponseEntity.ok(scanService.scanPart(employeeId, request));
     }
@@ -52,6 +55,7 @@ public class BiesseScanController {
     public ResponseEntity<ScanResultResponse> scanPiece(
             @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
             @Valid @RequestBody ScanPieceRequest request) {
+        portalAuth.requireCreate(authorization);
         Long employeeId = authGatewayService.resolveEmployeeId(authorization);
         return ResponseEntity.ok(scanService.scanPiece(employeeId, request));
     }
@@ -60,13 +64,15 @@ public class BiesseScanController {
     public ResponseEntity<ScanResultResponse> unscanPiece(
             @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
             @Valid @RequestBody ScanPieceRequest request) {
+        portalAuth.requireAdminOps(authorization);
         Long employeeId = authGatewayService.resolveEmployeeId(authorization);
         return ResponseEntity.ok(scanService.unscanPiece(employeeId, request));
     }
 
-    @GetMapping("/users/me/stats")  
+    @GetMapping("/users/me/stats")
     public ResponseEntity<UserScanStatsResponse> myStats(
             @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization) {
+        portalAuth.requireRead(authorization);
         Long employeeId = authGatewayService.resolveEmployeeId(authorization);
         return ResponseEntity.ok(scanService.getMyStats(employeeId));
     }
@@ -77,6 +83,7 @@ public class BiesseScanController {
             @RequestParam(required = false) String fromDate,
             @RequestParam(required = false) String toDate,
             @RequestParam(defaultValue = "100") int limit) {
+        portalAuth.requireRead(authorization);
         Long employeeId = authGatewayService.resolveEmployeeId(authorization);
         return ResponseEntity.ok(scanService.getMyScannedParts(employeeId, fromDate, toDate, limit));
     }
@@ -91,7 +98,7 @@ public class BiesseScanController {
             @RequestParam(required = false) String toDate,
             @RequestParam(defaultValue = "50") int limit,
             @RequestParam(defaultValue = "0") int offset) {
-        authGatewayService.resolveEmployeeId(authorization);
+        portalAuth.requireRead(authorization);
         return ResponseEntity.ok(scanService.getOrders(orderId, state, q, fromDate, toDate, limit, offset));
     }
 
@@ -103,14 +110,14 @@ public class BiesseScanController {
             @RequestParam(required = false) String action,
             @RequestParam(defaultValue = "100") int limit,
             @RequestParam(defaultValue = "0") int offset) {
-        authGatewayService.resolveEmployeeId(authorization);
+        portalAuth.requireAudit(authorization);
         return ResponseEntity.ok(scanService.getAudit(orderId, partId, action, limit, offset));
     }
 
     @GetMapping("/orders/{orderId}")
     public ResponseEntity<Map<String, Object>> getOrderDetail(
             @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization, @PathVariable Long orderId) {
-        authGatewayService.resolveEmployeeId(authorization);
+        portalAuth.requireRead(authorization);
         return ResponseEntity.ok(scanService.getOrderDetail(orderId));
     }
 
@@ -119,6 +126,7 @@ public class BiesseScanController {
             @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
             @PathVariable Long orderId,
             @RequestBody UpdateOrderRequest request) {
+        portalAuth.requireAdminOps(authorization);
         Long employeeId = authGatewayService.resolveEmployeeId(authorization);
         return ResponseEntity.ok(scanService.updateOrder(employeeId, orderId, request.observaciones()));
     }
@@ -128,6 +136,7 @@ public class BiesseScanController {
             @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
             @PathVariable Long orderId,
             @RequestParam(defaultValue = "MANUAL") String method) {
+        portalAuth.requireAdminOps(authorization);
         Long employeeId = authGatewayService.resolveEmployeeId(authorization);
         return ResponseEntity.ok(scanService.completeOrder(employeeId, orderId, method));
     }
@@ -135,7 +144,7 @@ public class BiesseScanController {
     @GetMapping("/stats/general")
     public ResponseEntity<Map<String, Object>> generalStats(
             @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization) {
-        authGatewayService.resolveEmployeeId(authorization);
+        portalAuth.requireAudit(authorization);
         return ResponseEntity.ok(scanService.getGeneralStats());
     }
 
@@ -143,7 +152,7 @@ public class BiesseScanController {
     public ResponseEntity<Map<String, Object>> resolvePiece(
             @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
             @RequestParam String code) {
-        authGatewayService.resolveEmployeeId(authorization);
+        portalAuth.requireRead(authorization);
         return ResponseEntity.ok(scanService.resolvePieceFromCode(code));
     }
 
@@ -151,7 +160,7 @@ public class BiesseScanController {
     public ResponseEntity<Map<String, Object>> pieceById(
             @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
             @PathVariable Long pieceId) {
-        authGatewayService.resolveEmployeeId(authorization);
+        portalAuth.requireRead(authorization);
         return ResponseEntity.ok(scanService.getPieceById(pieceId));
     }
 }

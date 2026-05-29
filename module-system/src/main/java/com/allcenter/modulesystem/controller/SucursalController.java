@@ -5,6 +5,7 @@ import com.allcenter.modulesystem.service.SucursalService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -18,11 +19,13 @@ public class SucursalController {
     private final SucursalService sucursalService;
 
     @GetMapping("/branches")
+    @PreAuthorize("@portalAuth.canRead()")
     public ResponseEntity<List<SucursalDtos.SucursalDto>> branches() {
         return ResponseEntity.ok(sucursalService.getBranches());
     }
 
     @PostMapping("/branch")
+    @PreAuthorize("@portalAuth.canGestion()")
     public ResponseEntity<SucursalDtos.SucursalDto> createBranch(@Valid @RequestBody SucursalDtos.CreateSucursalRequest request) {
         return ResponseEntity.ok(sucursalService.createBranch(request));
     }

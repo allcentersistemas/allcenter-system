@@ -12,6 +12,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -28,6 +29,7 @@ public class ImpresionStickerController {
     private final ImpresionStickerService service;
 
     @PostMapping("/sticker")
+    @PreAuthorize("@portalAuth.canPrint()")
     public ResponseEntity<ImpresionStickerResponse> register(
             @AuthenticationPrincipal EmployeeUserDetails principal,
             HttpServletRequest httpRequest,
@@ -38,6 +40,7 @@ public class ImpresionStickerController {
     }
 
     @GetMapping("/sticker")
+    @PreAuthorize("@portalAuth.canAudit()")
     public ResponseEntity<List<ImpresionStickerResponse>> search(
             @RequestParam(required = false) Long orderId,
             @RequestParam(required = false) String fromDate,

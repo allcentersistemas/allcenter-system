@@ -12,6 +12,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -32,11 +33,13 @@ public class InventoryController {
     private final AuthenticatedEmployeeResolver employeeResolver;
 
     @GetMapping("/categorias")
+    @PreAuthorize("@portalAuth.canRead()")
     public java.util.List<InventoryDtos.CategoriaRow> listCategorias() {
         return inventoryService.listCategorias();
     }
 
     @GetMapping("/items")
+    @PreAuthorize("@portalAuth.canRead()")
     public Page<InventoryDtos.ItemRow> listItems(
             @RequestParam(required = false) String q,
             @PageableDefault(size = 20) Pageable pageable) {
@@ -44,12 +47,14 @@ public class InventoryController {
     }
 
     @GetMapping("/items/{id}")
+    @PreAuthorize("@portalAuth.canRead()")
     public InventoryDtos.ItemDetail getItem(
             @PathVariable long id, @RequestParam(required = false) Long sucursalId) {
         return inventoryService.getItemDetail(id, sucursalId);
     }
 
     @PostMapping("/items")
+    @PreAuthorize("@portalAuth.canCreate()")
     public ResponseEntity<InventoryDtos.Created> createItem(
             @Valid @RequestBody InventoryDtos.CreateItemRequest body, HttpServletRequest request) {
         long id = inventoryService.createItem(body, trimHeaderEmail(request));
@@ -57,6 +62,7 @@ public class InventoryController {
     }
 
     @PostMapping("/items/{id}/movements")
+    @PreAuthorize("@portalAuth.canCreate()")
     public ResponseEntity<InventoryDtos.Created> addMovement(
             @PathVariable long id,
             @Valid @RequestBody InventoryDtos.CreateMovementRequest body,
@@ -66,23 +72,27 @@ public class InventoryController {
     }
 
     @GetMapping("/guias")
+    @PreAuthorize("@portalAuth.canRead()")
     public java.util.List<GuiaDtos.GuiaHeaderDto> listGuias(
             @RequestParam(required = false) String estado) {
         return guiaInventoryService.listGuias(estado);
     }
 
     @GetMapping("/guias/pales-escaneados")
+    @PreAuthorize("@portalAuth.canRead()")
     public java.util.List<GuiaDtos.PaleEscaneadoRowDto> listPalesEscaneados(
             @RequestParam(required = false) String q) {
         return guiaInventoryService.listPalesEscaneados(q);
     }
 
     @GetMapping("/guias/{id}")
+    @PreAuthorize("@portalAuth.canRead()")
     public GuiaDtos.GuiaResponse getGuia(@PathVariable long id) {
         return guiaInventoryService.getGuia(id);
     }
 
     @PostMapping("/guias")
+    @PreAuthorize("@portalAuth.canCreate()")
     public ResponseEntity<GuiaDtos.Created> createGuia(
             @RequestBody GuiaDtos.CreateGuiaRequest body, HttpServletRequest request) {
         AuthenticatedEmployeeResolver.Context actor =
@@ -99,12 +109,14 @@ public class InventoryController {
     }
 
     @PutMapping("/guias/{id}")
+    @PreAuthorize("@portalAuth.canUpdate()")
     public GuiaDtos.GuiaResponse updateGuia(
             @PathVariable long id, @RequestBody GuiaDtos.UpdateGuiaRequest body) {
         return guiaInventoryService.updateGuia(id, body);
     }
 
     @PostMapping("/guias/{id}/detalles")
+    @PreAuthorize("@portalAuth.canUpdate()")
     public GuiaDtos.GuiaResponse addDetalleManual(
             @PathVariable long id,
             @Valid @RequestBody GuiaDtos.AddGuiaDetalleManualRequest body) {
@@ -112,12 +124,14 @@ public class InventoryController {
     }
 
     @PostMapping("/guias/{id}/detalles/pale")
+    @PreAuthorize("@portalAuth.canUpdate()")
     public GuiaDtos.GuiaResponse addDetallePale(
             @PathVariable long id, @Valid @RequestBody GuiaDtos.AddGuiaDetallePaleRequest body) {
         return guiaInventoryService.addDetalleFromPale(id, body);
     }
 
     @DeleteMapping("/guias/{id}/detalles/{detalleId}")
+    @PreAuthorize("@portalAuth.canDelete()")
     public GuiaDtos.GuiaResponse removeDetalle(@PathVariable long id, @PathVariable long detalleId) {
         return guiaInventoryService.removeDetalle(id, detalleId);
     }

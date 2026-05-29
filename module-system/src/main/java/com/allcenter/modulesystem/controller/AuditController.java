@@ -22,7 +22,7 @@ public class AuditController {
     private final AuditQueryService auditQueryService;
 
     @GetMapping("/entries")
-    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
+    @PreAuthorize("@portalAuth.canGestion()")
     public ResponseEntity<Page<AuditEntryResponse>> list(
             @PageableDefault(size = 50, sort = "occurredAt", direction = Sort.Direction.DESC)
                     Pageable pageable) {
@@ -30,7 +30,7 @@ public class AuditController {
     }
 
     @GetMapping("/entries/{id}")
-    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
+    @PreAuthorize("@portalAuth.canGestion()")
     public ResponseEntity<AuditEntryResponse> getById(@PathVariable Long id) {
         return ResponseEntity.ok(auditQueryService.getById(id));
     }
