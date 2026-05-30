@@ -5,9 +5,14 @@ import com.allcenter.modulesystem.dto.ImpresionStickerResponse;
 import com.allcenter.modulesystem.exception.BadRequestException;
 import com.allcenter.modulesystem.model.ImpresionSticker;
 import com.allcenter.modulesystem.model.ImpresionStickerDetalle;
+import com.allcenter.modulesystem.repository.EmployeeRepository;
 import com.allcenter.modulesystem.repository.ImpresionStickerRepository;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -21,6 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class ImpresionStickerService {
 
     private final ImpresionStickerRepository repository;
+    private final EmployeeRepository employeeRepository;
 
     @Transactional
     public ImpresionStickerResponse register(
@@ -52,7 +58,12 @@ public class ImpresionStickerService {
         }
 
         ImpresionSticker saved = repository.save(entity);
-        return toResponse(saved);
+        String usuarioEmail =
+                employeeRepository
+                        .findById(employeeId)
+                        .map(ImpresionStickerService::employeeLabel)
+                        .orElse(null);
+        return toResponse(saved, usuarioEmail);
     }
 
     @Transactional(readOnly = true)
@@ -66,10 +77,34 @@ public class ImpresionStickerService {
         Specification<ImpresionSticker> spec =
                 Specification.where(orderIdEquals(orderId))
                         .and(fechaFrom(from))
-                        .and(fechaTo(to));
-        return repository.findAll(spec, pageable).stream()
-                .map(ImpresionStickerService::toResponse)
+                        .and(fechaTo(to))
+                        .and(fetchDetalles());
+        List<ImpresionSticker> entities = repository.findAll(spec, pageable).getContent();
+        Set<Long> userIds =
+                entities.stream()
+                        .map(ImpresionSticker::getUsuarioId)
+                        .filter(Objects::nonNull)
+                        .collect(Collectors.toSet());
+        Map<Long, String> emailsByUserId =
+                employeeRepository.findAllById(userIds).stream()
+                        .collect(
+                                Collectors.toMap(
+                                        e -> e.getId(),
+                                        ImpresionStickerService::employeeLabel,
+                                        (a, b) -> a));
+        return entities.stream()
+                .map(e -> toResponse(e, emailsByUserId.get(e.getUsuarioId())))
                 .toList();
+    }
+
+    private static Specification<ImpresionSticker> fetchDetalles() {
+        return (root, query, cb) -> {
+            if (!Long.class.equals(query.getResultType())) {
+                root.fetch("detalles", jakarta.persistence.criteria.JoinType.LEFT);
+                query.distinct(true);
+            }
+            return cb.conjunction();
+        };
     }
 
     private static Specification<ImpresionSticker> orderIdEquals(Long orderId) {
@@ -87,7 +122,7 @@ public class ImpresionStickerService {
                 to == null ? cb.conjunction() : cb.lessThanOrEqualTo(root.get("fecha"), to);
     }
 
-    private static ImpresionStickerResponse toResponse(ImpresionSticker e) {
+    private static ImpresionStickerResponse toResponse(ImpresionSticker e, String usuarioEmail) {
         List<ImpresionStickerResponse.Detalle> det =
                 e.getDetalles() == null
                         ? List.of()
@@ -106,6 +141,7 @@ public class ImpresionStickerService {
         return new ImpresionStickerResponse(
                 e.getId(),
                 e.getUsuarioId(),
+                usuarioEmail,
                 e.getOrderId(),
                 e.getMetodo(),
                 e.getEquipo(),
@@ -116,6 +152,16 @@ public class ImpresionStickerService {
                 e.getObservaciones(),
                 e.getFecha(),
                 det);
+    }
+
+    private static String employeeLabel(com.allcenter.modulesystem.model.Employee e) {
+        if (e.getEmail() != null && !e.getEmail().isBlank()) {
+            return e.getEmail().trim();
+        }
+        if (e.getSamAccountName() != null && !e.getSamAccountName().isBlank()) {
+            return e.getSamAccountName().trim();
+        }
+        return e.getEmployeeCode();
     }
 
     private static String normalize(String value, String fallback) {
