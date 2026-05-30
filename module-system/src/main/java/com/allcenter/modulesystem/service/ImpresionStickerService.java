@@ -11,6 +11,8 @@ import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -56,10 +58,33 @@ public class ImpresionStickerService {
     @Transactional(readOnly = true)
     public List<ImpresionStickerResponse> search(
             Long orderId, OffsetDateTime from, OffsetDateTime to, int limit) {
-        Pageable pageable = PageRequest.of(0, Math.max(1, Math.min(limit, 500)));
-        return repository.search(orderId, from, to, pageable).stream()
+        Pageable pageable =
+                PageRequest.of(
+                        0,
+                        Math.max(1, Math.min(limit, 500)),
+                        Sort.by(Sort.Direction.DESC, "fecha"));
+        Specification<ImpresionSticker> spec =
+                Specification.where(orderIdEquals(orderId))
+                        .and(fechaFrom(from))
+                        .and(fechaTo(to));
+        return repository.findAll(spec, pageable).stream()
                 .map(ImpresionStickerService::toResponse)
                 .toList();
+    }
+
+    private static Specification<ImpresionSticker> orderIdEquals(Long orderId) {
+        return (root, query, cb) ->
+                orderId == null ? cb.conjunction() : cb.equal(root.get("orderId"), orderId);
+    }
+
+    private static Specification<ImpresionSticker> fechaFrom(OffsetDateTime from) {
+        return (root, query, cb) ->
+                from == null ? cb.conjunction() : cb.greaterThanOrEqualTo(root.get("fecha"), from);
+    }
+
+    private static Specification<ImpresionSticker> fechaTo(OffsetDateTime to) {
+        return (root, query, cb) ->
+                to == null ? cb.conjunction() : cb.lessThanOrEqualTo(root.get("fecha"), to);
     }
 
     private static ImpresionStickerResponse toResponse(ImpresionSticker e) {
