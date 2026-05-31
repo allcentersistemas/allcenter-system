@@ -138,6 +138,12 @@ public class ImpresionStickerService {
                                                         l.getSnapshot(),
                                                         l.getFecha()))
                                 .toList();
+        Long partId =
+                det.stream()
+                        .map(ImpresionStickerResponse.Detalle::partId)
+                        .filter(java.util.Objects::nonNull)
+                        .findFirst()
+                        .orElse(null);
         return new ImpresionStickerResponse(
                 e.getId(),
                 e.getUsuarioId(),
@@ -151,6 +157,7 @@ public class ImpresionStickerService {
                 e.getCantidadEtiquetas(),
                 e.getObservaciones(),
                 e.getFecha(),
+                partId,
                 det);
     }
 
