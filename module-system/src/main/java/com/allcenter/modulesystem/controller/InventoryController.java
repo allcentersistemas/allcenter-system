@@ -39,18 +39,13 @@ public class InventoryController {
         return inventoryService.listCategorias();
     }
 
-    @GetMapping("/familias")
-    @PreAuthorize("@portalAuth.canRead()")
-    public java.util.List<InventoryDtos.FamiliaRow> listFamilias() {
-        return inventoryService.listFamilias();
-    }
-
     @GetMapping("/items")
     @PreAuthorize("@portalAuth.canRead()")
     public Page<InventoryDtos.ItemRow> listItems(
             @RequestParam(required = false) String q,
+            @RequestParam(required = false) Long sucursalId,
             @PageableDefault(size = 20) Pageable pageable) {
-        return inventoryService.pageItems(q, pageable);
+        return inventoryService.pageItems(q, sucursalId, pageable);
     }
 
     @GetMapping("/items/{id}")
@@ -66,13 +61,6 @@ public class InventoryController {
             @Valid @RequestBody InventoryDtos.CreateItemRequest body, HttpServletRequest request) {
         long id = inventoryService.createItem(body, trimHeaderEmail(request));
         return ResponseEntity.ok(new InventoryDtos.Created(id));
-    }
-
-    @PatchMapping("/items/{id}/familia")
-    @PreAuthorize("@portalAuth.canUpdate()")
-    public InventoryDtos.ItemRow updateItemFamilia(
-            @PathVariable long id, @RequestBody InventoryDtos.UpdateItemFamiliaRequest body) {
-        return inventoryService.updateItemFamilia(id, body);
     }
 
     @PostMapping("/items/{id}/movements")

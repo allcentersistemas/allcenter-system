@@ -24,29 +24,4 @@ public interface InvItemRepository extends JpaRepository<InvItem, Long> {
             )
             """)
     Page<InvItem> searchActive(@Param("q") String q, Pageable pageable);
-
-    @Query(
-            """
-            select i from InvItem i
-            where i.active = true
-            and (
-              upper(i.familiaCodigo) = upper(:familia)
-              or (
-                i.familiaCodigo is null
-                and (
-                  (:familia = 'TABLERO' and (
-                    lower(i.sku) like concat('tab', '%')
-                    or lower(i.sku) like concat('tbl', '%')
-                    or lower(i.name) like concat('%', 'tablero', '%')
-                  ))
-                  or (:familia = 'CANTO' and (
-                    lower(i.sku) like concat('cant', '%')
-                    or lower(i.name) like concat('%', 'canto', '%')
-                  ))
-                )
-              )
-            )
-            order by i.name asc
-            """)
-    java.util.List<InvItem> findActiveCatalogByFamilia(@Param("familia") String familia, Pageable pageable);
 }

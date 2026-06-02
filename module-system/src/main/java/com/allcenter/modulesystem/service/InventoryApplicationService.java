@@ -39,9 +39,6 @@ public class InventoryApplicationService {
     public static final String CAT_MERCA = "MERCA";
     public static final String CAT_REUTILIZABLE = "REUTILIZABLE";
 
-    public static final String FAMILIA_TABLERO = "TABLERO";
-    public static final String FAMILIA_CANTO = "CANTO";
-
     private static final String UNIT_PIEZAS = "piezas";
     private static final Pattern SKU_SAFE = Pattern.compile("[^A-Za-z0-9]+");
 
@@ -58,44 +55,34 @@ public class InventoryApplicationService {
                 new InventoryDtos.CategoriaRow(CAT_REUTILIZABLE, "Reutilizable"));
     }
 
-    public List<InventoryDtos.FamiliaRow> listFamilias() {
-        return List.of(
-                new InventoryDtos.FamiliaRow(FAMILIA_TABLERO, "Tablero (planilla de corte)"),
-                new InventoryDtos.FamiliaRow(FAMILIA_CANTO, "Canto (planilla de corte)"));
-    }
-
-    @Transactional
-    public InventoryDtos.ItemRow updateItemFamilia(long id, InventoryDtos.UpdateItemFamiliaRequest req) {
-        InvItem item =
-                itemRepository.findById(id).orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Artículo no encontrado"));
-        item.setFamiliaCodigo(normalizeFamilia(req == null ? null : req.familiaCodigo()));
-        return toRow(itemRepository.save(item));
-    }
-
-    public static String normalizeFamilia(String raw) {
-        if (raw == null) {
-            return null;
-        }
-        String t = raw.trim().toUpperCase(Locale.ROOT);
-        if (t.isEmpty()) {
-            return null;
-        }
-        if (!FAMILIA_TABLERO.equals(t) && !FAMILIA_CANTO.equals(t)) {
-            throw new ResponseStatusException(
-                    BAD_REQUEST, "Familia inválida. Use TABLERO, CANTO o deje vacío para quitar la familia.");
-        }
-        return t;
-    }
-
     @Transactional(readOnly = true)
-    public Page<InventoryDtos.ItemRow> pageItems(String q, Pageable pageable) {
+    public Page<InventoryDtos.ItemRow> pageItems(String q, Long sucursalId, Pageable pageable) {
         Page<InvItem> page;
         if (q == null || q.isBlank()) {
             page = itemRepository.findByActiveTrue(pageable);
         } else {
             page = itemRepository.searchActive(q.trim(), pageable);
         }
-        return page.map(this::toRow);
+        return page.map(item -> toRowWithBalance(item, sucursalId));
+    }
+
+    private InventoryDtos.ItemRow toRowWithBalance(InvItem item, Long sucursalId) {
+        InventoryDtos.ItemRow row = toRow(item);
+        if (sucursalId == null) {
+            return row;
+        }
+        BigDecimal balance =
+                movementRepository.sumQuantityChangeByItemIdSucursalCategoria(
+                        item.getId(), sucursalId, CAT_DISPONIBLE);
+        return new InventoryDtos.ItemRow(
+                row.id(),
+                row.sku(),
+                row.name(),
+                row.unit(),
+                row.active(),
+                row.familiaCodigo(),
+                balance,
+                row.createdAt());
     }
 
     @Transactional

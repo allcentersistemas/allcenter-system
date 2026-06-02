@@ -35,10 +35,6 @@ public final class InventoryDtos {
         }
     }
 
-    public record FamiliaRow(String codigo, String etiqueta) {}
-
-    public record UpdateItemFamiliaRequest(@Size(max = 32) String familiaCodigo) {}
-
     public record ItemRow(
             long id,
             String sku,
@@ -46,7 +42,20 @@ public final class InventoryDtos {
             String unit,
             boolean active,
             String familiaCodigo,
-            Instant createdAt) {}
+            BigDecimal balanceOnHand,
+            Instant createdAt) {
+
+        public ItemRow(
+                long id,
+                String sku,
+                String name,
+                String unit,
+                boolean active,
+                String familiaCodigo,
+                Instant createdAt) {
+            this(id, sku, name, unit, active, familiaCodigo, null, createdAt);
+        }
+    }
 
     public record MovementRow(
             long id,
