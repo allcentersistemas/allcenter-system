@@ -34,8 +34,15 @@ public interface InvItemRepository extends JpaRepository<InvItem, Long> {
               or (
                 i.familiaCodigo is null
                 and (
-                  (:familia = 'TABLERO' and (lower(i.sku) like 'tab%' or lower(i.sku) like 'tbl%'))
-                  or (:familia = 'CANTO' and lower(i.sku) like 'cant%')
+                  (:familia = 'TABLERO' and (
+                    lower(i.sku) like concat('tab', '%')
+                    or lower(i.sku) like concat('tbl', '%')
+                    or lower(i.name) like concat('%', 'tablero', '%')
+                  ))
+                  or (:familia = 'CANTO' and (
+                    lower(i.sku) like concat('cant', '%')
+                    or lower(i.name) like concat('%', 'canto', '%')
+                  ))
                 )
               )
             )
