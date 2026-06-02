@@ -15,4 +15,11 @@ public class Material {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "materialid")
     private Long id;
+
+    @Column
+    private String materialName;
+    @Column
+    private String materialCode;
+    @Column
+    private String materialType;
 }

@@ -21,10 +21,18 @@ public class InventorySchemaAligner implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) {
+        ensureInvItemFamilia();
         ensureInvMovementColumns();
         ensurePaleSucursal();
         ensureRmObservacionesAndCategoria();
         ensureRmCancelColumns();
+    }
+
+    private void ensureInvItemFamilia() {
+        if (!tableExists("inv_item")) {
+            return;
+        }
+        addColumnIfMissing("inv_item", "familia_codigo", "VARCHAR(32)");
     }
 
     private void ensureInvMovementColumns() {

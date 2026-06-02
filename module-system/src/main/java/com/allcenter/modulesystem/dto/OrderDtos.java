@@ -59,7 +59,6 @@ public final class OrderDtos {
             Long id,
             Long codigoProyecto,
             String nombre,
-            String referencia,
             String descripcion,
             LocalDateTime fechaCreacion,
             int cantidadOrdenes

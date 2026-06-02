@@ -2,6 +2,8 @@ package com.allcenter.modulesystem.controller;
 
 import com.allcenter.modulesystem.dto.OrderDtos;
 import com.allcenter.modulesystem.security.ClientUserDetails;
+import com.allcenter.modulesystem.dto.InventoryDtos;
+import com.allcenter.modulesystem.service.ClientOptimizacionCatalogService;
 import com.allcenter.modulesystem.service.OrderPersistenceService;
 import jakarta.persistence.EntityNotFoundException;
 import java.util.List;
@@ -22,9 +24,17 @@ import org.springframework.web.bind.annotation.RestController;
 public class ClientOptimizacionController {
 
     private final OrderPersistenceService service;
+    private final ClientOptimizacionCatalogService catalogService;
 
-    public ClientOptimizacionController(OrderPersistenceService service) {
+    public ClientOptimizacionController(
+            OrderPersistenceService service, ClientOptimizacionCatalogService catalogService) {
         this.service = service;
+        this.catalogService = catalogService;
+    }
+
+    @GetMapping("/catalogos/kardex")
+    public InventoryDtos.OptimizacionKardexCatalog listKardexCatalog() {
+        return catalogService.listKardexCatalog();
     }
 
     @GetMapping("/proyectos")

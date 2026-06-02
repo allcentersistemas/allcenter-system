@@ -35,7 +35,18 @@ public final class InventoryDtos {
         }
     }
 
-    public record ItemRow(long id, String sku, String name, String unit, boolean active, Instant createdAt) {}
+    public record FamiliaRow(String codigo, String etiqueta) {}
+
+    public record UpdateItemFamiliaRequest(@Size(max = 32) String familiaCodigo) {}
+
+    public record ItemRow(
+            long id,
+            String sku,
+            String name,
+            String unit,
+            boolean active,
+            String familiaCodigo,
+            Instant createdAt) {}
 
     public record MovementRow(
             long id,
@@ -56,4 +67,11 @@ public final class InventoryDtos {
             Long sucursalId,
             List<BalanceByCategoria> balancesByCategoria,
             List<MovementRow> recentMovements) {}
+
+    /** Artículo del kardex para planilla de corte (portal cliente). */
+    public record KardexMaterialOption(
+            long id, String sku, String name, String unit, BigDecimal stockOnHand) {}
+
+    public record OptimizacionKardexCatalog(
+            List<KardexMaterialOption> tableros, List<KardexMaterialOption> cantos) {}
 }

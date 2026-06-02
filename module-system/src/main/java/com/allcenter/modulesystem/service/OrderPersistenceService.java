@@ -63,7 +63,6 @@ public class OrderPersistenceService {
                                         p.getId(),
                                         p.getCodigoproyecto(),
                                         p.getNombre(),
-                                        p.getReferencia(),
                                         p.getDescripcion(),
                                         p.getFechacreacion(),
                                         ordenRepository.findByProyectoOptimizacionId_IdOrderByIdAsc(p.getId()).size()))
@@ -125,8 +124,8 @@ public class OrderPersistenceService {
             throw new IllegalArgumentException("El nombre del proyecto es obligatorio");
         }
         proyecto.setNombre(payload.nombre().trim());
-        proyecto.setCliente(resolveClienteLabel(clientUserId, payload.cliente()));
-        proyecto.setReferencia(valueOrNull(payload.referencia()));
+        proyecto.setCliente(resolveClienteLabel(clientUserId));
+        proyecto.setReferencia(null);
         proyecto.setDescripcion(valueOrNull(payload.descripcion()));
         return toProyectoResponse(proyectoRepository.save(proyecto));
     }
@@ -142,10 +141,7 @@ public class OrderPersistenceService {
         return proyecto;
     }
 
-    private String resolveClienteLabel(long clientUserId, String payloadCliente) {
-        if (payloadCliente != null && !payloadCliente.isBlank()) {
-            return payloadCliente.trim();
-        }
+    private String resolveClienteLabel(long clientUserId) {
         ClientUser client =
                 clientUserRepository
                         .findById(clientUserId)
@@ -171,12 +167,13 @@ public class OrderPersistenceService {
         ProyectoOptimizacion proyectoOptimizacion = new ProyectoOptimizacion();
         proyectoOptimizacion.setNombre(payload.nombre().trim());
         if (clientUserId != null) {
-            proyectoOptimizacion.setCliente(resolveClienteLabel(clientUserId, payload.cliente()));
+            proyectoOptimizacion.setCliente(resolveClienteLabel(clientUserId));
             proyectoOptimizacion.setClientUserId(clientUserId);
+            proyectoOptimizacion.setReferencia(null);
         } else {
             proyectoOptimizacion.setCliente(valueOrNull(payload.cliente()));
+            proyectoOptimizacion.setReferencia(valueOrNull(payload.referencia()));
         }
-        proyectoOptimizacion.setReferencia(valueOrNull(payload.referencia()));
         proyectoOptimizacion.setDescripcion(valueOrNull(payload.descripcion()));
         proyectoOptimizacion.setFechacreacion(LocalDateTime.now());
         proyectoOptimizacion.setCodigoproyecto(System.currentTimeMillis());

@@ -35,6 +35,10 @@ public class InvItem {
     @Column(nullable = false)
     private boolean active = true;
 
+    /** TABLERO | CANTO — catálogo para planilla de corte (portal cliente). */
+    @Column(name = "familia_codigo", length = 32)
+    private String familiaCodigo;
+
     @Column(nullable = false)
     private Instant createdAt;
 

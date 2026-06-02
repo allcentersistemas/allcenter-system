@@ -15,6 +15,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -38,6 +39,12 @@ public class InventoryController {
         return inventoryService.listCategorias();
     }
 
+    @GetMapping("/familias")
+    @PreAuthorize("@portalAuth.canRead()")
+    public java.util.List<InventoryDtos.FamiliaRow> listFamilias() {
+        return inventoryService.listFamilias();
+    }
+
     @GetMapping("/items")
     @PreAuthorize("@portalAuth.canRead()")
     public Page<InventoryDtos.ItemRow> listItems(
@@ -59,6 +66,13 @@ public class InventoryController {
             @Valid @RequestBody InventoryDtos.CreateItemRequest body, HttpServletRequest request) {
         long id = inventoryService.createItem(body, trimHeaderEmail(request));
         return ResponseEntity.ok(new InventoryDtos.Created(id));
+    }
+
+    @PatchMapping("/items/{id}/familia")
+    @PreAuthorize("@portalAuth.canUpdate()")
+    public InventoryDtos.ItemRow updateItemFamilia(
+            @PathVariable long id, @RequestBody InventoryDtos.UpdateItemFamiliaRequest body) {
+        return inventoryService.updateItemFamilia(id, body);
     }
 
     @PostMapping("/items/{id}/movements")
