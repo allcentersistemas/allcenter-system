@@ -42,6 +42,7 @@ public final class InventoryDtos {
             String unit,
             boolean active,
             String familiaCodigo,
+            String tipoInventario,
             BigDecimal balanceOnHand,
             Instant createdAt) {
 
@@ -53,7 +54,19 @@ public final class InventoryDtos {
                 boolean active,
                 String familiaCodigo,
                 Instant createdAt) {
-            this(id, sku, name, unit, active, familiaCodigo, null, createdAt);
+            this(id, sku, name, unit, active, familiaCodigo, null, null, createdAt);
+        }
+
+        public ItemRow(
+                long id,
+                String sku,
+                String name,
+                String unit,
+                boolean active,
+                String familiaCodigo,
+                String tipoInventario,
+                Instant createdAt) {
+            this(id, sku, name, unit, active, familiaCodigo, tipoInventario, null, createdAt);
         }
     }
 

@@ -44,8 +44,9 @@ public class InventoryController {
     public Page<InventoryDtos.ItemRow> listItems(
             @RequestParam(required = false) String q,
             @RequestParam(required = false) Long sucursalId,
+            @RequestParam(required = false) String tipo,
             @PageableDefault(size = 20) Pageable pageable) {
-        return inventoryService.pageItems(q, sucursalId, pageable);
+        return inventoryService.pageItems(q, sucursalId, tipo, pageable);
     }
 
     @GetMapping("/items/{id}")

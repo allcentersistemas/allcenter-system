@@ -24,4 +24,35 @@ public interface InvItemRepository extends JpaRepository<InvItem, Long> {
             )
             """)
     Page<InvItem> searchActive(@Param("q") String q, Pageable pageable);
+
+    @Query(
+            """
+            select i from InvItem i
+            where i.active = true
+            and (
+              :q = '' or lower(i.sku) like lower(concat('%', :q, '%'))
+              or lower(i.name) like lower(concat('%', :q, '%'))
+            )
+            and (
+              :sucursalId is null
+              or i.id in (
+                select m.item.id from InvStockMovement m
+                where m.sucursalId = :sucursalId
+                  and (m.categoriaCodigo = 'DISPONIBLE' or m.categoriaCodigo is null)
+                group by m.item.id
+                having sum(m.quantityChange) <> 0
+              )
+            )
+            and (
+              :tipo = '' or
+              (:tipo = 'PALET' and upper(i.sku) like 'PALET-%') or
+              (:tipo = 'PIEZA' and upper(i.sku) like 'RM-%') or
+              (:tipo = 'OTROS' and upper(i.sku) not like 'PALET-%' and upper(i.sku) not like 'RM-%')
+            )
+            """)
+    Page<InvItem> searchActiveFiltered(
+            @Param("q") String q,
+            @Param("sucursalId") Long sucursalId,
+            @Param("tipo") String tipo,
+            Pageable pageable);
 }

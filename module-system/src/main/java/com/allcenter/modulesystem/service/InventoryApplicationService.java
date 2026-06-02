@@ -23,6 +23,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -56,14 +57,27 @@ public class InventoryApplicationService {
     }
 
     @Transactional(readOnly = true)
-    public Page<InventoryDtos.ItemRow> pageItems(String q, Long sucursalId, Pageable pageable) {
-        Page<InvItem> page;
-        if (q == null || q.isBlank()) {
-            page = itemRepository.findByActiveTrue(pageable);
-        } else {
-            page = itemRepository.searchActive(q.trim(), pageable);
-        }
+    public Page<InventoryDtos.ItemRow> pageItems(
+            String q, Long sucursalId, String tipo, Pageable pageable) {
+        String qNorm = q == null || q.isBlank() ? "" : q.trim();
+        String tipoNorm = normalizeTipoFilter(tipo);
+        Pageable sorted =
+                PageRequest.of(
+                        pageable.getPageNumber(),
+                        pageable.getPageSize(),
+                        Sort.by(Sort.Order.asc("sku")));
+        Page<InvItem> page = itemRepository.searchActiveFiltered(qNorm, sucursalId, tipoNorm, sorted);
         return page.map(item -> toRowWithBalance(item, sucursalId));
+    }
+
+    private static String normalizeTipoFilter(String tipo) {
+        if (tipo == null || tipo.isBlank()) {
+            return "";
+        }
+        return switch (tipo.trim().toUpperCase(Locale.ROOT)) {
+            case "PALET", "PIEZA", "OTROS" -> tipo.trim().toUpperCase(Locale.ROOT);
+            default -> "";
+        };
     }
 
     private InventoryDtos.ItemRow toRowWithBalance(InvItem item, Long sucursalId) {
@@ -81,6 +95,7 @@ public class InventoryApplicationService {
                 row.unit(),
                 row.active(),
                 row.familiaCodigo(),
+                row.tipoInventario(),
                 balance,
                 row.createdAt());
     }
@@ -146,7 +161,7 @@ public class InventoryApplicationService {
             return;
         }
         String sku = "PALET-" + pale.getCodigo();
-        long itemId = findOrCreateItem(sku, "Palé " + pale.getCodigo(), UNIT_PIEZAS);
+        long itemId = findOrCreateItem(sku, "Palé " + pale.getCodigo(), UNIT_PIEZAS, "PALET");
         addMovementInternal(
                 itemId,
                 BigDecimal.ONE,
@@ -176,7 +191,7 @@ public class InventoryApplicationService {
             if (movementRepository.existsByExternalRef(ref)) {
                 continue;
             }
-            long itemId = findOrCreateItem(toSku(material), material, UNIT_PIEZAS);
+            long itemId = findOrCreateItem(toSku(material), material, UNIT_PIEZAS, "PIEZA");
             addMovementInternal(
                     itemId,
                     BigDecimal.ONE,
@@ -343,7 +358,7 @@ public class InventoryApplicationService {
         }
         String categoria = normalizeCategoria(line.categoriaCodigo());
         String sku = resolveItemSku(material);
-        long itemId = findOrCreateItem(sku, material, UNIT_PIEZAS);
+        long itemId = findOrCreateItem(sku, material, UNIT_PIEZAS, inferFamiliaFromSku(sku));
         BigDecimal delta = credit ? qty : qty.negate();
         addMovementInternal(
                 itemId,
@@ -407,16 +422,26 @@ public class InventoryApplicationService {
         return movementRepository.save(m).getId();
     }
 
-    private long findOrCreateItem(String sku, String name, String unit) {
+    private long findOrCreateItem(String sku, String name, String unit, String familiaCodigo) {
         return itemRepository
                 .findBySkuIgnoreCase(sku)
-                .map(InvItem::getId)
+                .map(
+                        existing -> {
+                            if (familiaCodigo != null
+                                    && (existing.getFamiliaCodigo() == null
+                                            || existing.getFamiliaCodigo().isBlank())) {
+                                existing.setFamiliaCodigo(familiaCodigo);
+                                itemRepository.save(existing);
+                            }
+                            return existing.getId();
+                        })
                 .orElseGet(
                         () -> {
                             InvItem i = new InvItem();
                             i.setSku(sku);
                             i.setName(name.length() > 512 ? name.substring(0, 512) : name);
                             i.setUnit(unit);
+                            i.setFamiliaCodigo(familiaCodigo);
                             i.setActive(true);
                             try {
                                 return itemRepository.save(i).getId();
@@ -430,6 +455,42 @@ public class InventoryApplicationService {
                                                                 CONFLICT, "No se pudo crear articulo de inventario", e));
                             }
                         });
+    }
+
+    /** Compatibilidad interna sin familia explícita. */
+    private long findOrCreateItem(String sku, String name, String unit) {
+        return findOrCreateItem(sku, name, unit, inferFamiliaFromSku(sku));
+    }
+
+    private static String inferFamiliaFromSku(String sku) {
+        if (sku == null) {
+            return null;
+        }
+        String u = sku.trim().toUpperCase(Locale.ROOT);
+        if (u.startsWith("PALET-")) {
+            return "PALET";
+        }
+        if (u.startsWith("RM-")) {
+            return "PIEZA";
+        }
+        return null;
+    }
+
+    static String inferTipoInventario(InvItem item) {
+        if (item.getFamiliaCodigo() != null && !item.getFamiliaCodigo().isBlank()) {
+            String f = item.getFamiliaCodigo().trim().toUpperCase(Locale.ROOT);
+            if ("PALET".equals(f) || "PIEZA".equals(f) || "TABLERO".equals(f) || "CANTO".equals(f)) {
+                return f;
+            }
+        }
+        String sku = item.getSku() == null ? "" : item.getSku().trim().toUpperCase(Locale.ROOT);
+        if (sku.startsWith("PALET-")) {
+            return "PALET";
+        }
+        if (sku.startsWith("RM-")) {
+            return "PIEZA";
+        }
+        return "OTROS";
     }
 
     private static String resolvePalePieceMaterial(PaleDetalle d) {
@@ -503,6 +564,7 @@ public class InventoryApplicationService {
                 i.getUnit(),
                 i.isActive(),
                 i.getFamiliaCodigo(),
+                inferTipoInventario(i),
                 i.getCreatedAt());
     }
 
