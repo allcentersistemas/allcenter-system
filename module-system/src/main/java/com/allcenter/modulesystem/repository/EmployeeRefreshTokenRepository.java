@@ -24,6 +24,15 @@ public interface EmployeeRefreshTokenRepository extends JpaRepository<EmployeeRe
             """)
     long countActiveForEmployee(@Param("employeeId") Long employeeId, @Param("now") Instant now);
 
+    @Query(
+            """
+            SELECT r FROM EmployeeRefreshToken r
+            WHERE r.employeeId = :employeeId AND r.revoked = false AND r.expiresAt > :now
+            ORDER BY r.createdAt ASC
+            """)
+    java.util.List<EmployeeRefreshToken> findActiveForEmployeeOrderByCreatedAtAsc(
+            @Param("employeeId") Long employeeId, @Param("now") Instant now);
+
     Optional<EmployeeRefreshToken> findFirstByEmployeeIdAndRevokedIsFalseAndExpiresAtAfterOrderByCreatedAtDesc(
             Long employeeId, Instant now);
 

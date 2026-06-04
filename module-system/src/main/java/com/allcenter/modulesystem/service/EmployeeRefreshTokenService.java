@@ -11,6 +11,7 @@ import com.allcenter.modulesystem.security.JwtProperties;
 import com.allcenter.modulesystem.security.TokenHasher;
 import com.allcenter.modulesystem.support.ClientRequestInfo;
 import java.time.Instant;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,6 +19,9 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @RequiredArgsConstructor
 public class EmployeeRefreshTokenService {
+
+    /** Sesiones simultáneas permitidas por empleado (p. ej. PC + móvil). */
+    public static final int MAX_CONCURRENT_SESSIONS = 2;
 
     private final EmployeeRefreshTokenRepository refreshTokenRepository;
     private final EmployeeRepository employeeRepository;
@@ -67,7 +71,7 @@ public class EmployeeRefreshTokenService {
         if (rt.getExpiresAt().isBefore(Instant.now())) {
             rt.setRevoked(true);
             refreshTokenRepository.save(rt);
-            clearEmployeeSession(rt.getEmployeeId());
+            clearStaleSessionIfNeeded(rt.getEmployeeId());
             throw new BadRequestException(
                     "Refresh token expirado; inicie sesión de nuevo con correo y contraseña");
         }
@@ -80,7 +84,7 @@ public class EmployeeRefreshTokenService {
                         .findByIdWithRoles(rt.getEmployeeId())
                         .orElseThrow(() -> new NotFoundException("Empleado no encontrado"));
         if (!e.isActive()) {
-            clearEmployeeSession(e.getId());
+            clearStaleSessionIfNeeded(e.getId());
             throw new BadRequestException("La cuenta está desactivada; no se pueden renovar tokens");
         }
         touchEmployeeSession(e.getId(), connection != null ? connection : clientInfoFromToken(rt), now);
@@ -96,7 +100,7 @@ public class EmployeeRefreshTokenService {
                         rt -> {
                             rt.setRevoked(true);
                             refreshTokenRepository.save(rt);
-                            clearEmployeeSession(rt.getEmployeeId());
+                            clearStaleSessionIfNeeded(rt.getEmployeeId());
                         });
     }
 
@@ -120,14 +124,36 @@ public class EmployeeRefreshTokenService {
     }
 
     /**
-     * Antes de un login nuevo: limpia tokens vencidos y cierra cualquier sesión activa previa del
-     * empleado (política de una sola sesión: la nueva sustituye a la anterior).
+     * Antes de un login nuevo: limpia tokens vencidos y, si ya hay {@link #MAX_CONCURRENT_SESSIONS}
+     * sesiones activas, revoca la más antigua para dejar hueco a la nueva.
      */
     @Transactional
     public void replaceSessionForLogin(Long employeeId) {
         revokeExpiredTokensGlobally();
-        refreshTokenRepository.revokeAllActiveForEmployee(employeeId);
-        clearEmployeeSession(employeeId);
+        trimActiveSessions(employeeId, MAX_CONCURRENT_SESSIONS - 1);
+    }
+
+    /**
+     * Mantiene como máximo {@code maxActive} refresh tokens vigentes (revoca los más antiguos).
+     */
+    @Transactional
+    public void trimActiveSessions(Long employeeId, int maxActive) {
+        if (maxActive < 0) {
+            return;
+        }
+        Instant now = Instant.now();
+        List<EmployeeRefreshToken> active =
+                refreshTokenRepository.findActiveForEmployeeOrderByCreatedAtAsc(employeeId, now);
+        int excess = active.size() - maxActive;
+        if (excess <= 0) {
+            return;
+        }
+        for (int i = 0; i < excess; i++) {
+            EmployeeRefreshToken rt = active.get(i);
+            rt.setRevoked(true);
+            refreshTokenRepository.save(rt);
+        }
+        clearStaleSessionIfNeeded(employeeId);
     }
 
     @Transactional(readOnly = true)
