@@ -39,12 +39,30 @@ public class RmRegistroDocumentResolver {
 
     @Transactional(readOnly = true)
     public Resolved forEntrada(RmRegistroEntrada entrada) {
-        return resolve(entrada.getGuiaInventarioId(), entrada.getNumeroGuia(), entrada.getOcNumero());
+        Resolved base =
+                resolve(entrada.getGuiaInventarioId(), entrada.getNumeroGuia(), entrada.getOcNumero());
+        return mergeWithVehiculo(base, entrada.getRegistroVehiculo());
     }
 
     @Transactional(readOnly = true)
     public Resolved forSalida(RmRegistroSalida salida) {
-        return resolve(salida.getGuiaInventarioId(), salida.getNumeroGuia(), salida.getOcNumero());
+        Resolved base =
+                resolve(salida.getGuiaInventarioId(), salida.getNumeroGuia(), salida.getOcNumero());
+        return mergeWithVehiculo(base, salida.getRegistroVehiculo());
+    }
+
+    private Resolved mergeWithVehiculo(Resolved base, RmRegistroVehiculo vehiculo) {
+        String guia = trimOrNull(base.guiaNumero());
+        String oc = trimOrNull(base.ocNumero());
+        if (vehiculo != null) {
+            if (guia == null) {
+                guia = trimOrNull(vehiculo.getGuiaNumero());
+            }
+            if (oc == null) {
+                oc = trimOrNull(vehiculo.getOcNumero());
+            }
+        }
+        return new Resolved(guia != null ? guia : "", oc != null ? oc : "");
     }
 
     @Transactional(readOnly = true)

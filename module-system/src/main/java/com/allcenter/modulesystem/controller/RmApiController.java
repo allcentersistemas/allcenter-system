@@ -232,35 +232,13 @@ public class RmApiController {
     private record DocumentFields(String ocNumero, String numeroGuia) {}
 
     private DocumentFields documentFields(RmRegistroEntrada e) {
-        String oc = trimNullable(e.getOcNumero());
-        String guia = trimNullable(e.getNumeroGuia());
-        if (oc != null && guia != null) {
-            return new DocumentFields(oc, guia);
-        }
         RmRegistroDocumentResolver.Resolved doc = documentResolver.forEntrada(e);
-        if (oc == null) {
-            oc = trimNullable(doc.ocNumero());
-        }
-        if (guia == null) {
-            guia = trimNullable(doc.guiaNumero());
-        }
-        return new DocumentFields(oc, guia);
+        return new DocumentFields(trimNullable(doc.ocNumero()), trimNullable(doc.guiaNumero()));
     }
 
     private DocumentFields documentFields(RmRegistroSalida s) {
-        String oc = trimNullable(s.getOcNumero());
-        String guia = trimNullable(s.getNumeroGuia());
-        if (oc != null && guia != null) {
-            return new DocumentFields(oc, guia);
-        }
         RmRegistroDocumentResolver.Resolved doc = documentResolver.forSalida(s);
-        if (oc == null) {
-            oc = trimNullable(doc.ocNumero());
-        }
-        if (guia == null) {
-            guia = trimNullable(doc.guiaNumero());
-        }
-        return new DocumentFields(oc, guia);
+        return new DocumentFields(trimNullable(doc.ocNumero()), trimNullable(doc.guiaNumero()));
     }
 
     private RmApiModels.EntradaListRow toEntradaListRow(RmRegistroEntrada e) {
