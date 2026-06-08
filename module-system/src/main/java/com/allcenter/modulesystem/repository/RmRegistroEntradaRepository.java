@@ -21,7 +21,7 @@ public interface RmRegistroEntradaRepository extends JpaRepository<RmRegistroEnt
             SELECT DISTINCT e FROM RmRegistroEntrada e
             LEFT JOIN e.registroVehiculo v
             WHERE (
-                LOWER(CAST(e.numeroregistro AS string)) LIKE CONCAT('%', :q, '%') OR
+                CONCAT('', e.numeroregistro, '') LIKE CONCAT('%', :q, '%') OR
                 LOWER(COALESCE(e.ocNumero, '')) LIKE CONCAT('%', :q, '%') OR
                 LOWER(COALESCE(e.numeroGuia, '')) LIKE CONCAT('%', :q, '%') OR
                 LOWER(COALESCE(v.placa, '')) LIKE CONCAT('%', :q, '%') OR

@@ -229,8 +229,43 @@ public class RmApiController {
                 .body(body);
     }
 
+    private record DocumentFields(String ocNumero, String numeroGuia) {}
+
+    private DocumentFields documentFields(RmRegistroEntrada e) {
+        String oc = trimNullable(e.getOcNumero());
+        String guia = trimNullable(e.getNumeroGuia());
+        if (oc != null && guia != null) {
+            return new DocumentFields(oc, guia);
+        }
+        RmRegistroDocumentResolver.Resolved doc = documentResolver.forEntrada(e);
+        if (oc == null) {
+            oc = trimNullable(doc.ocNumero());
+        }
+        if (guia == null) {
+            guia = trimNullable(doc.guiaNumero());
+        }
+        return new DocumentFields(oc, guia);
+    }
+
+    private DocumentFields documentFields(RmRegistroSalida s) {
+        String oc = trimNullable(s.getOcNumero());
+        String guia = trimNullable(s.getNumeroGuia());
+        if (oc != null && guia != null) {
+            return new DocumentFields(oc, guia);
+        }
+        RmRegistroDocumentResolver.Resolved doc = documentResolver.forSalida(s);
+        if (oc == null) {
+            oc = trimNullable(doc.ocNumero());
+        }
+        if (guia == null) {
+            guia = trimNullable(doc.guiaNumero());
+        }
+        return new DocumentFields(oc, guia);
+    }
+
     private RmApiModels.EntradaListRow toEntradaListRow(RmRegistroEntrada e) {
         Long vehiculoId = e.getRegistroVehiculo() == null ? null : e.getRegistroVehiculo().getId();
+        DocumentFields doc = documentFields(e);
         return new RmApiModels.EntradaListRow(
                 e.getId(),
                 e.getNumeroregistro(),
@@ -238,8 +273,8 @@ public class RmApiController {
                 e.getFecha(),
                 e.getHora(),
                 e.getTipoDocumento(),
-                trimNullable(e.getOcNumero()),
-                trimNullable(e.getNumeroGuia()),
+                doc.ocNumero(),
+                doc.numeroGuia(),
                 e.getRecepcionEstado(),
                 e.getMotivoCancelacion(),
                 e.getCanceladoAt(),
@@ -250,6 +285,7 @@ public class RmApiController {
     }
 
     private RmApiModels.SalidaListRow toSalidaListRow(RmRegistroSalida s) {
+        DocumentFields doc = documentFields(s);
         return new RmApiModels.SalidaListRow(
                 s.getId(),
                 s.getNumeroregistro(),
@@ -257,8 +293,8 @@ public class RmApiController {
                 s.getFecha(),
                 s.getHoraCabecera(),
                 s.getTransporteId(),
-                trimNullable(s.getOcNumero()),
-                trimNullable(s.getNumeroGuia()),
+                doc.ocNumero(),
+                doc.numeroGuia(),
                 s.getGuiaInventarioId(),
                 s.getRecepcionEstado(),
                 s.getMotivoCancelacion(),
@@ -350,6 +386,7 @@ public class RmApiController {
         Long vehiculoId = e.getRegistroVehiculo() == null ? null : e.getRegistroVehiculo().getId();
         List<RmApiModels.EntradaDetalleResponse> detalles =
                 e.getDetalles().stream().map(this::toEntradaDetalle).toList();
+        DocumentFields doc = documentFields(e);
         return new RmApiModels.RegistroEntradaResponse(
                 e.getId(),
                 e.getNumeroregistro(),
@@ -357,8 +394,8 @@ public class RmApiController {
                 e.getFecha(),
                 e.getHora(),
                 e.getTipoDocumento(),
-                trimNullable(e.getOcNumero()),
-                trimNullable(e.getNumeroGuia()),
+                doc.ocNumero(),
+                doc.numeroGuia(),
                 null,
                 e.getRecepcionEstado(),
                 e.getValidadoAt(),
@@ -393,6 +430,7 @@ public class RmApiController {
         List<RmApiModels.SalidaDetalleResponse> detalles =
                 s.getDetalles().stream().map(this::toSalidaDetalle).toList();
         Long vehiculoId = s.getRegistroVehiculo() == null ? null : s.getRegistroVehiculo().getId();
+        DocumentFields doc = documentFields(s);
         return new RmApiModels.RegistroSalidaResponse(
                 s.getId(),
                 s.getNumeroregistro(),
@@ -401,8 +439,8 @@ public class RmApiController {
                 s.getHoraCabecera(),
                 s.getOrigen(),
                 s.getDestino(),
-                trimNullable(s.getNumeroGuia()),
-                trimNullable(s.getOcNumero()),
+                doc.numeroGuia(),
+                doc.ocNumero(),
                 s.getTransporteId(),
                 s.getChoferSalidaEmpleadoId(),
                 s.getChoferSalidaNombre(),

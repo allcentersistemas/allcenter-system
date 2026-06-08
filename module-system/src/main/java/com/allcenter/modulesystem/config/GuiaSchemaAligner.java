@@ -40,6 +40,7 @@ public class GuiaSchemaAligner implements ApplicationRunner {
         ensureRmSalidaDetalleOptionalColumns();
         ensureGuiaOrdenCompraColumn();
         syncPaleEnGuiaFromDetalles();
+        backfillRmDocumentColumns();
         relaxLegacyColumns();
         dropLegacyColumns();
     }
@@ -111,19 +112,17 @@ public class GuiaSchemaAligner implements ApplicationRunner {
         if (!tableExists("rm_registro_entrada")) {
             return;
         }
-        if (columnExists("rm_registro_entrada", "numero_guia")) {
-            return;
-        }
-        if (columnExists("rm_registro_entrada", "guia_numero")) {
+        if (!columnExists("rm_registro_entrada", "numero_guia")
+                && columnExists("rm_registro_entrada", "guia_numero")) {
             try {
                 jdbc.execute("ALTER TABLE rm_registro_entrada RENAME COLUMN guia_numero TO numero_guia");
                 log.info("rm_registro_entrada.guia_numero renombrada a numero_guia");
             } catch (Exception ex) {
                 log.warn("No se pudo renombrar rm_registro_entrada.guia_numero: {}", ex.getMessage());
             }
-            return;
         }
         addColumnIfMissing("rm_registro_entrada", "numero_guia", "VARCHAR(128)");
+        copyLegacyColumn("rm_registro_entrada", "guia_numero", "numero_guia");
     }
 
     /** Alinea columna legacy orden_compra / oc → oc_numero (RmRegistroEntrada). */
@@ -137,22 +136,77 @@ public class GuiaSchemaAligner implements ApplicationRunner {
     }
 
     private void renameRmOcColumn(String table) {
-        if (!tableExists(table) || columnExists(table, "oc_numero")) {
+        if (!tableExists(table)) {
             return;
         }
-        for (String legacy : new String[] {"orden_compra", "oc"}) {
-            if (!columnExists(table, legacy)) {
-                continue;
+        if (!columnExists(table, "oc_numero")) {
+            for (String legacy : new String[] {"orden_compra", "oc"}) {
+                if (!columnExists(table, legacy)) {
+                    continue;
+                }
+                try {
+                    jdbc.execute("ALTER TABLE " + table + " RENAME COLUMN " + legacy + " TO oc_numero");
+                    log.info("{}.{} renombrada a oc_numero", table, legacy);
+                    return;
+                } catch (Exception ex) {
+                    log.warn("No se pudo renombrar {}.{}: {}", table, legacy, ex.getMessage());
+                }
             }
-            try {
-                jdbc.execute("ALTER TABLE " + table + " RENAME COLUMN " + legacy + " TO oc_numero");
-                log.info("{}.{} renombrada a oc_numero", table, legacy);
-                return;
-            } catch (Exception ex) {
-                log.warn("No se pudo renombrar {}.{}: {}", table, legacy, ex.getMessage());
-            }
+            addColumnIfMissing(table, "oc_numero", "VARCHAR(128)");
         }
-        addColumnIfMissing(table, "oc_numero", "VARCHAR(128)");
+        copyLegacyColumn(table, "orden_compra", "oc_numero");
+        copyLegacyColumn(table, "oc", "oc_numero");
+    }
+
+    /** Rellena oc_numero / numero_guia en RM desde columnas legacy o guía de inventario vinculada. */
+    private void backfillRmDocumentColumns() {
+        backfillFromLinkedGuia("rm_registro_entrada");
+        backfillFromLinkedGuia("rm_registro_salida");
+    }
+
+    private void backfillFromLinkedGuia(String table) {
+        if (!tableExists(table)
+                || !columnExists(table, "guia_inventario_id")
+                || !columnExists(table, "numero_guia")
+                || !columnExists(table, "oc_numero")
+                || !tableExists("guia")) {
+            return;
+        }
+        try {
+            jdbc.execute(
+                    """
+                    UPDATE %s t SET
+                      numero_guia = COALESCE(NULLIF(TRIM(t.numero_guia), ''), g.numero_guia),
+                      oc_numero = COALESCE(NULLIF(TRIM(t.oc_numero), ''), NULLIF(TRIM(g.orden_compra), ''))
+                    FROM guia g
+                    WHERE t.guia_inventario_id = g.id
+                      AND (
+                        t.numero_guia IS NULL OR TRIM(t.numero_guia) = ''
+                        OR t.oc_numero IS NULL OR TRIM(t.oc_numero) = ''
+                      )
+                    """
+                            .formatted(table));
+            log.info("Backfill oc_numero/numero_guia desde guia en {}", table);
+        } catch (Exception ex) {
+            log.warn("No se pudo rellenar documento RM en {}: {}", table, ex.getMessage());
+        }
+    }
+
+    private void copyLegacyColumn(String table, String fromColumn, String toColumn) {
+        if (!tableExists(table) || !columnExists(table, fromColumn) || !columnExists(table, toColumn)) {
+            return;
+        }
+        try {
+            jdbc.execute(
+                    """
+                    UPDATE %s SET %s = %s
+                    WHERE (%s IS NULL OR TRIM(%s) = '')
+                      AND %s IS NOT NULL AND TRIM(%s) <> ''
+                    """
+                            .formatted(table, toColumn, fromColumn, toColumn, toColumn, fromColumn, fromColumn));
+        } catch (Exception ex) {
+            log.warn("No se pudo copiar {}.{} → {}: {}", table, fromColumn, toColumn, ex.getMessage());
+        }
     }
 
     private void ensureRmActaTransporteColumns() {
