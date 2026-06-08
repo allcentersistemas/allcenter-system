@@ -252,6 +252,14 @@ public class RmApiController {
 
     private RmApiModels.SalidaListRow toSalidaListRow(RmRegistroSalida s) {
         RmRegistroDocumentResolver.Resolved doc = documentResolver.forSalida(s);
+        String numeroGuia = doc.guiaNumero();
+        if ((numeroGuia == null || numeroGuia.isBlank()) && s.getNumeroGuia() != null) {
+            numeroGuia = s.getNumeroGuia().trim();
+        }
+        String ordenCompra = doc.ocNumero();
+        if ((ordenCompra == null || ordenCompra.isBlank()) && s.getOrdenCompra() != null) {
+            ordenCompra = s.getOrdenCompra().trim();
+        }
         return new RmApiModels.SalidaListRow(
                 s.getId(),
                 s.getNumeroregistro(),
@@ -259,8 +267,8 @@ public class RmApiController {
                 s.getFecha(),
                 s.getHoraCabecera(),
                 s.getTransporteId(),
-                doc.guiaNumero().isBlank() ? null : doc.guiaNumero(),
-                doc.ocNumero().isBlank() ? null : doc.ocNumero(),
+                numeroGuia == null || numeroGuia.isBlank() ? null : numeroGuia,
+                ordenCompra == null || ordenCompra.isBlank() ? null : ordenCompra,
                 s.getGuiaInventarioId(),
                 s.getRecepcionEstado(),
                 s.getMotivoCancelacion(),
