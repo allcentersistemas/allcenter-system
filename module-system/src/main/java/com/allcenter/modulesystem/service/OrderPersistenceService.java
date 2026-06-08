@@ -265,8 +265,9 @@ public class OrderPersistenceService {
                 detalle.getOrdenId().getId(),
                 nullToEmpty(detalle.getMaterial()),
                 detalle.getCantidad() == null ? "" : detalle.getCantidad().toString(),
-                nullToEmpty(detalle.getVeta()),
+                detalle.getLargo() == null ? "" : detalle.getLargo().toString(),
                 detalle.getAncho() == null ? "" : detalle.getAncho().toString(),
+                nullToEmpty(detalle.getVeta()),
                 str(extras.get("l1")),
                 str(extras.get("l2")),
                 str(extras.get("a1")),
@@ -289,7 +290,7 @@ public class OrderPersistenceService {
         detalle.setCantidad(parseInteger(payload.cantidad()));
         detalle.setLargo(parseInteger(payload.largoVeta()));
         detalle.setAncho(parseInteger(payload.ancho()));
-        detalle.setVeta(valueOrNull(payload.largoVeta()));
+        detalle.setVeta(normalizeVeta(payload.veta()));
         detalle.setDescripcion(valueOrNull(payload.observacion()));
 
         Map<String, Object> extras = new LinkedHashMap<>();
@@ -334,6 +335,17 @@ public class OrderPersistenceService {
         } catch (Exception ex) {
             return Map.of();
         }
+    }
+
+    private String normalizeVeta(String value) {
+        if (value == null || value.isBlank()) {
+            return "0-No";
+        }
+        String trimmed = value.trim();
+        if ("1-Longitud".equalsIgnoreCase(trimmed) || trimmed.startsWith("1")) {
+            return "1-Longitud";
+        }
+        return "0-No";
     }
 
     private String valueOrNull(String value) {
