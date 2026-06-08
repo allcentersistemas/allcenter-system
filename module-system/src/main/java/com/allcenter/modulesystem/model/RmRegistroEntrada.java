@@ -1,5 +1,7 @@
 package com.allcenter.modulesystem.model;
 
+import jakarta.persistence.Access;
+import jakarta.persistence.AccessType;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -23,6 +25,7 @@ import org.hibernate.annotations.Formula;
 
 @Entity
 @Table(name = "rm_registro_entrada")
+@Access(AccessType.FIELD)
 @Getter
 @Setter
 @NoArgsConstructor
@@ -55,7 +58,7 @@ public class RmRegistroEntrada {
     @Column(name = "oc_numero", length = 128)
     private String ocNumero;
 
-    @Column(name = "numero_guia")
+    @Column(name = "numero_guia", length = 128)
     private String numeroGuia;
 
     @Column(name = "guia_inventario_id")

@@ -12,6 +12,7 @@ import lombok.Setter;
 
 @Entity
 @Table(name = "rm_registro_salida")
+@Access(AccessType.FIELD)
 @Getter
 @Setter
 @NoArgsConstructor
@@ -61,7 +62,7 @@ public class RmRegistroSalida {
     @Column(length = 32)
     private String recepcionEstado;
 
-    @Column(name = "numero_guia")
+    @Column(name = "numero_guia", length = 128)
     private String numeroGuia;
 
     @Column(name = "oc_numero", length = 128)

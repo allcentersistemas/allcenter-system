@@ -113,7 +113,7 @@ public class RmRegistroApplicationService {
                 documentResolver.resolve(
                         payload.guiaInventarioId(), payload.numeroGuia(), payload.ocNumero());
         ent.setOcNumero(trimMax(doc.ocNumero(), 128));
-        ent.setNumeroGuia(trimMax(doc.guiaNumero(), 128));
+        ent.setNumeroGuia(trimMax(doc.numeroGuia(), 128));
         ent.setProveedor(resolveProveedor(payload.proveedor()));
         ent.setCreatedByEmail(trimMaxNullable(createdByEmail, 320));
         ent.setDocumentoPhotoFilenamesJson("[]");
@@ -313,7 +313,7 @@ public class RmRegistroApplicationService {
         RmRegistroDocumentResolver.Resolved doc =
                 documentResolver.resolve(
                         payload.guiaInventarioId(), payload.numeroGuia(), payload.ocNumero());
-        sal.setNumeroGuia(trimMaxNullable(doc.guiaNumero(), 128));
+        sal.setNumeroGuia(trimMaxNullable(doc.numeroGuia(), 128));
         sal.setOcNumero(trimMaxNullable(doc.ocNumero(), 128));
         sal.setObservaciones(trimMaxNullable(payload.observaciones(), 4000));
         sal.setCabeceraPhotoFilenamesJson("[]");
@@ -456,7 +456,7 @@ public class RmRegistroApplicationService {
                         entPayload.numeroGuia(),
                         entPayload.ocNumero());
         ent.setOcNumero(trimMax(doc.ocNumero(), 128));
-        ent.setNumeroGuia(trimMax(doc.guiaNumero(), 128));
+        ent.setNumeroGuia(trimMax(doc.numeroGuia(), 128));
         ent.setProveedor(resolveProveedor(entPayload.proveedor()));
         ent.setCreatedByEmail(trimMaxNullable(createdByEmail, 320));
         ent.setObservaciones(trimMaxNullable(entPayload.observaciones(), 4000));

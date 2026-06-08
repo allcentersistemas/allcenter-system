@@ -236,12 +236,12 @@ public class RmApiController {
 
     private DocumentFields documentFields(RmRegistroEntrada e) {
         RmRegistroDocumentResolver.Resolved doc = documentResolver.forEntrada(e);
-        return new DocumentFields(trimNullable(doc.ocNumero()), trimNullable(doc.guiaNumero()));
+        return new DocumentFields(trimNullable(doc.ocNumero()), trimNullable(doc.numeroGuia()));
     }
 
     private DocumentFields documentFields(RmRegistroSalida s) {
         RmRegistroDocumentResolver.Resolved doc = documentResolver.forSalida(s);
-        return new DocumentFields(trimNullable(doc.ocNumero()), trimNullable(doc.guiaNumero()));
+        return new DocumentFields(trimNullable(doc.ocNumero()), trimNullable(doc.numeroGuia()));
     }
 
     private RmApiModels.EntradaListRow toEntradaListRow(RmRegistroEntrada e) {

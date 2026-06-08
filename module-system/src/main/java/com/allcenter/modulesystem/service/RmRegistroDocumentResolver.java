@@ -16,7 +16,7 @@ public class RmRegistroDocumentResolver {
 
     private final GuiaRepository guiaRepository;
 
-    public record Resolved(String guiaNumero, String ocNumero) {}
+    public record Resolved(String numeroGuia, String ocNumero) {}
 
     /**
      * Resuelve guía/OC del propio registro ({@code numero_guia} / {@code oc_numero}).

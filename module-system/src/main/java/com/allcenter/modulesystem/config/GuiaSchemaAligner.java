@@ -33,6 +33,7 @@ public class GuiaSchemaAligner implements ApplicationRunner {
         ensureRmEntradaDestinoColumn();
         ensureRmEntradaGuiaColumn();
         ensureRmEntradaNumeroGuiaColumn();
+        ensureRmSalidaNumeroGuiaColumn();
         ensureRmEntradaOcNumeroColumn();
         ensureRmSalidaOcNumeroColumn();
         ensureRmActaTransporteColumns();
@@ -105,22 +106,43 @@ public class GuiaSchemaAligner implements ApplicationRunner {
         addColumnIfMissing("rm_registro_entrada", "guia_inventario_id", "BIGINT");
     }
 
-    /** Alinea columna legacy guia_numero → numero_guia (modelo RmRegistroEntrada). */
+    /** Alinea columna legacy guia_numero → numero_guia en registros RM. */
     private void ensureRmEntradaNumeroGuiaColumn() {
-        if (!tableExists("rm_registro_entrada")) {
+        alignRmNumeroGuiaColumn("rm_registro_entrada");
+    }
+
+    private void ensureRmSalidaNumeroGuiaColumn() {
+        alignRmNumeroGuiaColumn("rm_registro_salida");
+    }
+
+    private void alignRmNumeroGuiaColumn(String table) {
+        if (!tableExists(table)) {
             return;
         }
-        if (!columnExists("rm_registro_entrada", "numero_guia")
-                && columnExists("rm_registro_entrada", "guia_numero")) {
+        boolean hasNumero = columnExists(table, "numero_guia");
+        boolean hasLegacy = columnExists(table, "guia_numero");
+        if (!hasNumero && hasLegacy) {
             try {
-                jdbc.execute("ALTER TABLE rm_registro_entrada RENAME COLUMN guia_numero TO numero_guia");
-                log.info("rm_registro_entrada.guia_numero renombrada a numero_guia");
+                jdbc.execute("ALTER TABLE " + table + " RENAME COLUMN guia_numero TO numero_guia");
+                log.info("{}.guia_numero renombrada a numero_guia", table);
+                hasNumero = true;
+                hasLegacy = false;
             } catch (Exception ex) {
-                log.warn("No se pudo renombrar rm_registro_entrada.guia_numero: {}", ex.getMessage());
+                log.warn("No se pudo renombrar {}.guia_numero: {}", table, ex.getMessage());
             }
         }
-        addColumnIfMissing("rm_registro_entrada", "numero_guia", "VARCHAR(128)");
-        copyLegacyColumn("rm_registro_entrada", "guia_numero", "numero_guia");
+        addColumnIfMissing(table, "numero_guia", "VARCHAR(128)");
+        if (hasNumero && hasLegacy) {
+            copyLegacyColumn(table, "guia_numero", "numero_guia");
+            try {
+                jdbc.execute("ALTER TABLE " + table + " DROP COLUMN guia_numero");
+                log.info("{}.guia_numero eliminada tras migrar a numero_guia", table);
+            } catch (Exception ex) {
+                log.warn("No se pudo eliminar {}.guia_numero: {}", table, ex.getMessage());
+            }
+        } else if (!hasNumero && hasLegacy) {
+            copyLegacyColumn(table, "guia_numero", "numero_guia");
+        }
     }
 
     /** Alinea columna legacy orden_compra / oc → oc_numero (RmRegistroEntrada). */
