@@ -114,7 +114,6 @@ public class RmRegistroApplicationService {
                         payload.guiaInventarioId(), payload.numeroGuia(), payload.ocNumero());
         ent.setOcNumero(trimMax(doc.ocNumero(), 128));
         ent.setNumeroGuia(trimMax(doc.guiaNumero(), 128));
-        applyDocumentoToVehiculo(vehiculo, doc);
         ent.setProveedor(resolveProveedor(payload.proveedor()));
         ent.setCreatedByEmail(trimMaxNullable(createdByEmail, 320));
         ent.setDocumentoPhotoFilenamesJson("[]");
@@ -316,11 +315,6 @@ public class RmRegistroApplicationService {
                         payload.guiaInventarioId(), payload.numeroGuia(), payload.ocNumero());
         sal.setNumeroGuia(trimMaxNullable(doc.guiaNumero(), 128));
         sal.setOcNumero(trimMaxNullable(doc.ocNumero(), 128));
-        if (vehiculoFromCompleto != null) {
-            applyDocumentoToVehiculo(vehiculoFromCompleto, doc);
-        } else if (vehiculo != null) {
-            applyDocumentoToVehiculo(vehiculo, doc);
-        }
         sal.setObservaciones(trimMaxNullable(payload.observaciones(), 4000));
         sal.setCabeceraPhotoFilenamesJson("[]");
 
@@ -463,7 +457,6 @@ public class RmRegistroApplicationService {
                         entPayload.ocNumero());
         ent.setOcNumero(trimMax(doc.ocNumero(), 128));
         ent.setNumeroGuia(trimMax(doc.guiaNumero(), 128));
-        applyDocumentoToVehiculo(v, doc);
         ent.setProveedor(resolveProveedor(entPayload.proveedor()));
         ent.setCreatedByEmail(trimMaxNullable(createdByEmail, 320));
         ent.setObservaciones(trimMaxNullable(entPayload.observaciones(), 4000));
@@ -1126,24 +1119,6 @@ public class RmRegistroApplicationService {
         }
         vehiculoRepository.save(v);
         return v;
-    }
-
-    private void applyDocumentoToVehiculo(
-            RmRegistroVehiculo vehiculo, RmRegistroDocumentResolver.Resolved doc) {
-        if (vehiculo == null || doc == null) {
-            return;
-        }
-        String guia = trimMaxNullable(doc.guiaNumero(), 128);
-        String oc = trimMaxNullable(doc.ocNumero(), 128);
-        if (guia != null) {
-            vehiculo.setGuiaNumero(guia);
-        }
-        if (oc != null) {
-            vehiculo.setOcNumero(oc);
-        }
-        if (guia != null || oc != null) {
-            vehiculoRepository.save(vehiculo);
-        }
     }
 
     private int allocateNumeroRegistro() {

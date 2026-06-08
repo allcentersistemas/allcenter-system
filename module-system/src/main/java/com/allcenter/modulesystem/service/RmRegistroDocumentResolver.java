@@ -3,7 +3,6 @@ package com.allcenter.modulesystem.service;
 import com.allcenter.modulesystem.model.Guia;
 import com.allcenter.modulesystem.model.RmRegistroEntrada;
 import com.allcenter.modulesystem.model.RmRegistroSalida;
-import com.allcenter.modulesystem.model.RmRegistroVehiculo;
 import com.allcenter.modulesystem.repository.GuiaRepository;
 import java.util.Locale;
 import java.util.Optional;
@@ -50,13 +49,6 @@ public class RmRegistroDocumentResolver {
     @Transactional(readOnly = true)
     public Resolved forSalida(RmRegistroSalida salida) {
         return resolve(salida.getGuiaInventarioId(), salida.getNumeroGuia(), salida.getOcNumero());
-    }
-
-    @Transactional(readOnly = true)
-    public Resolved forVehiculo(RmRegistroVehiculo vehiculo) {
-        String guia = trimOrNull(vehiculo.getGuiaNumero());
-        String oc = trimOrNull(vehiculo.getOcNumero());
-        return new Resolved(guia != null ? guia : "", oc != null ? oc : "");
     }
 
     public static String normalizeSearchTerm(String q) {

@@ -288,7 +288,6 @@ public class RmApiController {
     }
 
     private RmApiModels.VehiculoListRow toVehiculoListRow(RmRegistroVehiculo v) {
-        RmRegistroDocumentResolver.Resolved doc = documentResolver.forVehiculo(v);
         return new RmApiModels.VehiculoListRow(
                 v.getId(),
                 v.getNumeroregistro(),
@@ -297,8 +296,6 @@ public class RmApiController {
                 v.getPlaca(),
                 v.getChofer(),
                 v.getMarca(),
-                doc.guiaNumero().isBlank() ? null : doc.guiaNumero(),
-                doc.ocNumero().isBlank() ? null : doc.ocNumero(),
                 v.getCreatedAt());
     }
 
@@ -460,7 +457,6 @@ public class RmApiController {
     private RmApiModels.RegistroVehiculoResponse toVehiculoResponse(
             RmRegistroVehiculo v, List<RmApiModels.EntradaListRow> entradas) {
         List<String> names = photoFilenameCodec.readList(v.getPhotoFilenamesJson());
-        RmRegistroDocumentResolver.Resolved doc = documentResolver.forVehiculo(v);
         return new RmApiModels.RegistroVehiculoResponse(
                 v.getId(),
                 v.getNumeroregistro(),
@@ -472,8 +468,6 @@ public class RmApiController {
                 v.getChofer(),
                 v.getKilometraje(),
                 v.getHoraSalida(),
-                doc.guiaNumero().isBlank() ? null : doc.guiaNumero(),
-                doc.ocNumero().isBlank() ? null : doc.ocNumero(),
                 v.getCreatedAt(),
                 v.getCreatedByEmail(),
                 photoUrls(RmMediaKinds.VEHICULO, v.getId(), names),

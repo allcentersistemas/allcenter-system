@@ -93,8 +93,6 @@ public class GuiaSchemaAligner implements ApplicationRunner {
     private void ensureRmRegistroNumeroAndVehiculoLink() {
         addColumnIfMissing("rm_registro_vehiculo", "numeroregistro", "INTEGER");
         addColumnIfMissing("rm_registro_vehiculo", "tiporegistro", "VARCHAR(32)");
-        addColumnIfMissing("rm_registro_vehiculo", "guia_numero", "VARCHAR(128)");
-        addColumnIfMissing("rm_registro_vehiculo", "oc_numero", "VARCHAR(128)");
         addColumnIfMissing("rm_registro_entrada", "numeroregistro", "INTEGER");
         addColumnIfMissing("rm_registro_salida", "numeroregistro", "INTEGER");
         addColumnIfMissing("rm_registro_salida", "registro_vehiculo_id", "BIGINT");

@@ -70,12 +70,6 @@ public class RmRegistroVehiculo {
     @Column
     private String tiporegistro;
 
-    @Column(name = "guia_numero", length = 128)
-    private String guiaNumero;
-
-    @Column(name = "oc_numero", length = 128)
-    private String ocNumero;
-
     @PrePersist
     void prePersist() {
         if (createdAt == null) {

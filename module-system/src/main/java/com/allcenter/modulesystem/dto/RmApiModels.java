@@ -56,8 +56,6 @@ public final class RmApiModels {
             String placa,
             String chofer,
             String marca,
-            String guiaNumero,
-            String ocNumero,
             Instant createdAt) {}
 
     public record ActaListRow(
@@ -156,8 +154,6 @@ public final class RmApiModels {
             String chofer,
             String kilometraje,
             String horaSalida,
-            String guiaNumero,
-            String ocNumero,
             Instant createdAt,
             String createdByEmail,
             List<String> photoUrls,

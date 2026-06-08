@@ -26,8 +26,6 @@ public interface RmRegistroSalidaRepository extends JpaRepository<RmRegistroSali
                 LOWER(COALESCE(v.placa, '')) LIKE CONCAT('%', :q, '%') OR
                 LOWER(COALESCE(v.chofer, '')) LIKE CONCAT('%', :q, '%') OR
                 LOWER(COALESCE(v.marca, '')) LIKE CONCAT('%', :q, '%') OR
-                LOWER(COALESCE(v.guiaNumero, '')) LIKE CONCAT('%', :q, '%') OR
-                LOWER(COALESCE(v.ocNumero, '')) LIKE CONCAT('%', :q, '%') OR
                 EXISTS (
                     SELECT 1 FROM Guia g WHERE g.id = s.guiaInventarioId AND (
                         LOWER(g.numeroGuia) LIKE CONCAT('%', :q, '%') OR
