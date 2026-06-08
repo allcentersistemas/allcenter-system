@@ -28,6 +28,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -117,6 +118,7 @@ public class RmApiController {
     }
 
     @GetMapping("/registros-entrada")
+    @Transactional(readOnly = true)
     @PreAuthorize("@portalAuth.canRead()")
     public Page<RmApiModels.EntradaListRow> listEntradas(
             @RequestParam(required = false) String q, @PageableDefault(size = 20) Pageable pageable) {
@@ -151,6 +153,7 @@ public class RmApiController {
     }
 
     @GetMapping("/registros-salida")
+    @Transactional(readOnly = true)
     @PreAuthorize("@portalAuth.canRead()")
     public Page<RmApiModels.SalidaListRow> listSalidas(
             @RequestParam(required = false) String q, @PageableDefault(size = 20) Pageable pageable) {
@@ -253,6 +256,7 @@ public class RmApiController {
                 e.getTipoDocumento(),
                 doc.ocNumero(),
                 doc.numeroGuia(),
+                e.getGuiaInventarioId(),
                 e.getRecepcionEstado(),
                 e.getMotivoCancelacion(),
                 e.getCanceladoAt(),
@@ -374,6 +378,7 @@ public class RmApiController {
                 e.getTipoDocumento(),
                 doc.ocNumero(),
                 doc.numeroGuia(),
+                e.getGuiaInventarioId(),
                 null,
                 e.getRecepcionEstado(),
                 e.getValidadoAt(),
@@ -419,6 +424,7 @@ public class RmApiController {
                 s.getDestino(),
                 doc.numeroGuia(),
                 doc.ocNumero(),
+                s.getGuiaInventarioId(),
                 s.getTransporteId(),
                 s.getChoferSalidaEmpleadoId(),
                 s.getChoferSalidaNombre(),

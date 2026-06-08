@@ -19,6 +19,11 @@ public class RmRegistroDocumentResolver {
 
     public record Resolved(String guiaNumero, String ocNumero) {}
 
+    /**
+     * Resuelve guía/OC del propio registro ({@code numero_guia} / {@code oc_numero}).
+     * Solo si faltan, completa desde la guía de inventario vinculada ({@code guia_inventario_id}).
+     * No usa {@code guia_numero} del vehículo RM — cada entrada/salida tiene su documento.
+     */
     @Transactional(readOnly = true)
     public Resolved resolve(Long guiaInventarioId, String guiaStored, String ocStored) {
         String guia = trimOrNull(guiaStored);
@@ -39,30 +44,12 @@ public class RmRegistroDocumentResolver {
 
     @Transactional(readOnly = true)
     public Resolved forEntrada(RmRegistroEntrada entrada) {
-        Resolved base =
-                resolve(entrada.getGuiaInventarioId(), entrada.getNumeroGuia(), entrada.getOcNumero());
-        return mergeWithVehiculo(base, entrada.getRegistroVehiculo());
+        return resolve(entrada.getGuiaInventarioId(), entrada.getNumeroGuia(), entrada.getOcNumero());
     }
 
     @Transactional(readOnly = true)
     public Resolved forSalida(RmRegistroSalida salida) {
-        Resolved base =
-                resolve(salida.getGuiaInventarioId(), salida.getNumeroGuia(), salida.getOcNumero());
-        return mergeWithVehiculo(base, salida.getRegistroVehiculo());
-    }
-
-    private Resolved mergeWithVehiculo(Resolved base, RmRegistroVehiculo vehiculo) {
-        String guia = trimOrNull(base.guiaNumero());
-        String oc = trimOrNull(base.ocNumero());
-        if (vehiculo != null) {
-            if (guia == null) {
-                guia = trimOrNull(vehiculo.getGuiaNumero());
-            }
-            if (oc == null) {
-                oc = trimOrNull(vehiculo.getOcNumero());
-            }
-        }
-        return new Resolved(guia != null ? guia : "", oc != null ? oc : "");
+        return resolve(salida.getGuiaInventarioId(), salida.getNumeroGuia(), salida.getOcNumero());
     }
 
     @Transactional(readOnly = true)
