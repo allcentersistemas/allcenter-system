@@ -252,13 +252,13 @@ public class RmApiController {
 
     private RmApiModels.SalidaListRow toSalidaListRow(RmRegistroSalida s) {
         RmRegistroDocumentResolver.Resolved doc = documentResolver.forSalida(s);
-        String numeroGuia = doc.guiaNumero();
-        if ((numeroGuia == null || numeroGuia.isBlank()) && s.getNumeroGuia() != null) {
-            numeroGuia = s.getNumeroGuia().trim();
+        String guiaNumero = doc.guiaNumero();
+        if ((guiaNumero == null || guiaNumero.isBlank()) && s.getNumeroGuia() != null) {
+            guiaNumero = s.getNumeroGuia().trim();
         }
-        String ordenCompra = doc.ocNumero();
-        if ((ordenCompra == null || ordenCompra.isBlank()) && s.getOrdenCompra() != null) {
-            ordenCompra = s.getOrdenCompra().trim();
+        String ocNumero = doc.ocNumero();
+        if ((ocNumero == null || ocNumero.isBlank()) && s.getOrdenCompra() != null) {
+            ocNumero = s.getOrdenCompra().trim();
         }
         return new RmApiModels.SalidaListRow(
                 s.getId(),
@@ -267,8 +267,8 @@ public class RmApiController {
                 s.getFecha(),
                 s.getHoraCabecera(),
                 s.getTransporteId(),
-                numeroGuia == null || numeroGuia.isBlank() ? null : numeroGuia,
-                ordenCompra == null || ordenCompra.isBlank() ? null : ordenCompra,
+                ocNumero == null || ocNumero.isBlank() ? null : ocNumero,
+                guiaNumero == null || guiaNumero.isBlank() ? null : guiaNumero,
                 s.getGuiaInventarioId(),
                 s.getRecepcionEstado(),
                 s.getMotivoCancelacion(),
