@@ -350,15 +350,6 @@ public class RmApiController {
         Long vehiculoId = e.getRegistroVehiculo() == null ? null : e.getRegistroVehiculo().getId();
         List<RmApiModels.EntradaDetalleResponse> detalles =
                 e.getDetalles().stream().map(this::toEntradaDetalle).toList();
-        RmRegistroDocumentResolver.Resolved doc = documentResolver.forEntrada(e);
-        String numeroGuia = doc.guiaNumero();
-        if ((numeroGuia == null || numeroGuia.isBlank()) && e.getNumeroGuia() != null) {
-            numeroGuia = e.getNumeroGuia().trim();
-        }
-        String ocNumero = doc.ocNumero();
-        if ((ocNumero == null || ocNumero.isBlank()) && e.getOcNumero() != null) {
-            ocNumero = e.getOcNumero().trim();
-        }
         return new RmApiModels.RegistroEntradaResponse(
                 e.getId(),
                 e.getNumeroregistro(),
@@ -366,8 +357,8 @@ public class RmApiController {
                 e.getFecha(),
                 e.getHora(),
                 e.getTipoDocumento(),
-                ocNumero == null || ocNumero.isBlank() ? null : ocNumero,
-                numeroGuia == null || numeroGuia.isBlank() ? null : numeroGuia,
+                trimNullable(e.getOcNumero()),
+                trimNullable(e.getNumeroGuia()),
                 null,
                 e.getRecepcionEstado(),
                 e.getValidadoAt(),
@@ -402,15 +393,6 @@ public class RmApiController {
         List<RmApiModels.SalidaDetalleResponse> detalles =
                 s.getDetalles().stream().map(this::toSalidaDetalle).toList();
         Long vehiculoId = s.getRegistroVehiculo() == null ? null : s.getRegistroVehiculo().getId();
-        RmRegistroDocumentResolver.Resolved doc = documentResolver.forSalida(s);
-        String numeroGuia = doc.guiaNumero();
-        if ((numeroGuia == null || numeroGuia.isBlank()) && s.getNumeroGuia() != null) {
-            numeroGuia = s.getNumeroGuia().trim();
-        }
-        String ocNumero = doc.ocNumero();
-        if ((ocNumero == null || ocNumero.isBlank()) && s.getOcNumero() != null) {
-            ocNumero = s.getOcNumero().trim();
-        }
         return new RmApiModels.RegistroSalidaResponse(
                 s.getId(),
                 s.getNumeroregistro(),
@@ -419,8 +401,8 @@ public class RmApiController {
                 s.getHoraCabecera(),
                 s.getOrigen(),
                 s.getDestino(),
-                numeroGuia == null || numeroGuia.isBlank() ? null : numeroGuia,
-                ocNumero == null || ocNumero.isBlank() ? null : ocNumero,
+                trimNullable(s.getNumeroGuia()),
+                trimNullable(s.getOcNumero()),
                 s.getTransporteId(),
                 s.getChoferSalidaEmpleadoId(),
                 s.getChoferSalidaNombre(),
