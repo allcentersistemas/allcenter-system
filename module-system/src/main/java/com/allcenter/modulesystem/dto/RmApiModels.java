@@ -123,7 +123,7 @@ public final class RmApiModels {
             String origen,
             String destino,
             String numeroGuia,
-            String ordenCompra,
+            String ocNumero,
             Long transporteId,
             Long choferSalidaEmpleadoId,
             String choferSalidaNombre,

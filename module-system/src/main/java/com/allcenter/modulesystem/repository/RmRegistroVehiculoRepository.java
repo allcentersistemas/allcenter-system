@@ -37,7 +37,7 @@ public interface RmRegistroVehiculoRepository extends JpaRepository<RmRegistroVe
                 EXISTS (
                     SELECT 1 FROM RmRegistroSalida s WHERE s.registroVehiculo = v AND (
                         LOWER(COALESCE(s.numeroGuia, '')) LIKE CONCAT('%', :q, '%') OR
-                        LOWER(COALESCE(s.ordenCompra, '')) LIKE CONCAT('%', :q, '%') OR
+                        LOWER(COALESCE(s.ocNumero, '')) LIKE CONCAT('%', :q, '%') OR
                         EXISTS (
                             SELECT 1 FROM Guia g2 WHERE g2.id = s.guiaInventarioId AND (
                                 LOWER(g2.numeroGuia) LIKE CONCAT('%', :q, '%') OR

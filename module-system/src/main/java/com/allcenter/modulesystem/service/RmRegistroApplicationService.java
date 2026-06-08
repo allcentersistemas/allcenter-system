@@ -313,9 +313,9 @@ public class RmRegistroApplicationService {
         sal.setDestino(trimMax(payload.destino(), 512));
         RmRegistroDocumentResolver.Resolved doc =
                 documentResolver.resolve(
-                        payload.guiaInventarioId(), payload.numeroGuia(), payload.ordenCompra());
+                        payload.guiaInventarioId(), payload.numeroGuia(), payload.ocNumero());
         sal.setNumeroGuia(trimMaxNullable(doc.guiaNumero(), 128));
-        sal.setOrdenCompra(trimMaxNullable(doc.ocNumero(), 128));
+        sal.setOcNumero(trimMaxNullable(doc.ocNumero(), 128));
         if (vehiculoFromCompleto != null) {
             applyDocumentoToVehiculo(vehiculoFromCompleto, doc);
         } else if (vehiculo != null) {

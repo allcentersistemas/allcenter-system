@@ -64,8 +64,8 @@ public class RmRegistroSalida {
     @Column(name = "numero_guia")
     private String numeroGuia;
 
-    @Column(name = "orden_compra")
-    private String ordenCompra;
+    @Column(name = "oc_numero", length = 128)
+    private String ocNumero;
 
     @Column(length = 256)
     private String proveedor;

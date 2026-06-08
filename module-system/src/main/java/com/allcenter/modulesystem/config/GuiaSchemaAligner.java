@@ -33,6 +33,8 @@ public class GuiaSchemaAligner implements ApplicationRunner {
         ensureRmEntradaDestinoColumn();
         ensureRmEntradaGuiaColumn();
         ensureRmEntradaNumeroGuiaColumn();
+        ensureRmEntradaOcNumeroColumn();
+        ensureRmSalidaOcNumeroColumn();
         ensureRmActaTransporteColumns();
         ensureRmSalidaGuiaColumn();
         ensureRmSalidaDetalleOptionalColumns();
@@ -85,7 +87,6 @@ public class GuiaSchemaAligner implements ApplicationRunner {
         }
         addColumnIfMissing("rm_registro_salida", "destino", "VARCHAR(512)");
         addColumnIfMissing("rm_registro_salida", "numero_guia", "VARCHAR(128)");
-        addColumnIfMissing("rm_registro_salida", "orden_compra", "VARCHAR(128)");
     }
 
     private void ensureRmRegistroNumeroAndVehiculoLink() {
@@ -123,6 +124,35 @@ public class GuiaSchemaAligner implements ApplicationRunner {
             return;
         }
         addColumnIfMissing("rm_registro_entrada", "numero_guia", "VARCHAR(128)");
+    }
+
+    /** Alinea columna legacy orden_compra / oc → oc_numero (RmRegistroEntrada). */
+    private void ensureRmEntradaOcNumeroColumn() {
+        renameRmOcColumn("rm_registro_entrada");
+    }
+
+    /** Alinea columna legacy orden_compra → oc_numero (RmRegistroSalida). */
+    private void ensureRmSalidaOcNumeroColumn() {
+        renameRmOcColumn("rm_registro_salida");
+    }
+
+    private void renameRmOcColumn(String table) {
+        if (!tableExists(table) || columnExists(table, "oc_numero")) {
+            return;
+        }
+        for (String legacy : new String[] {"orden_compra", "oc"}) {
+            if (!columnExists(table, legacy)) {
+                continue;
+            }
+            try {
+                jdbc.execute("ALTER TABLE " + table + " RENAME COLUMN " + legacy + " TO oc_numero");
+                log.info("{}.{} renombrada a oc_numero", table, legacy);
+                return;
+            } catch (Exception ex) {
+                log.warn("No se pudo renombrar {}.{}: {}", table, legacy, ex.getMessage());
+            }
+        }
+        addColumnIfMissing(table, "oc_numero", "VARCHAR(128)");
     }
 
     private void ensureRmActaTransporteColumns() {

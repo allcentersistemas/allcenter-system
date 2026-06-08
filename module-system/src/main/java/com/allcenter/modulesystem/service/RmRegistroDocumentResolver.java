@@ -44,7 +44,7 @@ public class RmRegistroDocumentResolver {
 
     @Transactional(readOnly = true)
     public Resolved forSalida(RmRegistroSalida salida) {
-        return resolve(salida.getGuiaInventarioId(), salida.getNumeroGuia(), salida.getOrdenCompra());
+        return resolve(salida.getGuiaInventarioId(), salida.getNumeroGuia(), salida.getOcNumero());
     }
 
     @Transactional(readOnly = true)

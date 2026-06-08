@@ -52,7 +52,7 @@ public class RmRegistroEntrada {
     @Column(name = "tipo_documento", nullable = false, length = 8)
     private String tipoDocumento;
 
-    @Column(length = 128)
+    @Column(name = "oc_numero", length = 128)
     private String ocNumero;
 
     @Column(name = "numero_guia")

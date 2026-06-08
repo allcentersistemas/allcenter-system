@@ -22,7 +22,7 @@ public interface RmRegistroSalidaRepository extends JpaRepository<RmRegistroSali
             WHERE (
                 CONCAT('', s.numeroregistro, '') LIKE CONCAT('%', :q, '%') OR
                 LOWER(COALESCE(s.numeroGuia, '')) LIKE CONCAT('%', :q, '%') OR
-                LOWER(COALESCE(s.ordenCompra, '')) LIKE CONCAT('%', :q, '%') OR
+                LOWER(COALESCE(s.ocNumero, '')) LIKE CONCAT('%', :q, '%') OR
                 LOWER(COALESCE(v.placa, '')) LIKE CONCAT('%', :q, '%') OR
                 LOWER(COALESCE(v.chofer, '')) LIKE CONCAT('%', :q, '%') OR
                 LOWER(COALESCE(v.marca, '')) LIKE CONCAT('%', :q, '%') OR
