@@ -68,6 +68,7 @@ public class RmRegistroApplicationService {
     private final SucursalRepository sucursalRepository;
     private final TransporteRepository transporteRepository;
     private final InventoryApplicationService inventoryApplicationService;
+    private final RmRegistroDocumentResolver documentResolver;
 
     @PostConstruct
     void initStorage() throws IOException {
@@ -107,8 +108,13 @@ public class RmRegistroApplicationService {
         ent.setFecha(resolveEntradaFecha(payload, vehiculo));
         ent.setHora(resolveEntradaHora(payload, vehiculo));
         ent.setTipoDocumento("AMBOS");
-        ent.setOcNumero(trimMax(payload.ocNumero(), 128));
-        ent.setGuiaNumero(trimMax(payload.guiaNumero(), 128));
+        ent.setGuiaInventarioId(payload.guiaInventarioId());
+        RmRegistroDocumentResolver.Resolved doc =
+                documentResolver.resolve(
+                        payload.guiaInventarioId(), payload.guiaNumero(), payload.ocNumero());
+        ent.setOcNumero(trimMax(doc.ocNumero(), 128));
+        ent.setGuiaNumero(trimMax(doc.guiaNumero(), 128));
+        applyDocumentoToVehiculo(vehiculo, doc);
         ent.setProveedor(resolveProveedor(payload.proveedor()));
         ent.setCreatedByEmail(trimMaxNullable(createdByEmail, 320));
         ent.setDocumentoPhotoFilenamesJson("[]");
@@ -183,8 +189,12 @@ public class RmRegistroApplicationService {
     }
 
     @Transactional(readOnly = true)
-    public Page<RmRegistroEntrada> pageEntradas(Pageable pageable) {
-        return entradaRepository.findAllByOrderByCreatedAtDesc(pageable);
+    public Page<RmRegistroEntrada> pageEntradas(Pageable pageable, String q) {
+        String term = RmRegistroDocumentResolver.normalizeSearchTerm(q);
+        if (term == null) {
+            return entradaRepository.findAllByOrderByCreatedAtDesc(pageable);
+        }
+        return entradaRepository.searchByTerm(term, pageable);
     }
 
     @Transactional(readOnly = true)
@@ -301,8 +311,16 @@ public class RmRegistroApplicationService {
             sal.setChoferValidacionNombre(null);
         }
         sal.setDestino(trimMax(payload.destino(), 512));
-        sal.setNumeroGuia(trimMaxNullable(payload.numeroGuia(), 128));
-        sal.setOrdenCompra(trimMaxNullable(payload.ordenCompra(), 128));
+        RmRegistroDocumentResolver.Resolved doc =
+                documentResolver.resolve(
+                        payload.guiaInventarioId(), payload.numeroGuia(), payload.ordenCompra());
+        sal.setNumeroGuia(trimMaxNullable(doc.guiaNumero(), 128));
+        sal.setOrdenCompra(trimMaxNullable(doc.ocNumero(), 128));
+        if (vehiculoFromCompleto != null) {
+            applyDocumentoToVehiculo(vehiculoFromCompleto, doc);
+        } else if (vehiculo != null) {
+            applyDocumentoToVehiculo(vehiculo, doc);
+        }
         sal.setObservaciones(trimMaxNullable(payload.observaciones(), 4000));
         sal.setCabeceraPhotoFilenamesJson("[]");
 
@@ -363,8 +381,12 @@ public class RmRegistroApplicationService {
     }
 
     @Transactional(readOnly = true)
-    public Page<RmRegistroSalida> pageSalidas(Pageable pageable) {
-        return salidaRepository.findAllByOrderByCreatedAtDesc(pageable);
+    public Page<RmRegistroSalida> pageSalidas(Pageable pageable, String q) {
+        String term = RmRegistroDocumentResolver.normalizeSearchTerm(q);
+        if (term == null) {
+            return salidaRepository.findAllByOrderByCreatedAtDesc(pageable);
+        }
+        return salidaRepository.searchByTerm(term, pageable);
     }
 
     @Transactional(readOnly = true)
@@ -433,9 +455,15 @@ public class RmRegistroApplicationService {
         ent.setFecha(resolveEntradaFecha(entPayload, v));
         ent.setHora(resolveEntradaHora(entPayload, v));
         ent.setTipoDocumento("AMBOS");
-        ent.setOcNumero(trimMax(entPayload.ocNumero(), 128));
-        ent.setGuiaNumero(trimMax(entPayload.guiaNumero(), 128));
         ent.setGuiaInventarioId(entPayload.guiaInventarioId());
+        RmRegistroDocumentResolver.Resolved doc =
+                documentResolver.resolve(
+                        entPayload.guiaInventarioId(),
+                        entPayload.guiaNumero(),
+                        entPayload.ocNumero());
+        ent.setOcNumero(trimMax(doc.ocNumero(), 128));
+        ent.setGuiaNumero(trimMax(doc.guiaNumero(), 128));
+        applyDocumentoToVehiculo(v, doc);
         ent.setProveedor(resolveProveedor(entPayload.proveedor()));
         ent.setCreatedByEmail(trimMaxNullable(createdByEmail, 320));
         ent.setObservaciones(trimMaxNullable(entPayload.observaciones(), 4000));
@@ -520,8 +548,12 @@ public class RmRegistroApplicationService {
     }
 
     @Transactional(readOnly = true)
-    public Page<RmRegistroVehiculo> pageVehiculos(Pageable pageable) {
-        return vehiculoRepository.findAllByOrderByCreatedAtDesc(pageable);
+    public Page<RmRegistroVehiculo> pageVehiculos(Pageable pageable, String q) {
+        String term = RmRegistroDocumentResolver.normalizeSearchTerm(q);
+        if (term == null) {
+            return vehiculoRepository.findAllByOrderByCreatedAtDesc(pageable);
+        }
+        return vehiculoRepository.searchByTerm(term, pageable);
     }
 
     @Transactional(readOnly = true)
@@ -1094,6 +1126,24 @@ public class RmRegistroApplicationService {
         }
         vehiculoRepository.save(v);
         return v;
+    }
+
+    private void applyDocumentoToVehiculo(
+            RmRegistroVehiculo vehiculo, RmRegistroDocumentResolver.Resolved doc) {
+        if (vehiculo == null || doc == null) {
+            return;
+        }
+        String guia = trimMaxNullable(doc.guiaNumero(), 128);
+        String oc = trimMaxNullable(doc.ocNumero(), 128);
+        if (guia != null) {
+            vehiculo.setGuiaNumero(guia);
+        }
+        if (oc != null) {
+            vehiculo.setOcNumero(oc);
+        }
+        if (guia != null || oc != null) {
+            vehiculoRepository.save(vehiculo);
+        }
     }
 
     private int allocateNumeroRegistro() {

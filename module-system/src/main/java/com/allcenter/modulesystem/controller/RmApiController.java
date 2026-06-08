@@ -9,6 +9,7 @@ import com.allcenter.modulesystem.model.RmRegistroSalida;
 import com.allcenter.modulesystem.model.RmRegistroSalidaDetalle;
 import com.allcenter.modulesystem.model.RmRegistroVehiculo;
 import com.allcenter.modulesystem.service.RmRegistroApplicationService;
+import com.allcenter.modulesystem.service.RmRegistroDocumentResolver;
 import com.allcenter.modulesystem.support.AuthenticatedEmployeeResolver;
 import com.allcenter.modulesystem.support.PhotoFilenameCodec;
 import com.allcenter.modulesystem.support.RmMediaKinds;
@@ -32,6 +33,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.multipart.MultipartHttpServletRequest;
@@ -45,6 +47,7 @@ import static org.springframework.http.HttpStatus.BAD_REQUEST;
 public class RmApiController {
 
     private final RmRegistroApplicationService registroService;
+    private final RmRegistroDocumentResolver documentResolver;
     private final AuthenticatedEmployeeResolver employeeResolver;
     private final PhotoFilenameCodec photoFilenameCodec;
     private final ObjectMapper objectMapper;
@@ -60,20 +63,9 @@ public class RmApiController {
 
     @GetMapping("/registros-vehiculo")
     @PreAuthorize("@portalAuth.canRead()")
-    public Page<RmApiModels.VehiculoListRow> listVehiculos(@PageableDefault(size = 20) Pageable pageable) {
-        return registroService
-                .pageVehiculos(pageable)
-                .map(
-                        v ->
-                                new RmApiModels.VehiculoListRow(
-                                        v.getId(),
-                                        v.getNumeroregistro(),
-                                        v.getTiporegistro(),
-                                        v.getFecha(),
-                                        v.getPlaca(),
-                                        v.getChofer(),
-                                        v.getMarca(),
-                                        v.getCreatedAt()));
+    public Page<RmApiModels.VehiculoListRow> listVehiculos(
+            @RequestParam(required = false) String q, @PageableDefault(size = 20) Pageable pageable) {
+        return registroService.pageVehiculos(pageable, q).map(this::toVehiculoListRow);
     }
 
     @GetMapping("/registros-vehiculo/{id}")
@@ -126,8 +118,9 @@ public class RmApiController {
 
     @GetMapping("/registros-entrada")
     @PreAuthorize("@portalAuth.canRead()")
-    public Page<RmApiModels.EntradaListRow> listEntradas(@PageableDefault(size = 20) Pageable pageable) {
-        return registroService.pageEntradas(pageable).map(this::toEntradaListRow);
+    public Page<RmApiModels.EntradaListRow> listEntradas(
+            @RequestParam(required = false) String q, @PageableDefault(size = 20) Pageable pageable) {
+        return registroService.pageEntradas(pageable, q).map(this::toEntradaListRow);
     }
 
     @GetMapping("/registros-entrada/{id}")
@@ -159,27 +152,9 @@ public class RmApiController {
 
     @GetMapping("/registros-salida")
     @PreAuthorize("@portalAuth.canRead()")
-    public Page<RmApiModels.SalidaListRow> listSalidas(@PageableDefault(size = 20) Pageable pageable) {
-        return registroService
-                .pageSalidas(pageable)
-                .map(
-                        s ->
-                                new RmApiModels.SalidaListRow(
-                                        s.getId(),
-                                        s.getNumeroregistro(),
-                                        s.getRegistroVehiculo() == null
-                                                ? null
-                                                : s.getRegistroVehiculo().getId(),
-                                        s.getFecha(),
-                                        s.getHoraCabecera(),
-                                        s.getTransporteId(),
-                                        s.getRecepcionEstado(),
-                                        s.getMotivoCancelacion(),
-                                        s.getCanceladoAt(),
-                                        s.getCanceladoPorEmail(),
-                                        s.getCanceladoPorNombre(),
-                                        s.getCreatedAt(),
-                                        s.getLineas()));
+    public Page<RmApiModels.SalidaListRow> listSalidas(
+            @RequestParam(required = false) String q, @PageableDefault(size = 20) Pageable pageable) {
+        return registroService.pageSalidas(pageable, q).map(this::toSalidaListRow);
     }
 
     @GetMapping("/registros-salida/{id}")
@@ -256,6 +231,7 @@ public class RmApiController {
 
     private RmApiModels.EntradaListRow toEntradaListRow(RmRegistroEntrada e) {
         Long vehiculoId = e.getRegistroVehiculo() == null ? null : e.getRegistroVehiculo().getId();
+        RmRegistroDocumentResolver.Resolved doc = documentResolver.forEntrada(e);
         return new RmApiModels.EntradaListRow(
                 e.getId(),
                 e.getNumeroregistro(),
@@ -263,8 +239,8 @@ public class RmApiController {
                 e.getFecha(),
                 e.getHora(),
                 e.getTipoDocumento(),
-                e.getOcNumero(),
-                e.getGuiaNumero(),
+                doc.ocNumero().isBlank() ? null : doc.ocNumero(),
+                doc.guiaNumero().isBlank() ? null : doc.guiaNumero(),
                 e.getRecepcionEstado(),
                 e.getMotivoCancelacion(),
                 e.getCanceladoAt(),
@@ -272,6 +248,42 @@ public class RmApiController {
                 e.getCanceladoPorNombre(),
                 e.getCreatedAt(),
                 e.getLineas());
+    }
+
+    private RmApiModels.SalidaListRow toSalidaListRow(RmRegistroSalida s) {
+        RmRegistroDocumentResolver.Resolved doc = documentResolver.forSalida(s);
+        return new RmApiModels.SalidaListRow(
+                s.getId(),
+                s.getNumeroregistro(),
+                s.getRegistroVehiculo() == null ? null : s.getRegistroVehiculo().getId(),
+                s.getFecha(),
+                s.getHoraCabecera(),
+                s.getTransporteId(),
+                doc.guiaNumero().isBlank() ? null : doc.guiaNumero(),
+                doc.ocNumero().isBlank() ? null : doc.ocNumero(),
+                s.getGuiaInventarioId(),
+                s.getRecepcionEstado(),
+                s.getMotivoCancelacion(),
+                s.getCanceladoAt(),
+                s.getCanceladoPorEmail(),
+                s.getCanceladoPorNombre(),
+                s.getCreatedAt(),
+                s.getLineas());
+    }
+
+    private RmApiModels.VehiculoListRow toVehiculoListRow(RmRegistroVehiculo v) {
+        RmRegistroDocumentResolver.Resolved doc = documentResolver.forVehiculo(v);
+        return new RmApiModels.VehiculoListRow(
+                v.getId(),
+                v.getNumeroregistro(),
+                v.getTiporegistro(),
+                v.getFecha(),
+                v.getPlaca(),
+                v.getChofer(),
+                v.getMarca(),
+                doc.guiaNumero().isBlank() ? null : doc.guiaNumero(),
+                doc.ocNumero().isBlank() ? null : doc.ocNumero(),
+                v.getCreatedAt());
     }
 
     private static MultipartFile requireDataPart(MultipartHttpServletRequest request) {
@@ -332,6 +344,7 @@ public class RmApiController {
         Long vehiculoId = e.getRegistroVehiculo() == null ? null : e.getRegistroVehiculo().getId();
         List<RmApiModels.EntradaDetalleResponse> detalles =
                 e.getDetalles().stream().map(this::toEntradaDetalle).toList();
+        RmRegistroDocumentResolver.Resolved doc = documentResolver.forEntrada(e);
         return new RmApiModels.RegistroEntradaResponse(
                 e.getId(),
                 e.getNumeroregistro(),
@@ -339,8 +352,8 @@ public class RmApiController {
                 e.getFecha(),
                 e.getHora(),
                 e.getTipoDocumento(),
-                e.getOcNumero(),
-                e.getGuiaNumero(),
+                doc.ocNumero().isBlank() ? null : doc.ocNumero(),
+                doc.guiaNumero().isBlank() ? null : doc.guiaNumero(),
                 null,
                 e.getRecepcionEstado(),
                 e.getValidadoAt(),
@@ -375,6 +388,7 @@ public class RmApiController {
         List<RmApiModels.SalidaDetalleResponse> detalles =
                 s.getDetalles().stream().map(this::toSalidaDetalle).toList();
         Long vehiculoId = s.getRegistroVehiculo() == null ? null : s.getRegistroVehiculo().getId();
+        RmRegistroDocumentResolver.Resolved doc = documentResolver.forSalida(s);
         return new RmApiModels.RegistroSalidaResponse(
                 s.getId(),
                 s.getNumeroregistro(),
@@ -383,8 +397,8 @@ public class RmApiController {
                 s.getHoraCabecera(),
                 s.getOrigen(),
                 s.getDestino(),
-                s.getNumeroGuia(),
-                s.getOrdenCompra(),
+                doc.guiaNumero().isBlank() ? null : doc.guiaNumero(),
+                doc.ocNumero().isBlank() ? null : doc.ocNumero(),
                 s.getTransporteId(),
                 s.getChoferSalidaEmpleadoId(),
                 s.getChoferSalidaNombre(),
@@ -420,6 +434,7 @@ public class RmApiController {
     private RmApiModels.RegistroVehiculoResponse toVehiculoResponse(
             RmRegistroVehiculo v, List<RmApiModels.EntradaListRow> entradas) {
         List<String> names = photoFilenameCodec.readList(v.getPhotoFilenamesJson());
+        RmRegistroDocumentResolver.Resolved doc = documentResolver.forVehiculo(v);
         return new RmApiModels.RegistroVehiculoResponse(
                 v.getId(),
                 v.getNumeroregistro(),
@@ -431,6 +446,8 @@ public class RmApiController {
                 v.getChofer(),
                 v.getKilometraje(),
                 v.getHoraSalida(),
+                doc.guiaNumero().isBlank() ? null : doc.guiaNumero(),
+                doc.ocNumero().isBlank() ? null : doc.ocNumero(),
                 v.getCreatedAt(),
                 v.getCreatedByEmail(),
                 photoUrls(RmMediaKinds.VEHICULO, v.getId(), names),
