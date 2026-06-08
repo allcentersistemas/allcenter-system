@@ -231,15 +231,6 @@ public class RmApiController {
 
     private RmApiModels.EntradaListRow toEntradaListRow(RmRegistroEntrada e) {
         Long vehiculoId = e.getRegistroVehiculo() == null ? null : e.getRegistroVehiculo().getId();
-        RmRegistroDocumentResolver.Resolved doc = documentResolver.forEntrada(e);
-        String guiaNumero = doc.guiaNumero();
-        if ((guiaNumero == null || guiaNumero.isBlank()) && e.getNumeroGuia() != null) {
-            guiaNumero = e.getNumeroGuia().trim();
-        }
-        String ocNumero = doc.ocNumero();
-        if ((ocNumero == null || ocNumero.isBlank()) && e.getOcNumero() != null) {
-            ocNumero = e.getOcNumero().trim();
-        }
         return new RmApiModels.EntradaListRow(
                 e.getId(),
                 e.getNumeroregistro(),
@@ -247,8 +238,8 @@ public class RmApiController {
                 e.getFecha(),
                 e.getHora(),
                 e.getTipoDocumento(),
-                ocNumero == null || ocNumero.isBlank() ? null : ocNumero,
-                guiaNumero == null || guiaNumero.isBlank() ? null : guiaNumero,
+                trimNullable(e.getOcNumero()),
+                trimNullable(e.getNumeroGuia()),
                 e.getRecepcionEstado(),
                 e.getMotivoCancelacion(),
                 e.getCanceladoAt(),
@@ -259,15 +250,6 @@ public class RmApiController {
     }
 
     private RmApiModels.SalidaListRow toSalidaListRow(RmRegistroSalida s) {
-        RmRegistroDocumentResolver.Resolved doc = documentResolver.forSalida(s);
-        String guiaNumero = doc.guiaNumero();
-        if ((guiaNumero == null || guiaNumero.isBlank()) && s.getNumeroGuia() != null) {
-            guiaNumero = s.getNumeroGuia().trim();
-        }
-        String ocNumero = doc.ocNumero();
-        if ((ocNumero == null || ocNumero.isBlank()) && s.getOcNumero() != null) {
-            ocNumero = s.getOcNumero().trim();
-        }
         return new RmApiModels.SalidaListRow(
                 s.getId(),
                 s.getNumeroregistro(),
@@ -275,8 +257,8 @@ public class RmApiController {
                 s.getFecha(),
                 s.getHoraCabecera(),
                 s.getTransporteId(),
-                ocNumero == null || ocNumero.isBlank() ? null : ocNumero,
-                guiaNumero == null || guiaNumero.isBlank() ? null : guiaNumero,
+                trimNullable(s.getOcNumero()),
+                trimNullable(s.getNumeroGuia()),
                 s.getGuiaInventarioId(),
                 s.getRecepcionEstado(),
                 s.getMotivoCancelacion(),
@@ -300,6 +282,14 @@ public class RmApiController {
                 doc.guiaNumero().isBlank() ? null : doc.guiaNumero(),
                 doc.ocNumero().isBlank() ? null : doc.ocNumero(),
                 v.getCreatedAt());
+    }
+
+    private static String trimNullable(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String trimmed = raw.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     private static MultipartFile requireDataPart(MultipartHttpServletRequest request) {
