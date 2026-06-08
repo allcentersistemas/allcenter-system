@@ -87,7 +87,7 @@ public final class RmApiModels {
             String hora,
             String tipoDocumento,
             String ocNumero,
-            String guiaNumero,
+            String numeroGuia,
             String destino,
             String recepcionEstado,
             Instant validadoAt,

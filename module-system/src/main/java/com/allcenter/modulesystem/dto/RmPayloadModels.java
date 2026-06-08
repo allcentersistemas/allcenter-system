@@ -1,5 +1,6 @@
 package com.allcenter.modulesystem.dto;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import java.util.List;
 
@@ -41,7 +42,7 @@ public final class RmPayloadModels {
             String hora,
             String destino,
             String ocNumero,
-            String guiaNumero,
+            @JsonAlias("guiaNumero") String numeroGuia,
             Long guiaInventarioId,
             int documentoFotosCount,
             Boolean recepcionConformidadCerrada,
@@ -61,7 +62,7 @@ public final class RmPayloadModels {
                 String hora,
                 String destino,
                 String ocNumero,
-                String guiaNumero,
+                String numeroGuia,
                 Long guiaInventarioId,
                 int documentoFotosCount,
                 Boolean recepcionConformidadCerrada,
@@ -75,7 +76,7 @@ public final class RmPayloadModels {
                     hora,
                     destino,
                     ocNumero,
-                    guiaNumero,
+                    numeroGuia,
                     guiaInventarioId,
                     documentoFotosCount,
                     recepcionConformidadCerrada,

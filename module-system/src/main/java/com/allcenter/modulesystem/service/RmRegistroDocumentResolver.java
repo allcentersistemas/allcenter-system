@@ -39,7 +39,7 @@ public class RmRegistroDocumentResolver {
 
     @Transactional(readOnly = true)
     public Resolved forEntrada(RmRegistroEntrada entrada) {
-        return resolve(entrada.getGuiaInventarioId(), entrada.getGuiaNumero(), entrada.getOcNumero());
+        return resolve(entrada.getGuiaInventarioId(), entrada.getNumeroGuia(), entrada.getOcNumero());
     }
 
     @Transactional(readOnly = true)

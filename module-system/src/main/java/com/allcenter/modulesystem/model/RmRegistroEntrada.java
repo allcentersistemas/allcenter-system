@@ -55,8 +55,8 @@ public class RmRegistroEntrada {
     @Column(length = 128)
     private String ocNumero;
 
-    @Column(length = 128)
-    private String guiaNumero;
+    @Column(name = "numero_guia")
+    private String numeroGuia;
 
     @Column(name = "guia_inventario_id")
     private Long guiaInventarioId;

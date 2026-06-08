@@ -32,6 +32,7 @@ public class GuiaSchemaAligner implements ApplicationRunner {
         ensureRmRegistroNumeroAndVehiculoLink();
         ensureRmEntradaDestinoColumn();
         ensureRmEntradaGuiaColumn();
+        ensureRmEntradaNumeroGuiaColumn();
         ensureRmActaTransporteColumns();
         ensureRmSalidaGuiaColumn();
         ensureRmSalidaDetalleOptionalColumns();
@@ -102,6 +103,26 @@ public class GuiaSchemaAligner implements ApplicationRunner {
             return;
         }
         addColumnIfMissing("rm_registro_entrada", "guia_inventario_id", "BIGINT");
+    }
+
+    /** Alinea columna legacy guia_numero → numero_guia (modelo RmRegistroEntrada). */
+    private void ensureRmEntradaNumeroGuiaColumn() {
+        if (!tableExists("rm_registro_entrada")) {
+            return;
+        }
+        if (columnExists("rm_registro_entrada", "numero_guia")) {
+            return;
+        }
+        if (columnExists("rm_registro_entrada", "guia_numero")) {
+            try {
+                jdbc.execute("ALTER TABLE rm_registro_entrada RENAME COLUMN guia_numero TO numero_guia");
+                log.info("rm_registro_entrada.guia_numero renombrada a numero_guia");
+            } catch (Exception ex) {
+                log.warn("No se pudo renombrar rm_registro_entrada.guia_numero: {}", ex.getMessage());
+            }
+            return;
+        }
+        addColumnIfMissing("rm_registro_entrada", "numero_guia", "VARCHAR(128)");
     }
 
     private void ensureRmActaTransporteColumns() {

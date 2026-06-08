@@ -23,7 +23,7 @@ public interface RmRegistroEntradaRepository extends JpaRepository<RmRegistroEnt
             WHERE (
                 LOWER(CAST(e.numeroregistro AS string)) LIKE CONCAT('%', :q, '%') OR
                 LOWER(COALESCE(e.ocNumero, '')) LIKE CONCAT('%', :q, '%') OR
-                LOWER(COALESCE(e.guiaNumero, '')) LIKE CONCAT('%', :q, '%') OR
+                LOWER(COALESCE(e.numeroGuia, '')) LIKE CONCAT('%', :q, '%') OR
                 LOWER(COALESCE(v.placa, '')) LIKE CONCAT('%', :q, '%') OR
                 LOWER(COALESCE(v.chofer, '')) LIKE CONCAT('%', :q, '%') OR
                 LOWER(COALESCE(v.marca, '')) LIKE CONCAT('%', :q, '%') OR

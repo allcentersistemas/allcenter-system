@@ -111,9 +111,9 @@ public class RmRegistroApplicationService {
         ent.setGuiaInventarioId(payload.guiaInventarioId());
         RmRegistroDocumentResolver.Resolved doc =
                 documentResolver.resolve(
-                        payload.guiaInventarioId(), payload.guiaNumero(), payload.ocNumero());
+                        payload.guiaInventarioId(), payload.numeroGuia(), payload.ocNumero());
         ent.setOcNumero(trimMax(doc.ocNumero(), 128));
-        ent.setGuiaNumero(trimMax(doc.guiaNumero(), 128));
+        ent.setNumeroGuia(trimMax(doc.guiaNumero(), 128));
         applyDocumentoToVehiculo(vehiculo, doc);
         ent.setProveedor(resolveProveedor(payload.proveedor()));
         ent.setCreatedByEmail(trimMaxNullable(createdByEmail, 320));
@@ -459,10 +459,10 @@ public class RmRegistroApplicationService {
         RmRegistroDocumentResolver.Resolved doc =
                 documentResolver.resolve(
                         entPayload.guiaInventarioId(),
-                        entPayload.guiaNumero(),
+                        entPayload.numeroGuia(),
                         entPayload.ocNumero());
         ent.setOcNumero(trimMax(doc.ocNumero(), 128));
-        ent.setGuiaNumero(trimMax(doc.guiaNumero(), 128));
+        ent.setNumeroGuia(trimMax(doc.guiaNumero(), 128));
         applyDocumentoToVehiculo(v, doc);
         ent.setProveedor(resolveProveedor(entPayload.proveedor()));
         ent.setCreatedByEmail(trimMaxNullable(createdByEmail, 320));
@@ -804,8 +804,8 @@ public class RmRegistroApplicationService {
             throw new ResponseStatusException(BAD_REQUEST, "Debe haber al menos un producto (detalle)");
         }
 
-        if (payload.guiaNumero() == null || payload.guiaNumero().isBlank()) {
-            throw new ResponseStatusException(BAD_REQUEST, "guiaNumero obligatorio");
+        if (payload.numeroGuia() == null || payload.numeroGuia().isBlank()) {
+            throw new ResponseStatusException(BAD_REQUEST, "numeroGuia obligatorio");
         }
         if (payload.documentoFotosCount() < 0) {
             throw new ResponseStatusException(BAD_REQUEST, "documentoFotosCount invalido");

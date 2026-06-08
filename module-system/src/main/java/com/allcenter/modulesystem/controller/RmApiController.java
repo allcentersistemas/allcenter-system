@@ -232,6 +232,14 @@ public class RmApiController {
     private RmApiModels.EntradaListRow toEntradaListRow(RmRegistroEntrada e) {
         Long vehiculoId = e.getRegistroVehiculo() == null ? null : e.getRegistroVehiculo().getId();
         RmRegistroDocumentResolver.Resolved doc = documentResolver.forEntrada(e);
+        String guiaNumero = doc.guiaNumero();
+        if ((guiaNumero == null || guiaNumero.isBlank()) && e.getNumeroGuia() != null) {
+            guiaNumero = e.getNumeroGuia().trim();
+        }
+        String ocNumero = doc.ocNumero();
+        if ((ocNumero == null || ocNumero.isBlank()) && e.getOcNumero() != null) {
+            ocNumero = e.getOcNumero().trim();
+        }
         return new RmApiModels.EntradaListRow(
                 e.getId(),
                 e.getNumeroregistro(),
@@ -239,8 +247,8 @@ public class RmApiController {
                 e.getFecha(),
                 e.getHora(),
                 e.getTipoDocumento(),
-                doc.ocNumero().isBlank() ? null : doc.ocNumero(),
-                doc.guiaNumero().isBlank() ? null : doc.guiaNumero(),
+                ocNumero == null || ocNumero.isBlank() ? null : ocNumero,
+                guiaNumero == null || guiaNumero.isBlank() ? null : guiaNumero,
                 e.getRecepcionEstado(),
                 e.getMotivoCancelacion(),
                 e.getCanceladoAt(),
@@ -353,6 +361,14 @@ public class RmApiController {
         List<RmApiModels.EntradaDetalleResponse> detalles =
                 e.getDetalles().stream().map(this::toEntradaDetalle).toList();
         RmRegistroDocumentResolver.Resolved doc = documentResolver.forEntrada(e);
+        String numeroGuia = doc.guiaNumero();
+        if ((numeroGuia == null || numeroGuia.isBlank()) && e.getNumeroGuia() != null) {
+            numeroGuia = e.getNumeroGuia().trim();
+        }
+        String ocNumero = doc.ocNumero();
+        if ((ocNumero == null || ocNumero.isBlank()) && e.getOcNumero() != null) {
+            ocNumero = e.getOcNumero().trim();
+        }
         return new RmApiModels.RegistroEntradaResponse(
                 e.getId(),
                 e.getNumeroregistro(),
@@ -360,8 +376,8 @@ public class RmApiController {
                 e.getFecha(),
                 e.getHora(),
                 e.getTipoDocumento(),
-                doc.ocNumero().isBlank() ? null : doc.ocNumero(),
-                doc.guiaNumero().isBlank() ? null : doc.guiaNumero(),
+                ocNumero == null || ocNumero.isBlank() ? null : ocNumero,
+                numeroGuia == null || numeroGuia.isBlank() ? null : numeroGuia,
                 null,
                 e.getRecepcionEstado(),
                 e.getValidadoAt(),
