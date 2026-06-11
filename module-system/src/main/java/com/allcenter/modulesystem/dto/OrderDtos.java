@@ -61,8 +61,13 @@ public final class OrderDtos {
             Long codigoProyecto,
             String nombre,
             String descripcion,
+            String cliente,
+            String estado,
+            Long vendedorId,
+            String vendedorNombre,
             LocalDateTime fechaCreacion,
-            int cantidadOrdenes
+            int cantidadOrdenes,
+            boolean editable
     ) {
     }
 
@@ -73,7 +78,11 @@ public final class OrderDtos {
             String cliente,
             String referencia,
             String descripcion,
-            LocalDateTime fechaCreacion
+            String estado,
+            Long vendedorId,
+            String vendedorNombre,
+            LocalDateTime fechaCreacion,
+            boolean editable
     ) {
     }
 
@@ -114,6 +123,11 @@ public final class OrderDtos {
             String codigo,
             String descripcion,
             List<DetalleResponse> detalles
+    ) {
+    }
+
+    public record ProyectoEstadoPayload(
+            String estado
     ) {
     }
 

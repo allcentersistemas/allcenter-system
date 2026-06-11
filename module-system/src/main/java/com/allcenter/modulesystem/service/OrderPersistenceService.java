@@ -1,10 +1,13 @@
 package com.allcenter.modulesystem.service;
 
 import com.allcenter.modulesystem.model.ClientUser;
+import com.allcenter.modulesystem.model.Employee;
 import com.allcenter.modulesystem.model.Orden;
 import com.allcenter.modulesystem.model.OrdenDetalle;
+import com.allcenter.modulesystem.model.ProyectoEstado;
 import com.allcenter.modulesystem.model.ProyectoOptimizacion;
 import com.allcenter.modulesystem.repository.ClientUserRepository;
+import com.allcenter.modulesystem.repository.EmployeeRepository;
 import com.allcenter.modulesystem.repository.OrdenDetalleRepository;
 import com.allcenter.modulesystem.repository.OrdenRepository;
 import com.allcenter.modulesystem.repository.ProyectoRepository;
@@ -15,10 +18,12 @@ import jakarta.persistence.EntityNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 @Service
 public class OrderPersistenceService {
@@ -27,6 +32,7 @@ public class OrderPersistenceService {
     private final OrdenRepository ordenRepository;
     private final OrdenDetalleRepository ordenDetalleRepository;
     private final ClientUserRepository clientUserRepository;
+    private final EmployeeRepository employeeRepository;
     private final ObjectMapper objectMapper;
 
     public OrderPersistenceService(
@@ -34,12 +40,14 @@ public class OrderPersistenceService {
             OrdenRepository ordenRepository,
             OrdenDetalleRepository ordenDetalleRepository,
             ClientUserRepository clientUserRepository,
+            EmployeeRepository employeeRepository,
             ObjectMapper objectMapper
     ) {
         this.proyectoRepository = proyectoRepository;
         this.ordenRepository = ordenRepository;
         this.ordenDetalleRepository = ordenDetalleRepository;
         this.clientUserRepository = clientUserRepository;
+        this.employeeRepository = employeeRepository;
         this.objectMapper = objectMapper;
     }
 
@@ -57,22 +65,96 @@ public class OrderPersistenceService {
     @Transactional(readOnly = true)
     public List<OrderDtos.ProyectoResumenResponse> listProjectsForClient(long clientUserId) {
         return proyectoRepository.findByClientUserIdOrderByFechacreacionDesc(clientUserId).stream()
-                .map(
-                        p ->
-                                new OrderDtos.ProyectoResumenResponse(
-                                        p.getId(),
-                                        p.getCodigoproyecto(),
-                                        p.getNombre(),
-                                        p.getDescripcion(),
-                                        p.getFechacreacion(),
-                                        ordenRepository.findByProyectoOptimizacionId_IdOrderByIdAsc(p.getId()).size()))
+                .map(p -> toResumenResponse(p, false))
                 .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<OrderDtos.ProyectoResumenResponse> listProjectsForEmployee(
+            long employeeId,
+            String scope,
+            String estado,
+            String nombre,
+            String cliente,
+            String vendedor,
+            LocalDate fechaDesde,
+            LocalDate fechaHasta) {
+        List<ProyectoOptimizacion> base =
+                "mis".equalsIgnoreCase(scope)
+                        ? proyectoRepository.findByVendedorIdOrderByFechacreacionDesc(employeeId)
+                        : proyectoRepository.findAllByOrderByFechacreacionDesc();
+        ProyectoEstado estadoFilter = ProyectoEstado.fromString(estado);
+        String nombreQ = normalizeQuery(nombre);
+        String clienteQ = normalizeQuery(cliente);
+        String vendedorQ = normalizeQuery(vendedor);
+        return base.stream()
+                .filter(p -> estadoFilter == null || estadoFilter == p.getEstado())
+                .filter(p -> nombreQ == null || containsIgnoreCase(p.getNombre(), nombreQ))
+                .filter(p -> clienteQ == null || containsIgnoreCase(p.getCliente(), clienteQ))
+                .filter(p -> vendedorQ == null || containsIgnoreCase(resolveVendedorNombre(p.getVendedorId()), vendedorQ))
+                .filter(p -> matchesDateRange(p.getFechacreacion(), fechaDesde, fechaHasta))
+                .map(p -> toResumenResponse(p, true))
+                .toList();
+    }
+
+    @Transactional
+    public OrderDtos.ProyectoResponse captureProject(long employeeId, Long proyectoId) {
+        ProyectoOptimizacion proyecto = requireProject(proyectoId);
+        if (proyecto.getVendedorId() != null && !proyecto.getVendedorId().equals(employeeId)) {
+            throw new IllegalArgumentException("El proyecto ya fue capturado por otro vendedor.");
+        }
+        if (proyecto.getVendedorId() == null) {
+            proyecto.setVendedorId(employeeId);
+        }
+        if (proyecto.getEstado() == ProyectoEstado.ENVIADO) {
+            proyecto.setEstado(ProyectoEstado.EN_ATENCION);
+        }
+        return toProyectoResponse(proyectoRepository.save(proyecto), true);
+    }
+
+    @Transactional
+    public OrderDtos.ProyectoResponse updateEstado(Long proyectoId, String estadoRaw) {
+        ProyectoEstado estado = ProyectoEstado.fromString(estadoRaw);
+        if (estado == null) {
+            throw new IllegalArgumentException("Estado no válido.");
+        }
+        ProyectoOptimizacion proyecto = requireProject(proyectoId);
+        proyecto.setEstado(estado);
+        return toProyectoResponse(proyectoRepository.save(proyecto), true);
+    }
+
+    @Transactional
+    public OrderDtos.ProyectoConOrdenesResponse saveProjectTreeForEmployee(OrderDtos.ProyectoCompuestoPayload payload) {
+        if (payload == null || payload.project() == null) {
+            throw new IllegalArgumentException("La información del proyecto es obligatoria");
+        }
+        if (payload.projectId() == null) {
+            OrderDtos.ProyectoResponse created = saveProyecto(payload.project(), null);
+            if (payload.orders() != null) {
+                for (OrderDtos.OrdenCompuestaPayload order : payload.orders()) {
+                    OrderDtos.OrdenResponse orden =
+                            saveOrden(created.id(), new OrderDtos.OrdenPayload(order.codigo(), order.descripcion()));
+                    replaceDetalles(orden.id(), order.detalles());
+                }
+            }
+            return getProjectTree(created.id(), true);
+        }
+        ProyectoOptimizacion proyecto = requireProject(payload.projectId());
+        if (payload.project().nombre() != null && !payload.project().nombre().isBlank()) {
+            proyecto.setNombre(payload.project().nombre().trim());
+        }
+        proyecto.setDescripcion(valueOrNull(payload.project().descripcion()));
+        proyecto.setCliente(valueOrNull(payload.project().cliente()));
+        proyecto.setReferencia(valueOrNull(payload.project().referencia()));
+        proyectoRepository.save(proyecto);
+        replaceProjectOrders(proyecto.getId(), payload.orders());
+        return getProjectTree(proyecto.getId(), true);
     }
 
     @Transactional(readOnly = true)
     public OrderDtos.ProyectoConOrdenesResponse getProjectTreeForClient(long clientUserId, Long proyectoId) {
         ProyectoOptimizacion proyecto = requireOwnedProject(clientUserId, proyectoId);
-        return getProjectTree(proyecto.getId());
+        return getProjectTree(proyecto.getId(), false);
     }
 
     private OrderDtos.ProyectoConOrdenesResponse saveProjectTreeInternal(
@@ -85,8 +167,8 @@ public class OrderPersistenceService {
             if (clientUserId == null) {
                 throw new IllegalArgumentException("No se puede actualizar un proyecto sin contexto de cliente");
             }
-            proyecto = updateProyectoForClient(clientUserId, payload.projectId(), payload.project());
-            replaceProjectOrders(proyecto.id(), payload.orders());
+            throw new IllegalArgumentException(
+                    "El proyecto ya fue enviado y no puede modificarse. Contacte a ventas si necesita cambios.");
         } else {
             proyecto = saveProyecto(payload.project(), clientUserId);
             if (payload.orders() != null) {
@@ -98,7 +180,7 @@ public class OrderPersistenceService {
                 }
             }
         }
-        return getProjectTree(proyecto.id());
+        return getProjectTree(proyecto.id(), false);
     }
 
     private void replaceProjectOrders(Long proyectoId, List<OrderDtos.OrdenCompuestaPayload> orders) {
@@ -117,17 +199,10 @@ public class OrderPersistenceService {
         }
     }
 
-    private OrderDtos.ProyectoResponse updateProyectoForClient(
-            long clientUserId, Long proyectoId, OrderDtos.ProyectoPayload payload) {
-        ProyectoOptimizacion proyecto = requireOwnedProject(clientUserId, proyectoId);
-        if (payload == null || payload.nombre() == null || payload.nombre().isBlank()) {
-            throw new IllegalArgumentException("El nombre del proyecto es obligatorio");
-        }
-        proyecto.setNombre(payload.nombre().trim());
-        proyecto.setCliente(resolveClienteLabel(clientUserId));
-        proyecto.setReferencia(null);
-        proyecto.setDescripcion(valueOrNull(payload.descripcion()));
-        return toProyectoResponse(proyectoRepository.save(proyecto));
+    private ProyectoOptimizacion requireProject(Long proyectoId) {
+        return proyectoRepository
+                .findById(proyectoId)
+                .orElseThrow(() -> new EntityNotFoundException("Proyecto no encontrado"));
     }
 
     private ProyectoOptimizacion requireOwnedProject(long clientUserId, Long proyectoId) {
@@ -176,9 +251,10 @@ public class OrderPersistenceService {
         }
         proyectoOptimizacion.setDescripcion(valueOrNull(payload.descripcion()));
         proyectoOptimizacion.setFechacreacion(LocalDateTime.now());
+        proyectoOptimizacion.setEstado(ProyectoEstado.ENVIADO);
         proyectoOptimizacion.setCodigoproyecto(System.currentTimeMillis());
         ProyectoOptimizacion saved = proyectoRepository.save(proyectoOptimizacion);
-        return toProyectoResponse(saved);
+        return toProyectoResponse(saved, clientUserId == null);
     }
 
     @Transactional
@@ -214,8 +290,12 @@ public class OrderPersistenceService {
 
     @Transactional(readOnly = true)
     public OrderDtos.ProyectoConOrdenesResponse getProjectTree(Long proyectoId) {
-        ProyectoOptimizacion proyectoOptimizacion = proyectoRepository.findById(proyectoId)
-                .orElseThrow(() -> new EntityNotFoundException("Proyecto no encontrado"));
+        return getProjectTree(proyectoId, true);
+    }
+
+    @Transactional(readOnly = true)
+    public OrderDtos.ProyectoConOrdenesResponse getProjectTree(Long proyectoId, boolean editable) {
+        ProyectoOptimizacion proyectoOptimizacion = requireProject(proyectoId);
 
         List<OrderDtos.OrdenConDetallesResponse> orders =
                 ordenRepository.findByProyectoOptimizacionId_IdOrderByIdAsc(proyectoId)
@@ -234,10 +314,25 @@ public class OrderPersistenceService {
                     );
                 }).toList();
 
-        return new OrderDtos.ProyectoConOrdenesResponse(toProyectoResponse(proyectoOptimizacion), orders);
+        return new OrderDtos.ProyectoConOrdenesResponse(toProyectoResponse(proyectoOptimizacion, editable), orders);
     }
 
-    private OrderDtos.ProyectoResponse toProyectoResponse(ProyectoOptimizacion proyectoOptimizacion) {
+    private OrderDtos.ProyectoResumenResponse toResumenResponse(ProyectoOptimizacion proyecto, boolean editable) {
+        return new OrderDtos.ProyectoResumenResponse(
+                proyecto.getId(),
+                proyecto.getCodigoproyecto(),
+                proyecto.getNombre(),
+                proyecto.getDescripcion(),
+                proyecto.getCliente(),
+                estadoLabel(proyecto.getEstado()),
+                proyecto.getVendedorId(),
+                resolveVendedorNombre(proyecto.getVendedorId()),
+                proyecto.getFechacreacion(),
+                ordenRepository.findByProyectoOptimizacionId_IdOrderByIdAsc(proyecto.getId()).size(),
+                editable);
+    }
+
+    private OrderDtos.ProyectoResponse toProyectoResponse(ProyectoOptimizacion proyectoOptimizacion, boolean editable) {
         return new OrderDtos.ProyectoResponse(
                 proyectoOptimizacion.getId(),
                 proyectoOptimizacion.getCodigoproyecto(),
@@ -245,8 +340,61 @@ public class OrderPersistenceService {
                 proyectoOptimizacion.getCliente(),
                 proyectoOptimizacion.getReferencia(),
                 proyectoOptimizacion.getDescripcion(),
-                proyectoOptimizacion.getFechacreacion()
-        );
+                estadoLabel(proyectoOptimizacion.getEstado()),
+                proyectoOptimizacion.getVendedorId(),
+                resolveVendedorNombre(proyectoOptimizacion.getVendedorId()),
+                proyectoOptimizacion.getFechacreacion(),
+                editable);
+    }
+
+    private String estadoLabel(ProyectoEstado estado) {
+        return estado == null ? ProyectoEstado.ENVIADO.name() : estado.name();
+    }
+
+    private String resolveVendedorNombre(Long vendedorId) {
+        if (vendedorId == null) {
+            return "";
+        }
+        return employeeRepository
+                .findById(vendedorId)
+                .map(this::employeeDisplayName)
+                .orElse("");
+    }
+
+    private String employeeDisplayName(Employee employee) {
+        String first = Objects.toString(employee.getFirstName(), "").trim();
+        String last = Objects.toString(employee.getLastName(), "").trim();
+        String full = (first + " " + last).trim();
+        return full.isEmpty() ? employee.getEmail() : full;
+    }
+
+    private String normalizeQuery(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed.toLowerCase();
+    }
+
+    private boolean containsIgnoreCase(String haystack, String needleLower) {
+        if (needleLower == null) {
+            return true;
+        }
+        return haystack != null && haystack.toLowerCase().contains(needleLower);
+    }
+
+    private boolean matchesDateRange(LocalDateTime value, LocalDate desde, LocalDate hasta) {
+        if (value == null) {
+            return desde == null && hasta == null;
+        }
+        LocalDate day = value.toLocalDate();
+        if (desde != null && day.isBefore(desde)) {
+            return false;
+        }
+        if (hasta != null && day.isAfter(hasta)) {
+            return false;
+        }
+        return true;
     }
 
     private OrderDtos.OrdenResponse toOrdenResponse(Orden orden) {

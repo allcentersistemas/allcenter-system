@@ -1,10 +1,16 @@
 package com.allcenter.modulesystem.model;
 
-import jakarta.persistence.*;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import java.time.LocalDateTime;
 import lombok.Getter;
 import lombok.Setter;
-
-import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "proyecto_optimizacion")
@@ -29,13 +35,19 @@ public class ProyectoOptimizacion {
     @Column(name = "referencia")
     private String referencia;
 
-    @Column(name = "fechacreacion")
-    private LocalDateTime fechacreacion;
-
     @Column(name = "descripcion")
     private String descripcion;
 
     @Column(name = "client_user_id")
     private Long clientUserId;
 
+    @Column(name = "fechacreacion")
+    private LocalDateTime fechacreacion;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "estado", length = 32)
+    private ProyectoEstado estado = ProyectoEstado.ENVIADO;
+
+    @Column(name = "vendedor_id")
+    private Long vendedorId;
 }
