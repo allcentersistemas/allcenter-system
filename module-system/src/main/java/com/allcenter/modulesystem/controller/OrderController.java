@@ -32,7 +32,7 @@ public class OrderController {
         this.service = service;
     }
 
-    @GetMapping("/proyectos")
+    @GetMapping({"/proyectos", "/projects"})
     public List<OrderDtos.ProyectoResumenResponse> listProyectos(
             @AuthenticationPrincipal EmployeeUserDetails principal,
             @RequestParam(defaultValue = "todos") String scope,
@@ -53,15 +53,30 @@ public class OrderController {
                 fechaHasta);
     }
 
-    @PostMapping("/proyectos")
+    @PostMapping({"/proyectos", "/projects"})
     @ResponseStatus(HttpStatus.CREATED)
     public OrderDtos.ProyectoResponse createProyecto(@RequestBody OrderDtos.ProyectoPayload payload) {
         return service.saveProyecto(payload);
     }
 
+    @PostMapping("/proyectos/guardar-completo")
+    @ResponseStatus(HttpStatus.CREATED)
+    public OrderDtos.ProyectoConOrdenesResponse saveFullProject(
+            @RequestBody OrderDtos.ProyectoCompuestoPayload payload) {
+        return service.saveProjectTreeForEmployee(payload);
+    }
+
     @PostMapping("/proyectos/{proyectoId}/ordenes")
     @ResponseStatus(HttpStatus.CREATED)
     public OrderDtos.OrdenResponse createOrden(
+            @PathVariable Long proyectoId,
+            @RequestBody OrderDtos.OrdenPayload payload) {
+        return service.saveOrden(proyectoId, payload);
+    }
+
+    @PostMapping("/projects/{proyectoId}/orders")
+    @ResponseStatus(HttpStatus.CREATED)
+    public OrderDtos.OrdenResponse createOrdenLegacy(
             @PathVariable Long proyectoId,
             @RequestBody OrderDtos.OrdenPayload payload) {
         return service.saveOrden(proyectoId, payload);
@@ -74,7 +89,14 @@ public class OrderController {
         return service.replaceDetalles(ordenId, payload);
     }
 
-    @GetMapping("/proyectos/{proyectoId}")
+    @PutMapping("/orders/{ordenId}/details")
+    public List<OrderDtos.DetalleResponse> replaceDetallesLegacy(
+            @PathVariable Long ordenId,
+            @RequestBody List<OrderDtos.DetallePayload> payload) {
+        return service.replaceDetalles(ordenId, payload);
+    }
+
+    @GetMapping({"/proyectos/{proyectoId}", "/projects/{proyectoId}"})
     public OrderDtos.ProyectoConOrdenesResponse getProyecto(@PathVariable Long proyectoId) {
         return service.getProjectTree(proyectoId);
     }
@@ -91,13 +113,6 @@ public class OrderController {
             @PathVariable Long proyectoId,
             @RequestBody OrderDtos.ProyectoEstadoPayload payload) {
         return service.updateEstado(proyectoId, payload == null ? null : payload.estado());
-    }
-
-    @PostMapping("/proyectos/guardar-completo")
-    @ResponseStatus(HttpStatus.CREATED)
-    public OrderDtos.ProyectoConOrdenesResponse saveFullProject(
-            @RequestBody OrderDtos.ProyectoCompuestoPayload payload) {
-        return service.saveProjectTreeForEmployee(payload);
     }
 
     @ExceptionHandler({IllegalArgumentException.class, EntityNotFoundException.class})

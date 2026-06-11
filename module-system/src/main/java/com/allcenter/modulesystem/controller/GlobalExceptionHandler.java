@@ -21,6 +21,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.server.ResponseStatusException;
@@ -240,6 +241,24 @@ public class GlobalExceptionHandler {
                                 HttpStatus.INTERNAL_SERVER_ERROR,
                                 "INTERNAL_STATE_ERROR",
                                 ex.getMessage() != null ? ex.getMessage() : "Estado interno inválido"));
+    }
+
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ApiErrorResponse> handleMethodNotSupported(
+            HttpRequestMethodNotSupportedException ex, HttpServletRequest request) {
+        logApiError(HttpStatus.METHOD_NOT_ALLOWED, ex, request, false);
+        String supported = ex.getSupportedHttpMethods() != null ? ex.getSupportedHttpMethods().toString() : "";
+        String message =
+                "Método HTTP no permitido para "
+                        + request.getRequestURI()
+                        + (supported.isBlank() ? "" : " (permitidos: " + supported + ")");
+        return ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED)
+                .body(
+                        ApiErrorResponse.build(
+                                request,
+                                HttpStatus.METHOD_NOT_ALLOWED,
+                                "METHOD_NOT_ALLOWED",
+                                message));
     }
 
     @ExceptionHandler(ResponseStatusException.class)
