@@ -28,6 +28,8 @@ public class ProyectoOptimizacionSchemaAligner implements ApplicationRunner {
         addColumnIfMissing("proyecto_optimizacion", "fechacreacion", "TIMESTAMP");
         addColumnIfMissing("proyecto_optimizacion", "estado", "VARCHAR(32)");
         addColumnIfMissing("proyecto_optimizacion", "vendedor_id", "BIGINT");
+        addColumnIfMissing("proyecto_optimizacion", "maquina_id", "BIGINT");
+        addColumnIfMissing("proyecto_optimizacion", "cotizacion_archivo", "VARCHAR(512)");
         jdbc.update(
                 """
                 UPDATE proyecto_optimizacion

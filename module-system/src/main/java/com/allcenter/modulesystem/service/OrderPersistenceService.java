@@ -34,6 +34,8 @@ public class OrderPersistenceService {
     private final ClientUserRepository clientUserRepository;
     private final EmployeeRepository employeeRepository;
     private final ObjectMapper objectMapper;
+    private final MaquinaOptimizacionService maquinaService;
+    private final com.allcenter.modulesystem.support.OptimizacionStorageService optimizacionStorage;
 
     public OrderPersistenceService(
             ProyectoRepository proyectoRepository,
@@ -41,7 +43,9 @@ public class OrderPersistenceService {
             OrdenDetalleRepository ordenDetalleRepository,
             ClientUserRepository clientUserRepository,
             EmployeeRepository employeeRepository,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            MaquinaOptimizacionService maquinaService,
+            com.allcenter.modulesystem.support.OptimizacionStorageService optimizacionStorage
     ) {
         this.proyectoRepository = proyectoRepository;
         this.ordenRepository = ordenRepository;
@@ -49,6 +53,8 @@ public class OrderPersistenceService {
         this.clientUserRepository = clientUserRepository;
         this.employeeRepository = employeeRepository;
         this.objectMapper = objectMapper;
+        this.maquinaService = maquinaService;
+        this.optimizacionStorage = optimizacionStorage;
     }
 
     @Transactional
@@ -124,6 +130,45 @@ public class OrderPersistenceService {
     }
 
     @Transactional
+    public OrderDtos.ProyectoResponse updateMaquina(Long proyectoId, Long maquinaId) {
+        ProyectoOptimizacion proyecto = requireProject(proyectoId);
+        if (maquinaId != null) {
+            maquinaService.requireActiveMaquina(maquinaId);
+        }
+        proyecto.setMaquinaId(maquinaId);
+        return toProyectoResponse(proyectoRepository.save(proyecto), true);
+    }
+
+    @Transactional
+    public OrderDtos.ProyectoResponse updateMaquinaForClient(long clientUserId, Long proyectoId, Long maquinaId) {
+        ProyectoOptimizacion proyecto = requireOwnedProject(clientUserId, proyectoId);
+        if (maquinaId != null) {
+            maquinaService.requireActiveMaquina(maquinaId);
+        }
+        proyecto.setMaquinaId(maquinaId);
+        return toProyectoResponse(proyectoRepository.save(proyecto), false);
+    }
+
+    @Transactional
+    public OrderDtos.ProyectoResponse uploadCotizacion(long employeeId, Long proyectoId, org.springframework.web.multipart.MultipartFile file) {
+        ProyectoOptimizacion proyecto = requireProject(proyectoId);
+        if (proyecto.getVendedorId() != null && !proyecto.getVendedorId().equals(employeeId)) {
+            throw new IllegalArgumentException("Solo el vendedor asignado puede subir la cotización.");
+        }
+        try {
+            String filename = optimizacionStorage.saveCotizacion(proyectoId, file);
+            proyecto.setCotizacionArchivo(filename);
+            proyecto.setEstado(ProyectoEstado.COTIZADO);
+            if (proyecto.getVendedorId() == null) {
+                proyecto.setVendedorId(employeeId);
+            }
+            return toProyectoResponse(proyectoRepository.save(proyecto), true);
+        } catch (java.io.IOException ex) {
+            throw new IllegalArgumentException("No se pudo guardar la cotización.");
+        }
+    }
+
+    @Transactional
     public OrderDtos.ProyectoConOrdenesResponse saveProjectTreeForEmployee(OrderDtos.ProyectoCompuestoPayload payload) {
         if (payload == null || payload.project() == null) {
             throw new IllegalArgumentException("La información del proyecto es obligatoria");
@@ -146,6 +191,10 @@ public class OrderPersistenceService {
         proyecto.setDescripcion(valueOrNull(payload.project().descripcion()));
         proyecto.setCliente(valueOrNull(payload.project().cliente()));
         proyecto.setReferencia(valueOrNull(payload.project().referencia()));
+        if (payload.project().maquinaId() != null) {
+            maquinaService.requireActiveMaquina(payload.project().maquinaId());
+            proyecto.setMaquinaId(payload.project().maquinaId());
+        }
         proyectoRepository.save(proyecto);
         replaceProjectOrders(proyecto.getId(), payload.orders());
         return getProjectTree(proyecto.getId(), true);
@@ -253,6 +302,10 @@ public class OrderPersistenceService {
         proyectoOptimizacion.setFechacreacion(LocalDateTime.now());
         proyectoOptimizacion.setEstado(ProyectoEstado.ENVIADO);
         proyectoOptimizacion.setCodigoproyecto(System.currentTimeMillis());
+        if (payload.maquinaId() != null) {
+            maquinaService.requireActiveMaquina(payload.maquinaId());
+            proyectoOptimizacion.setMaquinaId(payload.maquinaId());
+        }
         ProyectoOptimizacion saved = proyectoRepository.save(proyectoOptimizacion);
         return toProyectoResponse(saved, clientUserId == null);
     }
@@ -329,7 +382,10 @@ public class OrderPersistenceService {
                 resolveVendedorNombre(proyecto.getVendedorId()),
                 proyecto.getFechacreacion(),
                 ordenRepository.findByProyectoOptimizacionId_IdOrderByIdAsc(proyecto.getId()).size(),
-                editable);
+                editable,
+                proyecto.getMaquinaId(),
+                maquinaService.resolveParametros(proyecto.getMaquinaId()),
+                proyecto.getCotizacionArchivo() != null && !proyecto.getCotizacionArchivo().isBlank());
     }
 
     private OrderDtos.ProyectoResponse toProyectoResponse(ProyectoOptimizacion proyectoOptimizacion, boolean editable) {
@@ -344,7 +400,10 @@ public class OrderPersistenceService {
                 proyectoOptimizacion.getVendedorId(),
                 resolveVendedorNombre(proyectoOptimizacion.getVendedorId()),
                 proyectoOptimizacion.getFechacreacion(),
-                editable);
+                editable,
+                proyectoOptimizacion.getMaquinaId(),
+                maquinaService.resolveParametros(proyectoOptimizacion.getMaquinaId()),
+                proyectoOptimizacion.getCotizacionArchivo());
     }
 
     private String estadoLabel(ProyectoEstado estado) {

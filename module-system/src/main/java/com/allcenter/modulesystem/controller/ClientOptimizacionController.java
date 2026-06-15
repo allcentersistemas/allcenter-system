@@ -4,6 +4,7 @@ import com.allcenter.modulesystem.dto.OrderDtos;
 import com.allcenter.modulesystem.security.ClientUserDetails;
 import com.allcenter.modulesystem.dto.InventoryDtos;
 import com.allcenter.modulesystem.service.ClientOptimizacionCatalogService;
+import com.allcenter.modulesystem.service.MaquinaOptimizacionService;
 import com.allcenter.modulesystem.service.OrderPersistenceService;
 import jakarta.persistence.EntityNotFoundException;
 import java.util.List;
@@ -12,6 +13,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -25,16 +27,25 @@ public class ClientOptimizacionController {
 
     private final OrderPersistenceService service;
     private final ClientOptimizacionCatalogService catalogService;
+    private final MaquinaOptimizacionService maquinaService;
 
     public ClientOptimizacionController(
-            OrderPersistenceService service, ClientOptimizacionCatalogService catalogService) {
+            OrderPersistenceService service,
+            ClientOptimizacionCatalogService catalogService,
+            MaquinaOptimizacionService maquinaService) {
         this.service = service;
         this.catalogService = catalogService;
+        this.maquinaService = maquinaService;
     }
 
     @GetMapping("/catalogos/kardex")
     public InventoryDtos.OptimizacionKardexCatalog listKardexCatalog() {
         return catalogService.listKardexCatalog();
+    }
+
+    @GetMapping("/maquinas")
+    public List<OrderDtos.MaquinaResponse> listMaquinas() {
+        return maquinaService.listActive();
     }
 
     @GetMapping("/proyectos")
@@ -55,6 +66,17 @@ public class ClientOptimizacionController {
             @AuthenticationPrincipal ClientUserDetails principal,
             @RequestBody OrderDtos.ProyectoCompuestoPayload payload) {
         return service.saveProjectTreeForClient(principal.getClientUser().getId(), payload);
+    }
+
+    @PatchMapping("/proyectos/{proyectoId}/maquina")
+    public OrderDtos.ProyectoResponse updateMaquina(
+            @AuthenticationPrincipal ClientUserDetails principal,
+            @PathVariable Long proyectoId,
+            @RequestBody OrderDtos.ProyectoMaquinaPayload payload) {
+        return service.updateMaquinaForClient(
+                principal.getClientUser().getId(),
+                proyectoId,
+                payload == null ? null : payload.maquinaId());
     }
 
     @ExceptionHandler({IllegalArgumentException.class, EntityNotFoundException.class})

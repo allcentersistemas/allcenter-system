@@ -50,4 +50,10 @@ public class ProyectoOptimizacion {
 
     @Column(name = "vendedor_id")
     private Long vendedorId;
+
+    @Column(name = "maquina_id")
+    private Long maquinaId;
+
+    @Column(name = "cotizacion_archivo", length = 512)
+    private String cotizacionArchivo;
 }

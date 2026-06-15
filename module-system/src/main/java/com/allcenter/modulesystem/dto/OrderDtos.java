@@ -11,7 +11,8 @@ public final class OrderDtos {
             String nombre,
             String cliente,
             String referencia,
-            String descripcion
+            String descripcion,
+            Long maquinaId
     ) {
     }
 
@@ -67,7 +68,10 @@ public final class OrderDtos {
             String vendedorNombre,
             LocalDateTime fechaCreacion,
             int cantidadOrdenes,
-            boolean editable
+            boolean editable,
+            Long maquinaId,
+            String maquinaParametros,
+            boolean tieneCotizacion
     ) {
     }
 
@@ -82,7 +86,10 @@ public final class OrderDtos {
             Long vendedorId,
             String vendedorNombre,
             LocalDateTime fechaCreacion,
-            boolean editable
+            boolean editable,
+            Long maquinaId,
+            String maquinaParametros,
+            String cotizacionArchivo
     ) {
     }
 
@@ -128,6 +135,26 @@ public final class OrderDtos {
 
     public record ProyectoEstadoPayload(
             String estado
+    ) {
+    }
+
+    public record ProyectoMaquinaPayload(
+            Long maquinaId
+    ) {
+    }
+
+    public record MaquinaPayload(
+            String codigo,
+            String nombre,
+            Boolean activo
+    ) {
+    }
+
+    public record MaquinaResponse(
+            Long id,
+            String codigo,
+            String nombre,
+            boolean activo
     ) {
     }
 

@@ -3,12 +3,17 @@ package com.allcenter.modulesystem.controller;
 import com.allcenter.modulesystem.dto.OrderDtos;
 import com.allcenter.modulesystem.security.EmployeeUserDetails;
 import com.allcenter.modulesystem.service.OrderPersistenceService;
+import com.allcenter.modulesystem.support.OptimizacionStorageService;
 import jakarta.persistence.EntityNotFoundException;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
+import org.springframework.core.io.Resource;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -21,15 +26,18 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/api/order")
 public class OrderController {
 
     private final OrderPersistenceService service;
+    private final OptimizacionStorageService storageService;
 
-    public OrderController(OrderPersistenceService service) {
+    public OrderController(OrderPersistenceService service, OptimizacionStorageService storageService) {
         this.service = service;
+        this.storageService = storageService;
     }
 
     @GetMapping({"/proyectos", "/projects"})
@@ -113,6 +121,34 @@ public class OrderController {
             @PathVariable Long proyectoId,
             @RequestBody OrderDtos.ProyectoEstadoPayload payload) {
         return service.updateEstado(proyectoId, payload == null ? null : payload.estado());
+    }
+
+    @PatchMapping("/proyectos/{proyectoId}/maquina")
+    public OrderDtos.ProyectoResponse updateMaquina(
+            @PathVariable Long proyectoId,
+            @RequestBody OrderDtos.ProyectoMaquinaPayload payload) {
+        return service.updateMaquina(proyectoId, payload == null ? null : payload.maquinaId());
+    }
+
+    @PostMapping(value = "/proyectos/{proyectoId}/cotizacion", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public OrderDtos.ProyectoResponse uploadCotizacion(
+            @AuthenticationPrincipal EmployeeUserDetails principal,
+            @PathVariable Long proyectoId,
+            @RequestParam("file") MultipartFile file) {
+        return service.uploadCotizacion(principal.getEmployee().getId(), proyectoId, file);
+    }
+
+    @GetMapping("/proyectos/{proyectoId}/cotizacion")
+    public ResponseEntity<Resource> downloadCotizacion(@PathVariable Long proyectoId) {
+        OrderDtos.ProyectoConOrdenesResponse tree = service.getProjectTree(proyectoId);
+        String filename = tree.project().cotizacionArchivo();
+        if (filename == null || filename.isBlank()) {
+            return ResponseEntity.notFound().build();
+        }
+        Resource resource = storageService.loadCotizacion(proyectoId, filename);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"cotizacion-" + proyectoId + "\"")
+                .body(resource);
     }
 
     @ExceptionHandler({IllegalArgumentException.class, EntityNotFoundException.class})
