@@ -206,6 +206,16 @@ public class OrderPersistenceService {
         return getProjectTree(proyecto.getId(), false);
     }
 
+    @Transactional(readOnly = true)
+    public String getCotizacionFilenameForClient(long clientUserId, Long proyectoId) {
+        ProyectoOptimizacion proyecto = requireOwnedProject(clientUserId, proyectoId);
+        String filename = proyecto.getCotizacionArchivo();
+        if (filename == null || filename.isBlank()) {
+            throw new EntityNotFoundException("Cotización no disponible para este proyecto.");
+        }
+        return filename;
+    }
+
     private OrderDtos.ProyectoConOrdenesResponse saveProjectTreeInternal(
             Long clientUserId, OrderDtos.ProyectoCompuestoPayload payload) {
         if (payload == null || payload.project() == null) {
@@ -485,6 +495,7 @@ public class OrderPersistenceService {
                 str(extras.get("ranuraDist")),
                 str(extras.get("ranuraProf")),
                 str(extras.get("ranuraEs")),
+                str(extras.get("ranuraLado")),
                 "true".equalsIgnoreCase(str(extras.get("observado"))),
                 valueOrNull(detalle.getDescripcion())
         );
@@ -511,6 +522,7 @@ public class OrderPersistenceService {
         extras.put("ranuraDist", payload.ranuraDist());
         extras.put("ranuraProf", payload.ranuraProf());
         extras.put("ranuraEs", payload.ranuraEs());
+        extras.put("ranuraLado", payload.ranuraLado());
         extras.put("observado", payload.observado());
         detalle.setParametros(writeJson(extras));
         detalle.setDescripcion1(payload.observado() ? "OK" : null);

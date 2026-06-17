@@ -6,10 +6,14 @@ import com.allcenter.modulesystem.dto.InventoryDtos;
 import com.allcenter.modulesystem.service.ClientOptimizacionCatalogService;
 import com.allcenter.modulesystem.service.MaquinaOptimizacionService;
 import com.allcenter.modulesystem.service.OrderPersistenceService;
+import com.allcenter.modulesystem.support.OptimizacionStorageService;
 import jakarta.persistence.EntityNotFoundException;
 import java.util.List;
 import java.util.Map;
+import org.springframework.core.io.Resource;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -28,14 +32,17 @@ public class ClientOptimizacionController {
     private final OrderPersistenceService service;
     private final ClientOptimizacionCatalogService catalogService;
     private final MaquinaOptimizacionService maquinaService;
+    private final OptimizacionStorageService storageService;
 
     public ClientOptimizacionController(
             OrderPersistenceService service,
             ClientOptimizacionCatalogService catalogService,
-            MaquinaOptimizacionService maquinaService) {
+            MaquinaOptimizacionService maquinaService,
+            OptimizacionStorageService storageService) {
         this.service = service;
         this.catalogService = catalogService;
         this.maquinaService = maquinaService;
+        this.storageService = storageService;
     }
 
     @GetMapping("/catalogos/kardex")
@@ -77,6 +84,18 @@ public class ClientOptimizacionController {
                 principal.getClientUser().getId(),
                 proyectoId,
                 payload == null ? null : payload.maquinaId());
+    }
+
+    @GetMapping("/proyectos/{proyectoId}/cotizacion")
+    public ResponseEntity<Resource> downloadCotizacion(
+            @AuthenticationPrincipal ClientUserDetails principal,
+            @PathVariable Long proyectoId) {
+        String filename =
+                service.getCotizacionFilenameForClient(principal.getClientUser().getId(), proyectoId);
+        Resource resource = storageService.loadCotizacion(proyectoId, filename);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"cotizacion-" + proyectoId + "\"")
+                .body(resource);
     }
 
     @ExceptionHandler({IllegalArgumentException.class, EntityNotFoundException.class})
