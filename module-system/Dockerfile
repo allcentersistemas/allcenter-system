@@ -11,7 +11,7 @@ FROM eclipse-temurin:25-jre
 WORKDIR /app
 COPY --from=build /build/module-system/target/*-SNAPSHOT.jar /app/app.jar
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends wget \
+    && apt-get install -y --no-install-recommends wget postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 ENV JAVA_OPTS="-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0"
 EXPOSE 8080

@@ -13,6 +13,8 @@ import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import java.util.List;
+
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -35,14 +37,18 @@ public class MailService {
     }
 
     public void sendText(String to, String subject, String body) {
-        send(to, subject, body, false);
+        send(to, subject, body, false, List.of());
     }
 
     public void sendHtml(String to, String subject, String htmlBody) {
-        send(to, subject, htmlBody, true);
+        send(to, subject, htmlBody, true, List.of());
     }
 
-    private void send(String to, String subject, String body, boolean html) {
+    public void sendHtmlWithAttachments(String to, String subject, String htmlBody, List<MailAttachment> attachments) {
+        send(to, subject, htmlBody, true, attachments == null ? List.of() : attachments);
+    }
+
+    private void send(String to, String subject, String body, boolean html, List<MailAttachment> attachments) {
         if (!mailProperties.enabled()) {
             log.debug("Correo deshabilitado (app.mail.enabled=false); no se envía a {}", to);
             return;
@@ -56,8 +62,9 @@ public class MailService {
         }
         validateSmtpCredentials();
         try {
+            boolean multipart = attachments != null && !attachments.isEmpty();
             MimeMessage message = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(message, false, "UTF-8");
+            MimeMessageHelper helper = new MimeMessageHelper(message, multipart, "UTF-8");
             String displayFrom =
                     mailProperties.fromName() != null && !mailProperties.fromName().isBlank()
                             ? String.format("%s <%s>", mailProperties.fromName(), from)
@@ -66,6 +73,14 @@ public class MailService {
             helper.setTo(to.trim());
             helper.setSubject(subject);
             helper.setText(body, html);
+            if (multipart) {
+                for (MailAttachment att : attachments) {
+                    if (att == null || att.filename() == null || att.content() == null) {
+                        continue;
+                    }
+                    helper.addAttachment(att.filename(), () -> new java.io.ByteArrayInputStream(att.content()), att.contentType());
+                }
+            }
             mailSender.send(message);
             log.info("Correo enviado a {}", to.trim());
         } catch (MessagingException | MailException ex) {

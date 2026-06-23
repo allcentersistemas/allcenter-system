@@ -53,6 +53,11 @@ public class PortalRoleAuthorization {
         return isGestion();
     }
 
+    /** Solo rol MASTER (no SISTEMAS ni otros admin). */
+    public boolean isMaster() {
+        return hasAnyRole(Set.of(PortalRoleNames.MASTER));
+    }
+
     public boolean canPrint() {
         return isSystem() || isAdminOps();
     }
