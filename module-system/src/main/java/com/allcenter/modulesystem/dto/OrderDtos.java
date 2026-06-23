@@ -39,6 +39,7 @@ public final class OrderDtos {
             String ranuraProf,
             String ranuraEs,
             String ranuraLado,
+            boolean ranuraEspecial,
             boolean observado,
             String observacion
     ) {
@@ -121,6 +122,7 @@ public final class OrderDtos {
             String ranuraProf,
             String ranuraEs,
             String ranuraLado,
+            boolean ranuraEspecial,
             boolean observado,
             String observacion
     ) {

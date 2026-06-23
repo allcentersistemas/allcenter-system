@@ -496,6 +496,7 @@ public class OrderPersistenceService {
                 str(extras.get("ranuraProf")),
                 str(extras.get("ranuraEs")),
                 str(extras.get("ranuraLado")),
+                "true".equalsIgnoreCase(str(extras.get("ranuraEspecial"))),
                 "true".equalsIgnoreCase(str(extras.get("observado"))),
                 valueOrNull(detalle.getDescripcion())
         );
@@ -523,6 +524,7 @@ public class OrderPersistenceService {
         extras.put("ranuraProf", payload.ranuraProf());
         extras.put("ranuraEs", payload.ranuraEs());
         extras.put("ranuraLado", payload.ranuraLado());
+        extras.put("ranuraEspecial", payload.ranuraEspecial());
         extras.put("observado", payload.observado());
         detalle.setParametros(writeJson(extras));
         detalle.setDescripcion1(payload.observado() ? "OK" : null);
