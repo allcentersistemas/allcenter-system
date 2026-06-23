@@ -356,6 +356,13 @@ public class OrderPersistenceService {
         return getProjectTree(proyectoId, true);
     }
 
+    @Transactional
+    public void deleteProject(Long proyectoId) {
+        requireProject(proyectoId);
+        replaceProjectOrders(proyectoId, null);
+        proyectoRepository.deleteById(proyectoId);
+    }
+
     @Transactional(readOnly = true)
     public OrderDtos.ProyectoConOrdenesResponse getProjectTree(Long proyectoId, boolean editable) {
         ProyectoOptimizacion proyectoOptimizacion = requireProject(proyectoId);

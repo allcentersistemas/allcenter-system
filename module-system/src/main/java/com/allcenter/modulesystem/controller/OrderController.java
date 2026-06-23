@@ -14,7 +14,9 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -107,6 +109,13 @@ public class OrderController {
     @GetMapping({"/proyectos/{proyectoId}", "/projects/{proyectoId}"})
     public OrderDtos.ProyectoConOrdenesResponse getProyecto(@PathVariable Long proyectoId) {
         return service.getProjectTree(proyectoId);
+    }
+
+    @DeleteMapping({"/proyectos/{proyectoId}", "/projects/{proyectoId}"})
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize("@portalAuth.canDelete()")
+    public void deleteProyecto(@PathVariable Long proyectoId) {
+        service.deleteProject(proyectoId);
     }
 
     @PostMapping("/proyectos/{proyectoId}/capturar")
