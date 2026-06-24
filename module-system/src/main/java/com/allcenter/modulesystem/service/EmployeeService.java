@@ -14,6 +14,7 @@ import com.allcenter.modulesystem.dto.EmployeeCatalogItem;
 import com.allcenter.modulesystem.dto.EmployeeSelfPatchRequest;
 import com.allcenter.modulesystem.repository.EmployeeRepository;
 import com.allcenter.modulesystem.repository.RoleRepository;
+import com.allcenter.modulesystem.support.PasswordPolicy;
 import java.time.LocalDate;
 import java.time.Year;
 import java.util.HashSet;
@@ -89,6 +90,7 @@ public class EmployeeService {
         if (employeeRepository.existsByEmailIgnoreCase(email)) {
             throw new ConflictException("El correo " + email + " ya está registrado");
         }
+        PasswordPolicy.requireStrong(request.password());
         Employee employee = new Employee();
         employee.setEmployeeCode(generateUniqueEmployeeCode());
         employee.setSamAccountName(username);
@@ -197,6 +199,7 @@ public class EmployeeService {
             e.setEmail(ne);
         }
         if (req.newPassword() != null && !req.newPassword().isBlank()) {
+            PasswordPolicy.requireStrong(req.newPassword());
             e.setPassword(passwordEncoder.encode(req.newPassword()));
         }
         if (req.active() != null) {
@@ -396,9 +399,7 @@ public class EmployeeService {
         if (newPassword == null || newPassword.isBlank()) {
             throw new BadRequestException("La nueva contraseña es obligatoria");
         }
-        if (newPassword.length() < 8) {
-            throw new BadRequestException("La contraseña debe tener al menos 8 caracteres");
-        }
+        PasswordPolicy.requireStrong(newPassword.trim());
         e.setPassword(passwordEncoder.encode(newPassword.trim()));
         employeeRepository.save(e);
         if (notifyByEmail && e.getEmail() != null && !e.getEmail().isBlank()) {

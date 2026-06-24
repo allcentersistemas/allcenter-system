@@ -23,6 +23,7 @@ import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import com.allcenter.modulesystem.support.PasswordPolicy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -79,6 +80,7 @@ public class ClientAuthService {
         }
         String email = request.email().trim().toLowerCase();
         String username = normalizeUsername(request.username());
+        PasswordPolicy.requireStrong(request.password());
         if (clientUserRepository.existsByEmailIgnoreCase(email)) {
             throw new ConflictException("El correo " + email + " ya esta registrado");
         }
@@ -87,6 +89,18 @@ public class ClientAuthService {
         }
 
         boolean juridica = Boolean.TRUE.equals(request.juridica());
+        if (juridica) {
+            String ruc = trimRequired(request.ruc(), "RUC");
+            if (clientUserRepository.existsByRucIgnoreCase(ruc)) {
+                throw new ConflictException("El RUC " + ruc + " ya esta registrado");
+            }
+        } else {
+            String doc = trimRequired(request.numeroDocumento(), "numero de documento");
+            if (clientUserRepository.existsByDocumentodeindentificacionIgnoreCase(doc)) {
+                throw new ConflictException("El documento " + doc + " ya esta registrado");
+            }
+        }
+
         ClientUser client = new ClientUser();
         client.setEmail(email);
         client.setUsername(username);
@@ -169,6 +183,7 @@ public class ClientAuthService {
         if (!passwordEncoder.matches(request.currentPassword(), client.getPassword())) {
             throw new BadRequestException("La contrasena actual no es correcta");
         }
+        PasswordPolicy.requireStrong(request.newPassword());
         client.setPassword(passwordEncoder.encode(request.newPassword()));
         clientUserRepository.save(client);
     }

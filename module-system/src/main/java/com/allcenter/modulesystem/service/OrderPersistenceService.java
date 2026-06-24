@@ -69,9 +69,20 @@ public class OrderPersistenceService {
     }
 
     @Transactional(readOnly = true)
+    public OrderDtos.ProyectoResumenResponse findProjectByNameForClient(long clientUserId, String nombre) {
+        if (nombre == null || nombre.isBlank()) {
+            throw new IllegalArgumentException("El nombre del proyecto es obligatorio");
+        }
+        return proyectoRepository
+                .findFirstByClientUserIdAndNombreIgnoreCase(clientUserId, nombre.trim())
+                .map(p -> toResumenResponse(p, clientCanEdit(p)))
+                .orElse(null);
+    }
+
+    @Transactional(readOnly = true)
     public List<OrderDtos.ProyectoResumenResponse> listProjectsForClient(long clientUserId) {
         return proyectoRepository.findByClientUserIdOrderByFechacreacionDesc(clientUserId).stream()
-                .map(p -> toResumenResponse(p, false))
+                .map(p -> toResumenResponse(p, clientCanEdit(p)))
                 .toList();
     }
 
@@ -203,7 +214,11 @@ public class OrderPersistenceService {
     @Transactional(readOnly = true)
     public OrderDtos.ProyectoConOrdenesResponse getProjectTreeForClient(long clientUserId, Long proyectoId) {
         ProyectoOptimizacion proyecto = requireOwnedProject(clientUserId, proyectoId);
-        return getProjectTree(proyecto.getId(), false);
+        return getProjectTree(proyecto.getId(), clientCanEdit(proyecto));
+    }
+
+    private boolean clientCanEdit(ProyectoOptimizacion proyecto) {
+        return proyecto.getEstado() == ProyectoEstado.ENVIADO;
     }
 
     @Transactional(readOnly = true)
@@ -226,8 +241,22 @@ public class OrderPersistenceService {
             if (clientUserId == null) {
                 throw new IllegalArgumentException("No se puede actualizar un proyecto sin contexto de cliente");
             }
-            throw new IllegalArgumentException(
-                    "El proyecto ya fue enviado y no puede modificarse. Contacte a ventas si necesita cambios.");
+            ProyectoOptimizacion proyectoEntity = requireOwnedProject(clientUserId, payload.projectId());
+            if (!clientCanEdit(proyectoEntity)) {
+                throw new IllegalArgumentException(
+                        "El proyecto ya está en revisión y no puede modificarse. Contacte a ventas si necesita cambios.");
+            }
+            if (payload.project().nombre() != null && !payload.project().nombre().isBlank()) {
+                proyectoEntity.setNombre(payload.project().nombre().trim());
+            }
+            proyectoEntity.setDescripcion(valueOrNull(payload.project().descripcion()));
+            if (payload.project().maquinaId() != null) {
+                maquinaService.requireActiveMaquina(payload.project().maquinaId());
+                proyectoEntity.setMaquinaId(payload.project().maquinaId());
+            }
+            proyectoRepository.save(proyectoEntity);
+            replaceProjectOrders(proyectoEntity.getId(), payload.orders());
+            return getProjectTree(proyectoEntity.getId(), clientCanEdit(proyectoEntity));
         } else {
             proyecto = saveProyecto(payload.project(), clientUserId);
             if (payload.orders() != null) {
@@ -239,7 +268,11 @@ public class OrderPersistenceService {
                 }
             }
         }
-        return getProjectTree(proyecto.id(), false);
+        if (clientUserId != null) {
+            ProyectoOptimizacion saved = requireProject(proyecto.id());
+            return getProjectTree(proyecto.id(), clientCanEdit(saved));
+        }
+        return getProjectTree(proyecto.id(), true);
     }
 
     private void replaceProjectOrders(Long proyectoId, List<OrderDtos.OrdenCompuestaPayload> orders) {

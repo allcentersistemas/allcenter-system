@@ -22,6 +22,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -59,6 +60,17 @@ public class ClientOptimizacionController {
     public List<OrderDtos.ProyectoResumenResponse> listProyectos(
             @AuthenticationPrincipal ClientUserDetails principal) {
         return service.listProjectsForClient(principal.getClientUser().getId());
+    }
+
+    @GetMapping("/proyectos/por-nombre")
+    public ResponseEntity<OrderDtos.ProyectoResumenResponse> findProyectoByNombre(
+            @AuthenticationPrincipal ClientUserDetails principal, @RequestParam String nombre) {
+        OrderDtos.ProyectoResumenResponse found =
+                service.findProjectByNameForClient(principal.getClientUser().getId(), nombre);
+        if (found == null) {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.ok(found);
     }
 
     @GetMapping("/proyectos/{proyectoId}")

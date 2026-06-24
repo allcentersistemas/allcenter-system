@@ -12,4 +12,7 @@ public interface ProyectoRepository extends JpaRepository<ProyectoOptimizacion, 
     List<ProyectoOptimizacion> findByVendedorIdOrderByFechacreacionDesc(Long vendedorId);
 
     List<ProyectoOptimizacion> findAllByOrderByFechacreacionDesc();
+
+    java.util.Optional<ProyectoOptimizacion> findFirstByClientUserIdAndNombreIgnoreCase(
+            Long clientUserId, String nombre);
 }

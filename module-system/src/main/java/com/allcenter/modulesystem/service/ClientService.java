@@ -7,6 +7,7 @@ import com.allcenter.modulesystem.exception.ConflictException;
 import com.allcenter.modulesystem.exception.NotFoundException;
 import com.allcenter.modulesystem.model.ClientUser;
 import com.allcenter.modulesystem.repository.ClientUserRepository;
+import com.allcenter.modulesystem.support.PasswordPolicy;
 import java.util.List;
 import java.util.Locale;
 import lombok.RequiredArgsConstructor;
@@ -45,6 +46,7 @@ public class ClientService {
         if (clientUserRepository.existsByUsernameIgnoreCase(username)) {
             throw new ConflictException("El usuario \"" + username + "\" ya esta en uso");
         }
+        PasswordPolicy.requireStrong(request.password());
         ClientUser client = new ClientUser();
         client.setEmail(email);
         client.setUsername(username);
