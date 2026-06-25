@@ -85,11 +85,24 @@ public class BiesseScanService {
 
     @Transactional
     public ScanResultResponse scanPiece(Long employeeId, ScanPieceRequest req) {
-        boolean ok = repository.scanPiece(employeeId, req.pieceId(), req.observations(), req.equipment());
-        if (!ok) {
-            throw new ResponseStatusException(BAD_REQUEST, "Piece not found or already scanned");
+        Long pieceId = req.pieceId();
+        if (!repository.pieceExists(pieceId)) {
+            throw new ResponseStatusException(NOT_FOUND, "Pieza no reconocida");
         }
-        return new ScanResultResponse(true, "Piece scanned successfully");
+        Map<String, Object> paleAssignment = repository.findPaleAssignmentByPieceId(pieceId);
+        if (paleAssignment != null) {
+            String paleCode = String.valueOf(paleAssignment.getOrDefault("codigo", "—"));
+            throw new ResponseStatusException(
+                    CONFLICT, "La pieza ya está en el palé " + paleCode);
+        }
+        if (repository.isPieceScanned(pieceId)) {
+            throw new ResponseStatusException(BAD_REQUEST, "La pieza ya fue escaneada");
+        }
+        boolean ok = repository.scanPiece(employeeId, pieceId, req.observations(), req.equipment());
+        if (!ok) {
+            throw new ResponseStatusException(BAD_REQUEST, "No se pudo registrar el escaneo de la pieza");
+        }
+        return new ScanResultResponse(true, "Pieza escaneada correctamente");
     }
 
     @Transactional
@@ -165,17 +178,20 @@ public class BiesseScanService {
         Matcher composite =
                 Pattern.compile("^(.*)-P?(\\d+)-(\\d+)$", Pattern.CASE_INSENSITIVE).matcher(normalized);
         if (composite.matches()) {
-            Map<String, Object> piece =
-                    repository.resolvePieceByCompositeCode(
-                            composite.group(1).trim(), composite.group(2), composite.group(3));
-            if (piece != null) {
-                Long orderId = ((Number) piece.get("orderid")).longValue();
-                ScanInterpretResponse switchCheck = checkOrderSwitch(currentOrderId, orderId, confirm, piece);
-                if (switchCheck != null) {
-                    return switchCheck;
-                }
-                return scanPieceResponse(piece, "Pieza identificada");
+            Map<String, Object> piece = repository.resolvePieceFromScanCode(normalized);
+            if (piece == null) {
+                return interpretError("Pieza no reconocida para el código: " + normalized);
             }
+            ScanInterpretResponse paleError = pieceOnPaleError(piece);
+            if (paleError != null) {
+                return paleError;
+            }
+            Long orderId = ((Number) piece.get("orderid")).longValue();
+            ScanInterpretResponse switchCheck = checkOrderSwitch(currentOrderId, orderId, confirm, piece);
+            if (switchCheck != null) {
+                return switchCheck;
+            }
+            return scanPieceResponse(piece, "Pieza identificada");
         }
 
         Matcher partOnly = Pattern.compile("^(.*)-P?(\\d+)$", Pattern.CASE_INSENSITIVE).matcher(normalized);
@@ -292,19 +308,23 @@ public class BiesseScanService {
         if (code == null || code.isBlank()) {
             throw new ResponseStatusException(BAD_REQUEST, "Code is required");
         }
-        String value = code.trim();
-        java.util.regex.Matcher matcher =
-                java.util.regex.Pattern.compile("^(.*)-P?(\\d+)-(\\d+)$", java.util.regex.Pattern.CASE_INSENSITIVE)
-                        .matcher(value);
-        if (!matcher.matches()) {
-            throw new ResponseStatusException(BAD_REQUEST, "Code must follow ordername-Px-y");
+        String value = normalizeBarcodeInput(code);
+        if (!Pattern.compile("^(.*)-P?(\\d+)-(\\d+)$", Pattern.CASE_INSENSITIVE).matcher(value).matches()) {
+            throw new ResponseStatusException(
+                    BAD_REQUEST, "El código debe tener el formato Orden-P#-N (ej. MIORDEN-P12-3)");
         }
-        String orderName = matcher.group(1).trim();
-        String partToken = matcher.group(2);
-        String pieceToken = matcher.group(3);
-        Map<String, Object> piece = repository.resolvePieceByCompositeCode(orderName, partToken, pieceToken);
+        Map<String, Object> piece = repository.resolvePieceFromScanCode(value);
         if (piece == null) {
-            throw new ResponseStatusException(NOT_FOUND, "Piece not found for provided code");
+            throw new ResponseStatusException(
+                    NOT_FOUND,
+                    "Pieza no reconocida para el código indicado. "
+                            + "Formato esperado: Orden-P#-N (ej. MIORDEN-P12-3).");
+        }
+        Map<String, Object> paleAssignment =
+                repository.findPaleAssignmentByPieceId(((Number) piece.get("piezaid")).longValue());
+        if (paleAssignment != null) {
+            String paleCode = String.valueOf(paleAssignment.getOrDefault("codigo", "—"));
+            throw new ResponseStatusException(CONFLICT, "La pieza ya está en el palé " + paleCode);
         }
         String medida = formatMedidaPair(toDouble(piece.get("longitud_parte")), toDouble(piece.get("ancho_parte")));
         if (medida != null) {
@@ -446,12 +466,13 @@ public class BiesseScanService {
             int pieceNumber = Integer.parseInt(suffixPiece.group(2));
             Map<String, Object> piece = repository.findPieceByOrderPartAndNumber(orderId, partToken, pieceNumber);
             if (piece != null) {
-                return scanPieceResponse(piece, "Pieza identificada");
+                return validatedScanPieceResponse(piece, "Pieza identificada");
             }
             Map<String, Object> part = repository.findPartByOrderAndToken(orderId, partToken);
             if (part != null) {
                 return scanPartResponse(part, order, "Parte identificada");
             }
+            return interpretError("Pieza no reconocida para el código: " + normalized);
         }
 
         List<Map<String, Object>> parts = repository.findOrderParts(orderId);
@@ -476,12 +497,34 @@ public class BiesseScanService {
                                     orderId, partCode.substring(1), pieceNumber);
                 }
                 if (piece != null) {
-                    return scanPieceResponse(piece, "Pieza identificada");
+                    return validatedScanPieceResponse(piece, "Pieza identificada");
                 }
             }
             return scanPartResponse(part, order, "Parte identificada");
         }
         return null;
+    }
+
+    private ScanInterpretResponse validatedScanPieceResponse(Map<String, Object> piece, String message) {
+        ScanInterpretResponse paleError = pieceOnPaleError(piece);
+        if (paleError != null) {
+            return paleError;
+        }
+        return scanPieceResponse(piece, message);
+    }
+
+    private ScanInterpretResponse pieceOnPaleError(Map<String, Object> piece) {
+        Object idObj = piece.get("piezaid");
+        if (idObj == null) {
+            return null;
+        }
+        Long piezaId = ((Number) idObj).longValue();
+        Map<String, Object> pale = repository.findPaleAssignmentByPieceId(piezaId);
+        if (pale == null) {
+            return null;
+        }
+        String codigo = String.valueOf(pale.getOrDefault("codigo", "—"));
+        return interpretError("La pieza ya está en el palé " + codigo);
     }
 
     private static ScanInterpretResponse loadOrderResponse(Map<String, Object> order, String message) {

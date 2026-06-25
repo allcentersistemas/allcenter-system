@@ -752,6 +752,72 @@ public class BiesseScanRepository {
         }
     }
 
+    public boolean pieceExists(Long pieceId) {
+        if (pieceId == null) {
+            return false;
+        }
+        try {
+            Integer count =
+                    jdbcTemplate.queryForObject(
+                            "SELECT COUNT(*) FROM piezas WHERE piezaid = ?", Integer.class, pieceId);
+            return count != null && count > 0;
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
+    public boolean isPieceScanned(Long pieceId) {
+        if (pieceId == null) {
+            return false;
+        }
+        try {
+            Boolean scanned =
+                    jdbcTemplate.query(
+                            "SELECT escaneado FROM piezas WHERE piezaid = ?",
+                            rs -> rs.next() ? rs.getBoolean("escaneado") : null,
+                            pieceId);
+            return Boolean.TRUE.equals(scanned);
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
+    /**
+     * Si la pieza figura en un palé (tabla compartida con module-system cuando existe en la misma BD).
+     */
+    public Map<String, Object> findPaleAssignmentByPieceId(Long pieceId) {
+        if (pieceId == null) {
+            return null;
+        }
+        String[] queries = {
+            """
+            SELECT p.codigo, p.paleeid AS pale_id, p.estado
+            FROM paledetalle pd
+            JOIN pale p ON p.paleeid = pd.paleenvioid
+            WHERE pd.piezaid = ?
+            LIMIT 1
+            """,
+            """
+            SELECT p.codigo, p.paleenvioid AS pale_id, p.estado
+            FROM paledetalle pd
+            JOIN pale p ON p.paleenvioid = pd.paleenvioid
+            WHERE pd.piezaid = ?
+            LIMIT 1
+            """
+        };
+        for (String sql : queries) {
+            try {
+                List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, pieceId);
+                if (!rows.isEmpty()) {
+                    return rows.getFirst();
+                }
+            } catch (Exception ignored) {
+                // Esquema legacy o tabla en otra BD
+            }
+        }
+        return null;
+    }
+
     public boolean deleteOrderById(Long orderId) {
         try {
             jdbcTemplate.update("DELETE FROM synclogs WHERE orden_id = ?", orderId);
@@ -837,27 +903,182 @@ public class BiesseScanRepository {
     }
 
     public Map<String, Object> resolvePieceByCompositeCode(String orderName, String partToken, String pieceToken) {
-        List<Map<String, Object>> rows =
-                jdbcTemplate.queryForList(
+        Map<String, Object> direct = findPieceInOrderContext(null, orderName, partToken, pieceToken);
+        if (direct != null) {
+            return direct;
+        }
+        String composite = buildCompositeScanCode(orderName, partToken, pieceToken);
+        Long detectedOrderId = detectOrderIdFromCode(composite);
+        if (detectedOrderId != null) {
+            Map<String, Object> byDetected = findPieceInOrderContext(detectedOrderId, null, partToken, pieceToken);
+            if (byDetected != null) {
+                return byDetected;
+            }
+        }
+        for (Long orderId : findCandidateOrderIdsForToken(orderName)) {
+            Map<String, Object> candidate = findPieceInOrderContext(orderId, null, partToken, pieceToken);
+            if (candidate != null) {
+                return candidate;
+            }
+        }
+        return null;
+    }
+
+    public Map<String, Object> resolvePieceFromScanCode(String rawCode) {
+        if (rawCode == null || rawCode.isBlank()) {
+            return null;
+        }
+        String code = normalizeScanCode(rawCode);
+        java.util.regex.Matcher matcher =
+                java.util.regex.Pattern.compile("^(.*)-P?(\\d+)-(\\d+)$", java.util.regex.Pattern.CASE_INSENSITIVE)
+                        .matcher(code);
+        if (!matcher.matches()) {
+            return null;
+        }
+        return resolvePieceByCompositeCode(matcher.group(1).trim(), matcher.group(2).trim(), matcher.group(3).trim());
+    }
+
+    private Map<String, Object> findPieceInOrderContext(
+            Long orderId, String orderToken, String partToken, String pieceToken) {
+        if (partToken == null || partToken.isBlank() || pieceToken == null || pieceToken.isBlank()) {
+            return null;
+        }
+        if (orderId == null && (orderToken == null || orderToken.isBlank())) {
+            return null;
+        }
+        String trimmedPart = partToken.trim();
+        String trimmedPiece = pieceToken.trim();
+        String partWithP = trimmedPart.toUpperCase(java.util.Locale.ROOT).startsWith("P")
+                ? trimmedPart
+                : "P" + trimmedPart;
+        Integer partNumber = parsePositiveInt(trimmedPart);
+
+        StringBuilder sql =
+                new StringBuilder(
                         """
                         SELECT z.piezaid, z.numero_pieza, p.partid, p.partnumber, p.partcode, p.orderid, o.ordername, o.bookingcode,
                                p.longitud AS longitud_parte, p.ancho AS ancho_parte
                         FROM piezas z
                         JOIN partes p ON p.partid = z.partid
                         JOIN ordenes o ON o.orderid = p.orderid
-                        WHERE UPPER(TRIM(o.ordername)) = UPPER(TRIM(?))
-                          AND (
-                               CAST(p.partnumber AS TEXT) = ?
-                               OR UPPER(TRIM(p.partcode)) = UPPER(TRIM(?))
-                              )
-                          AND CAST(z.numero_pieza AS TEXT) = ?
-                        LIMIT 1
-                        """,
-                        orderName,
-                        partToken,
-                        "P" + partToken,
-                        pieceToken);
+                        WHERE CAST(z.numero_pieza AS TEXT) = ?
+                        """);
+        java.util.List<Object> args = new java.util.ArrayList<>();
+        args.add(trimmedPiece);
+
+        if (orderId != null) {
+            sql.append(" AND o.orderid = ? ");
+            args.add(orderId);
+        } else {
+            sql.append(
+                    """
+                     AND (
+                          UPPER(TRIM(o.ordername)) = UPPER(TRIM(?))
+                          OR (o.bookingcode IS NOT NULL AND UPPER(TRIM(o.bookingcode)) = UPPER(TRIM(?)))
+                          OR UPPER(REPLACE(o.ordername, ' ', '')) = UPPER(REPLACE(?, ' ', ''))
+                          OR (o.bookingcode IS NOT NULL AND UPPER(REPLACE(o.bookingcode, ' ', '')) = UPPER(REPLACE(?, ' ', '')))
+                         )
+                    """);
+            String token = orderToken.trim();
+            args.add(token);
+            args.add(token);
+            args.add(token);
+            args.add(token);
+        }
+
+        sql.append(
+                """
+                 AND (
+                      CAST(p.partnumber AS TEXT) = ?
+                      OR CAST(p.partid AS TEXT) = ?
+                      OR UPPER(TRIM(p.partcode)) = UPPER(TRIM(?))
+                      OR UPPER(TRIM(p.partcode)) = UPPER(TRIM(?))
+                      OR UPPER(REPLACE(p.partcode, ' ', '')) = UPPER(REPLACE(?, ' ', ''))
+                """);
+        args.add(trimmedPart);
+        args.add(trimmedPart);
+        args.add(trimmedPart);
+        args.add(partWithP);
+        args.add(partWithP);
+
+        if (partNumber != null) {
+            sql.append(" OR p.partnumber = ? ");
+            args.add(partNumber);
+        }
+        sql.append(" ) ORDER BY o.fechacreacion DESC LIMIT 1 ");
+
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql.toString(), args.toArray());
         return rows.isEmpty() ? null : rows.getFirst();
+    }
+
+    private java.util.List<Long> findCandidateOrderIdsForToken(String orderToken) {
+        if (orderToken == null || orderToken.isBlank()) {
+            return List.of();
+        }
+        String norm = orderToken.replaceAll("\\s+", "").toUpperCase(java.util.Locale.ROOT);
+        java.util.LinkedHashSet<Long> ids = new java.util.LinkedHashSet<>();
+        List<Map<String, Object>> rows =
+                jdbcTemplate.queryForList(
+                        """
+                        SELECT orderid, ordername, bookingcode
+                        FROM ordenes
+                        ORDER BY LENGTH(ordername) DESC, fechacreacion DESC
+                        LIMIT 500
+                        """);
+        for (Map<String, Object> row : rows) {
+            String orderName =
+                    String.valueOf(row.get("ordername")).replaceAll("\\s+", "").toUpperCase(java.util.Locale.ROOT);
+            Object booking = row.get("bookingcode");
+            String bookingNorm =
+                    booking != null
+                            ? String.valueOf(booking).replaceAll("\\s+", "").toUpperCase(java.util.Locale.ROOT)
+                            : "";
+            if (norm.equals(orderName)
+                    || norm.equals(bookingNorm)
+                    || norm.startsWith(orderName)
+                    || (!bookingNorm.isBlank() && norm.startsWith(bookingNorm))
+                    || orderName.startsWith(norm)
+                    || (!bookingNorm.isBlank() && bookingNorm.startsWith(norm))) {
+                ids.add(((Number) row.get("orderid")).longValue());
+            }
+        }
+        return new java.util.ArrayList<>(ids);
+    }
+
+    private static String buildCompositeScanCode(String orderName, String partToken, String pieceToken) {
+        return orderName + "-P" + partToken + "-" + pieceToken;
+    }
+
+    private static String normalizeScanCode(String raw) {
+        if (raw == null) {
+            return "";
+        }
+        String trimmed = raw.trim().replaceAll("\\s+", " ");
+        StringBuilder out = new StringBuilder(trimmed.length());
+        for (int i = 0; i < trimmed.length(); i++) {
+            char c = trimmed.charAt(i);
+            switch (c) {
+                case '\u2010', '\u2011', '\u2012', '\u2013', '\u2014', '\u2212', '\uFE63', '\uFF0D' -> out.append('-');
+                default -> {
+                    if (!Character.isISOControl(c) || c == '\t') {
+                        out.append(c);
+                    }
+                }
+            }
+        }
+        return out.toString().trim();
+    }
+
+    private static Integer parsePositiveInt(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            int parsed = Integer.parseInt(value.trim());
+            return parsed > 0 ? parsed : null;
+        } catch (NumberFormatException ex) {
+            return null;
+        }
     }
 
     public Map<String, Object> findOrderByNameToken(String token) {
@@ -922,23 +1143,37 @@ public class BiesseScanRepository {
         if (orderId == null || partToken == null || partToken.isBlank()) {
             return null;
         }
-        List<Map<String, Object>> rows =
-                jdbcTemplate.queryForList(
+        String trimmedPart = partToken.trim();
+        String partWithP = trimmedPart.toUpperCase(java.util.Locale.ROOT).startsWith("P")
+                ? trimmedPart
+                : "P" + trimmedPart;
+        Integer partNumber = parsePositiveInt(trimmedPart);
+        StringBuilder sql =
+                new StringBuilder(
                         """
                         SELECT partid, orderid, partcode, partnumber, cantidad, escaneado
                         FROM partes
                         WHERE orderid = ?
                           AND (
                                CAST(partnumber AS TEXT) = ?
+                               OR CAST(partid AS TEXT) = ?
                                OR UPPER(TRIM(partcode)) = UPPER(TRIM(?))
                                OR UPPER(TRIM(partcode)) = UPPER(TRIM(?))
-                              )
-                        LIMIT 1
-                        """,
-                        orderId,
-                        partToken.trim(),
-                        partToken.trim(),
-                        "P" + partToken.trim());
+                               OR UPPER(REPLACE(partcode, ' ', '')) = UPPER(REPLACE(?, ' ', ''))
+                        """);
+        java.util.List<Object> args = new java.util.ArrayList<>();
+        args.add(orderId);
+        args.add(trimmedPart);
+        args.add(trimmedPart);
+        args.add(trimmedPart);
+        args.add(partWithP);
+        args.add(partWithP);
+        if (partNumber != null) {
+            sql.append(" OR partnumber = ? ");
+            args.add(partNumber);
+        }
+        sql.append(" ) LIMIT 1 ");
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql.toString(), args.toArray());
         return rows.isEmpty() ? null : rows.getFirst();
     }
 
@@ -946,28 +1181,7 @@ public class BiesseScanRepository {
         if (orderId == null || partToken == null || partToken.isBlank() || pieceNumber < 1) {
             return null;
         }
-        List<Map<String, Object>> rows =
-                jdbcTemplate.queryForList(
-                        """
-                        SELECT z.piezaid, z.numero_pieza, p.partid, p.partnumber, p.partcode, p.orderid, o.ordername
-                        FROM piezas z
-                        JOIN partes p ON p.partid = z.partid
-                        JOIN ordenes o ON o.orderid = p.orderid
-                        WHERE p.orderid = ?
-                          AND (
-                               CAST(p.partnumber AS TEXT) = ?
-                               OR UPPER(TRIM(p.partcode)) = UPPER(TRIM(?))
-                               OR UPPER(TRIM(p.partcode)) = UPPER(TRIM(?))
-                              )
-                          AND z.numero_pieza = ?
-                        LIMIT 1
-                        """,
-                        orderId,
-                        partToken.trim(),
-                        partToken.trim(),
-                        "P" + partToken.trim(),
-                        pieceNumber);
-        return rows.isEmpty() ? null : rows.getFirst();
+        return findPieceInOrderContext(orderId, null, partToken, String.valueOf(pieceNumber));
     }
 
     public Map<String, Object> findPieceById(Long pieceId) {

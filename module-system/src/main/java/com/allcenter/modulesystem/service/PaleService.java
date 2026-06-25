@@ -33,6 +33,7 @@ import com.allcenter.modulesystem.repository.GuiadetalleRepository;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
+import java.util.Optional;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -314,14 +315,19 @@ public class PaleService {
         if (!"ABIERTO".equalsIgnoreCase(pale.getEstado())) {
             throw new ResponseStatusException(BAD_REQUEST, "El pale ya esta cerrado");
         }
-        detalleRepository.findByPale_IdAndPiezaId(paleId, req.pieceId())
-                .ifPresent(d -> {
-                    throw new ResponseStatusException(CONFLICT, "La pieza ya fue agregada al pale");
-                });
+        Optional<PaleDetalle> existingOnAnyPale = detalleRepository.findFirstByPiezaId(req.pieceId());
+        if (existingOnAnyPale.isPresent()) {
+            Pale assignedPale = existingOnAnyPale.get().getPale();
+            if (assignedPale.getId().equals(paleId)) {
+                throw new ResponseStatusException(CONFLICT, "La pieza ya fue agregada a este palé");
+            }
+            throw new ResponseStatusException(
+                    CONFLICT, "La pieza ya está en el palé " + assignedPale.getCodigo());
+        }
 
         Map<String, Object> pieceData = fetchPieceDataFromBiesse(authorization, req.pieceId());
         if (pieceData == null) {
-            throw new ResponseStatusException(NOT_FOUND, "Pieza no encontrada");
+            throw new ResponseStatusException(NOT_FOUND, "Pieza no reconocida");
         }
 
         PaleDetalle detail = new PaleDetalle();

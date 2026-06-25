@@ -10,6 +10,8 @@ public interface PaleDetalleRepository extends JpaRepository<PaleDetalle, Long> 
 
     Optional<PaleDetalle> findByPale_IdAndPiezaId(Long paleId, Long piezaId);
 
+    Optional<PaleDetalle> findFirstByPiezaId(Long piezaId);
+
     @org.springframework.data.jpa.repository.Query(
             "SELECT DISTINCT d.pale.id FROM PaleDetalle d WHERE d.orderId = :orderId")
     java.util.List<Long> findDistinctPaleIdsByOrderId(
