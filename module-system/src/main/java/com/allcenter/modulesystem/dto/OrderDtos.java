@@ -82,6 +82,7 @@ public final class OrderDtos {
             Long codigoProyecto,
             String nombre,
             String cliente,
+            Long clientUserId,
             String referencia,
             String descripcion,
             String estado,

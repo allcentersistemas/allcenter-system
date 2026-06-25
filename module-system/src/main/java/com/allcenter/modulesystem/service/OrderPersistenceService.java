@@ -218,7 +218,7 @@ public class OrderPersistenceService {
     }
 
     private boolean clientCanEdit(ProyectoOptimizacion proyecto) {
-        return proyecto.getEstado() == ProyectoEstado.ENVIADO;
+        return false;
     }
 
     @Transactional(readOnly = true)
@@ -444,6 +444,7 @@ public class OrderPersistenceService {
                 proyectoOptimizacion.getCodigoproyecto(),
                 proyectoOptimizacion.getNombre(),
                 proyectoOptimizacion.getCliente(),
+                proyectoOptimizacion.getClientUserId(),
                 proyectoOptimizacion.getReferencia(),
                 proyectoOptimizacion.getDescripcion(),
                 estadoLabel(proyectoOptimizacion.getEstado()),

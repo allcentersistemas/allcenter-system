@@ -1,8 +1,9 @@
 package com.allcenter.modulesystem.controller;
 
+import com.allcenter.modulesystem.dto.AdminResetPasswordRequest;
+import com.allcenter.modulesystem.dto.ClientAdminUpdateRequest;
 import com.allcenter.modulesystem.dto.ClientCreateRequest;
 import com.allcenter.modulesystem.dto.ClientResponse;
-import com.allcenter.modulesystem.dto.ClientUpdateRequest;
 import com.allcenter.modulesystem.service.ClientService;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -44,8 +45,15 @@ public class GestionClienteController {
 
     @PutMapping("/{id}")
     public ResponseEntity<ClientResponse> update(
-            @PathVariable long id, @Valid @RequestBody ClientUpdateRequest request) {
-        return ResponseEntity.ok(clientService.update(id, request));
+            @PathVariable long id, @Valid @RequestBody ClientAdminUpdateRequest request) {
+        return ResponseEntity.ok(clientService.updateAdmin(id, request));
+    }
+
+    @PostMapping("/{id}/reset-password")
+    public ResponseEntity<Void> resetPassword(
+            @PathVariable long id, @Valid @RequestBody AdminResetPasswordRequest request) {
+        clientService.resetPasswordByAdmin(id, request.newPassword());
+        return ResponseEntity.noContent().build();
     }
 
     @DeleteMapping("/{id}")
