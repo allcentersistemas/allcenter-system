@@ -11,6 +11,7 @@ import com.allcenter.modulesystem.repository.EmployeeRepository;
 import com.allcenter.modulesystem.repository.OrdenDetalleRepository;
 import com.allcenter.modulesystem.repository.OrdenRepository;
 import com.allcenter.modulesystem.repository.ProyectoRepository;
+import com.allcenter.modulesystem.dto.ClientResponse;
 import com.allcenter.modulesystem.dto.OrderDtos;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
@@ -210,6 +211,20 @@ public class OrderPersistenceService {
         proyectoRepository.save(proyecto);
         replaceProjectOrders(proyecto.getId(), payload.orders());
         return getProjectTree(proyecto.getId(), true);
+    }
+
+    @Transactional(readOnly = true)
+    public ClientResponse getPortalClientForProject(Long proyectoId) {
+        ProyectoOptimizacion proyecto = requireProject(proyectoId);
+        Long clientUserId = proyecto.getClientUserId();
+        if (clientUserId == null) {
+            throw new EntityNotFoundException("Este proyecto no tiene un cliente del portal asociado");
+        }
+        ClientUser client =
+                clientUserRepository
+                        .findById(clientUserId)
+                        .orElseThrow(() -> new EntityNotFoundException("Cliente no encontrado"));
+        return ClientResponse.from(client);
     }
 
     @Transactional(readOnly = true)

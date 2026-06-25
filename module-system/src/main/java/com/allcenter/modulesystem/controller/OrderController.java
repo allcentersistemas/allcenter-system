@@ -1,5 +1,6 @@
 package com.allcenter.modulesystem.controller;
 
+import com.allcenter.modulesystem.dto.ClientResponse;
 import com.allcenter.modulesystem.dto.OrderDtos;
 import com.allcenter.modulesystem.security.EmployeeUserDetails;
 import com.allcenter.modulesystem.service.OrderPersistenceService;
@@ -109,6 +110,12 @@ public class OrderController {
     @GetMapping({"/proyectos/{proyectoId}", "/projects/{proyectoId}"})
     public OrderDtos.ProyectoConOrdenesResponse getProyecto(@PathVariable Long proyectoId) {
         return service.getProjectTree(proyectoId);
+    }
+
+    @GetMapping("/proyectos/{proyectoId}/cliente")
+    @PreAuthorize("@portalAuth.canRead()")
+    public ClientResponse getProyectoCliente(@PathVariable Long proyectoId) {
+        return service.getPortalClientForProject(proyectoId);
     }
 
     @DeleteMapping({"/proyectos/{proyectoId}", "/projects/{proyectoId}"})
