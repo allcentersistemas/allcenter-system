@@ -13,6 +13,6 @@ COPY --from=build /build/module-system/target/*-SNAPSHOT.jar /app/app.jar
 RUN apt-get update \
     && apt-get install -y --no-install-recommends wget postgresql-client \
     && rm -rf /var/lib/apt/lists/*
-ENV JAVA_OPTS="-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0"
+ENV JAVA_OPTS="-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -Duser.timezone=America/Lima"
 EXPOSE 8080
 ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar /app/app.jar"]

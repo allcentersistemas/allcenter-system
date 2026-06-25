@@ -13,6 +13,9 @@ import org.springframework.stereotype.Repository;
 @RequiredArgsConstructor
 public class BiesseScanRepository {
 
+    private static final String ORDEN_ACTIVA = "COALESCE(o.activo, TRUE) = TRUE";
+    private static final String ORDEN_ACTIVA_PLAIN = "COALESCE(activo, TRUE) = TRUE";
+
     private final JdbcTemplate jdbcTemplate;
 
     public List<PendingPartResponse> findPendingParts(int limit) {
@@ -23,6 +26,10 @@ public class BiesseScanRepository {
                 FROM partes p
                 JOIN ordenes o ON p.orderid = o.orderid
                 WHERE p.escaneado = FALSE
+                  AND """
+                        + ORDEN_ACTIVA
+                        + """
+                
                 ORDER BY o.fechacreacion DESC, p.partnumber
                 LIMIT ?
                 """;
@@ -379,6 +386,10 @@ public class BiesseScanRepository {
                         FROM partes p
                         JOIN ordenes o ON p.orderid = o.orderid
                         WHERE p.usuario_modificacion = ? AND p.escaneado = TRUE
+                          AND """
+                                + ORDEN_ACTIVA
+                                + """
+                        
                         """);
         if (fromDate != null && !fromDate.isBlank()) {
             sql.append(" AND DATE(p.fecha_escaneo) >= ? ");
@@ -410,7 +421,8 @@ public class BiesseScanRepository {
                                (SELECT COUNT(*)::int FROM piezas z WHERE z.orderid = o.orderid) AS total_piezas,
                                (SELECT COUNT(*)::int FROM piezas z WHERE z.orderid = o.orderid AND z.escaneado = TRUE) AS piezas_escaneadas
                         FROM ordenes o
-                        """);
+                        WHERE """
+                        + ORDEN_ACTIVA);
         boolean hasOrderId = orderId != null;
         boolean hasState = state != null && !state.isBlank();
         boolean hasQuery = query != null && !query.isBlank();
@@ -418,7 +430,7 @@ public class BiesseScanRepository {
         boolean hasToDate = toDate != null && !toDate.isBlank();
 
         if (hasOrderId || hasState || hasQuery || hasFromDate || hasToDate) {
-            sql.append(" WHERE 1=1 ");
+            sql.append(" AND 1=1 ");
             if (hasOrderId) {
                 sql.append(" AND o.orderid = ? ");
             }
@@ -509,6 +521,10 @@ public class BiesseScanRepository {
                                partes_escaneadas, partes_totales, porcentaje_completado, observaciones
                         FROM ordenes
                         WHERE orderid = ?
+                          AND """
+                                + ORDEN_ACTIVA_PLAIN
+                                + """
+                        
                         """,
                         orderId);
         return rows.isEmpty() ? null : rows.getFirst();
@@ -524,6 +540,10 @@ public class BiesseScanRepository {
                         JOIN partes p ON p.partid = z.partid
                         JOIN ordenes o ON o.orderid = p.orderid
                         WHERE UPPER(TRIM(o.ordername)) = UPPER(TRIM(?))
+                          AND """
+                                + ORDEN_ACTIVA
+                                + """
+                          
                           AND (
                                CAST(p.partnumber AS TEXT) = ?
                                OR UPPER(TRIM(p.partcode)) = UPPER(TRIM(?))
@@ -550,6 +570,10 @@ public class BiesseScanRepository {
                         JOIN partes p ON p.partid = z.partid
                         JOIN ordenes o ON o.orderid = p.orderid
                         WHERE z.piezaid = ?
+                          AND """
+                                + ORDEN_ACTIVA
+                                + """
+                        
                         LIMIT 1
                         """,
                         pieceId);
@@ -643,8 +667,11 @@ public class BiesseScanRepository {
     }
 
     public Map<String, Object> getGeneralStats() {
-        long totalOrders = countGeneric("SELECT COUNT(*) FROM ordenes");
-        long completedOrders = countGeneric("SELECT COUNT(*) FROM ordenes WHERE estado_escaneo = 'COMPLETADA'");
+        long totalOrders = countGeneric("SELECT COUNT(*) FROM ordenes WHERE " + ORDEN_ACTIVA_PLAIN);
+        long completedOrders =
+                countGeneric(
+                        "SELECT COUNT(*) FROM ordenes WHERE estado_escaneo = 'COMPLETADA' AND "
+                                + ORDEN_ACTIVA_PLAIN);
         long totalParts = countGeneric("SELECT COUNT(*) FROM partes");
         long scannedParts = countGeneric("SELECT COUNT(*) FROM partes WHERE escaneado = TRUE");
         long pendingParts = countGeneric("SELECT COUNT(*) FROM partes WHERE escaneado = FALSE");
