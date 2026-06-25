@@ -451,7 +451,15 @@ public class OrderPersistenceService {
                 editable,
                 proyecto.getMaquinaId(),
                 maquinaService.resolveParametros(proyecto.getMaquinaId()),
-                proyecto.getCotizacionArchivo() != null && !proyecto.getCotizacionArchivo().isBlank());
+                hasCotizacionOnDisk(proyecto));
+    }
+
+    private boolean hasCotizacionOnDisk(ProyectoOptimizacion proyecto) {
+        String archivo = proyecto.getCotizacionArchivo();
+        if (archivo == null || archivo.isBlank()) {
+            return false;
+        }
+        return optimizacionStorage.cotizacionExists(proyecto.getId(), archivo);
     }
 
     private OrderDtos.ProyectoResponse toProyectoResponse(ProyectoOptimizacion proyectoOptimizacion, boolean editable) {
