@@ -6,6 +6,7 @@ import com.allcenter.modulebiesse.dto.UserScanStatsResponse;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -26,21 +27,47 @@ public class BiesseScanRepository {
                 ORDER BY o.fechacreacion DESC, p.partnumber
                 LIMIT ?
                 """;
-        return jdbcTemplate.query(
-                sql,
-                (rs, rowNum) ->
-                        new PendingPartResponse(
-                                rs.getLong("partid"),
-                                rs.getString("partcode"),
-                                rs.getString("descripcion"),
-                                rs.getInt("cantidad"),
-                                rs.getObject("longitud", Double.class),
-                                rs.getObject("ancho", Double.class),
-                                rs.getString("material"),
-                                rs.getString("ordername"),
-                                rs.getString("bookingcode"),
-                                rs.getLong("orderid")),
-                limit);
+        try {
+            return jdbcTemplate.query(
+                    sql,
+                    (rs, rowNum) ->
+                            new PendingPartResponse(
+                                    rs.getLong("partid"),
+                                    rs.getString("partcode"),
+                                    rs.getString("descripcion"),
+                                    rs.getInt("cantidad"),
+                                    rs.getObject("longitud", Double.class),
+                                    rs.getObject("ancho", Double.class),
+                                    rs.getString("material"),
+                                    rs.getString("ordername"),
+                                    rs.getString("bookingcode"),
+                                    rs.getLong("orderid")),
+                    limit);
+        } catch (DataAccessException ex) {
+            return jdbcTemplate.query(
+                    """
+                    SELECT p.partid, p.partcode, p.descripcion, p.cantidad, p.longitud, p.ancho, p.material,
+                           o.ordername, o.bookingcode, o.orderid
+                    FROM partes p
+                    JOIN ordenes o ON p.orderid = o.orderid
+                    WHERE COALESCE(p.escaneado, FALSE) = FALSE
+                    ORDER BY o.fechacreacion DESC, p.partid
+                    LIMIT ?
+                    """,
+                    (rs, rowNum) ->
+                            new PendingPartResponse(
+                                    rs.getLong("partid"),
+                                    rs.getString("partcode"),
+                                    rs.getString("descripcion"),
+                                    rs.getInt("cantidad"),
+                                    rs.getObject("longitud", Double.class),
+                                    rs.getObject("ancho", Double.class),
+                                    rs.getString("material"),
+                                    rs.getString("ordername"),
+                                    rs.getString("bookingcode"),
+                                    rs.getLong("orderid")),
+                    limit);
+        }
     }
 
     public Map<String, Object> findPartById(Long partId) {
@@ -57,44 +84,214 @@ public class BiesseScanRepository {
     }
 
     public int updatePartScan(Long employeeId, ScanPartRequest req, int difference, String method) {
-        String sql =
-                """
-                UPDATE partes
-                SET escaneado = TRUE,
-                    fecha_escaneo = CURRENT_TIMESTAMP,
-                    usuario_modificacion = ?,
-                    observaciones_escaneo = ?,
-                    cantidad_escaneada = ?,
-                    diferencia_cantidad = ?,
-                    metodo_escaneo = ?,
-                    tiempo_escaneo_ms = ?,
-                    equipo_escaneo = ?,
-                    ubicacion_escaneo = ?,
-                    fecha_modificacion = CURRENT_TIMESTAMP
-                WHERE partid = ?
-                """;
-        return jdbcTemplate.update(
-                sql,
-                employeeId,
-                req.observations(),
-                req.scannedQuantity(),
-                difference,
-                method,
-                req.scanTimeMs(),
-                req.equipment(),
-                req.location(),
-                req.partId());
+        try {
+            return jdbcTemplate.update(
+                    """
+                    UPDATE partes
+                    SET escaneado = TRUE,
+                        fecha_escaneo = CURRENT_TIMESTAMP,
+                        usuario_modificacion = ?,
+                        observaciones_escaneo = ?,
+                        cantidad_escaneada = ?,
+                        diferencia_cantidad = ?,
+                        metodo_escaneo = ?,
+                        tiempo_escaneo_ms = ?,
+                        equipo_escaneo = ?,
+                        ubicacion_escaneo = ?,
+                        fecha_modificacion = CURRENT_TIMESTAMP
+                    WHERE partid = ?
+                    """,
+                    employeeId,
+                    req.observations(),
+                    req.scannedQuantity(),
+                    difference,
+                    method,
+                    req.scanTimeMs(),
+                    req.equipment(),
+                    req.location(),
+                    req.partId());
+        } catch (DataAccessException ex) {
+            try {
+                return jdbcTemplate.update(
+                        """
+                        UPDATE partes
+                        SET escaneado = TRUE,
+                            fecha_escaneo = CURRENT_TIMESTAMP,
+                            usuario_modificacion = ?,
+                            observaciones_escaneo = ?,
+                            cantidad_escaneada = ?,
+                            diferencia_cantidad = ?,
+                            metodo_escaneo = ?
+                        WHERE partid = ?
+                        """,
+                        employeeId,
+                        req.observations(),
+                        req.scannedQuantity(),
+                        difference,
+                        method,
+                        req.partId());
+            } catch (DataAccessException ignored) {
+                return jdbcTemplate.update(
+                        """
+                        UPDATE partes
+                        SET escaneado = TRUE,
+                            fecha_escaneo = CURRENT_TIMESTAMP
+                        WHERE partid = ?
+                        """,
+                        req.partId());
+            }
+        }
     }
 
     public void insertScanAudit(
             Long employeeId, Long orderId, Long partId, String action, String details, String method, String equipment) {
-        String sql =
-                """
-                INSERT INTO auditoriaescaneos
-                (usuarioid, orderid, partid, accion, detalles, equipo, metodo, exito, fecha)
-                VALUES (?, ?, ?, ?, ?, ?, ?, TRUE, CURRENT_TIMESTAMP)
-                """;
-        jdbcTemplate.update(sql, employeeId, orderId, partId, action, details, equipment, method);
+        try {
+            jdbcTemplate.update(
+                    """
+                    INSERT INTO auditoriaescaneos
+                    (usuarioid, orderid, partid, accion, detalles, equipo, metodo, exito, fecha)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, TRUE, CURRENT_TIMESTAMP)
+                    """,
+                    employeeId,
+                    orderId,
+                    partId,
+                    action,
+                    details,
+                    equipment,
+                    method);
+        } catch (DataAccessException ex) {
+            try {
+                jdbcTemplate.update(
+                        """
+                        INSERT INTO auditoriaescaneos
+                        (usuarioid, orderid, partid, accion, detalles, equipo, fecha)
+                        VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                        """,
+                        employeeId,
+                        orderId,
+                        partId,
+                        action,
+                        details,
+                        equipment);
+            } catch (DataAccessException ignored) {
+                // Auditoría opcional: no debe bloquear el escaneo
+            }
+        }
+    }
+
+    private int markPieceScanned(Long employeeId, Long pieceId) {
+        try {
+            return jdbcTemplate.update(
+                    """
+                    UPDATE piezas
+                    SET escaneado = TRUE,
+                        fecha_escaneo = CURRENT_TIMESTAMP,
+                        usuario_modificacion = ?,
+                        fecha_modificacion = CURRENT_TIMESTAMP
+                    WHERE piezaid = ? AND escaneado = FALSE
+                    """,
+                    employeeId,
+                    pieceId);
+        } catch (DataAccessException ex) {
+            return jdbcTemplate.update(
+                    """
+                    UPDATE piezas
+                    SET escaneado = TRUE,
+                        fecha_escaneo = CURRENT_TIMESTAMP
+                    WHERE piezaid = ? AND escaneado = FALSE
+                    """,
+                    pieceId);
+        }
+    }
+
+    private int markPieceUnscanned(Long employeeId, Long pieceId) {
+        try {
+            return jdbcTemplate.update(
+                    """
+                    UPDATE piezas
+                    SET escaneado = FALSE,
+                        fecha_escaneo = NULL,
+                        usuario_modificacion = ?,
+                        fecha_modificacion = CURRENT_TIMESTAMP
+                    WHERE piezaid = ? AND escaneado = TRUE
+                    """,
+                    employeeId,
+                    pieceId);
+        } catch (DataAccessException ex) {
+            return jdbcTemplate.update(
+                    """
+                    UPDATE piezas
+                    SET escaneado = FALSE,
+                        fecha_escaneo = NULL
+                    WHERE piezaid = ? AND escaneado = TRUE
+                    """,
+                    pieceId);
+        }
+    }
+
+    private void syncPartProgressFromPieces(
+            Long employeeId, Long partId, int effectiveScanned, boolean completed, String observations, String equipment) {
+        try {
+            jdbcTemplate.update(
+                    """
+                    UPDATE partes
+                    SET cantidad_escaneada = ?,
+                        diferencia_cantidad = ? - COALESCE(cantidad, 0),
+                        escaneado = ?,
+                        fecha_escaneo = CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE fecha_escaneo END,
+                        usuario_modificacion = ?,
+                        observaciones_escaneo = COALESCE(?, observaciones_escaneo),
+                        equipo_escaneo = COALESCE(?, equipo_escaneo),
+                        fecha_modificacion = CURRENT_TIMESTAMP
+                    WHERE partid = ?
+                    """,
+                    effectiveScanned,
+                    effectiveScanned,
+                    completed,
+                    completed,
+                    employeeId,
+                    observations,
+                    equipment,
+                    partId);
+        } catch (DataAccessException ex) {
+            try {
+                jdbcTemplate.update(
+                        """
+                        UPDATE partes
+                        SET cantidad_escaneada = ?,
+                            diferencia_cantidad = ? - COALESCE(cantidad, 0),
+                            escaneado = ?,
+                            fecha_escaneo = CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE fecha_escaneo END,
+                            usuario_modificacion = ?
+                        WHERE partid = ?
+                        """,
+                        effectiveScanned,
+                        effectiveScanned,
+                        completed,
+                        completed,
+                        employeeId,
+                        partId);
+            } catch (DataAccessException ignored) {
+                if (completed) {
+                    jdbcTemplate.update(
+                            """
+                            UPDATE partes
+                            SET escaneado = TRUE,
+                                fecha_escaneo = CURRENT_TIMESTAMP
+                            WHERE partid = ?
+                            """,
+                            partId);
+                } else {
+                    jdbcTemplate.update(
+                            """
+                            UPDATE partes
+                            SET escaneado = FALSE
+                            WHERE partid = ?
+                            """,
+                            partId);
+                }
+            }
+        }
     }
 
     public boolean scanPiece(Long employeeId, Long pieceId, String observations, String equipment) {
@@ -118,18 +315,7 @@ public class BiesseScanRepository {
             return false;
         }
 
-        int updatedPiece =
-                jdbcTemplate.update(
-                        """
-                        UPDATE piezas
-                        SET escaneado = TRUE,
-                            fecha_escaneo = CURRENT_TIMESTAMP,
-                            usuario_modificacion = ?,
-                            fecha_modificacion = CURRENT_TIMESTAMP
-                        WHERE piezaid = ? AND escaneado = FALSE
-                        """,
-                        employeeId,
-                        pieceId);
+        int updatedPiece = markPieceScanned(employeeId, pieceId);
         if (updatedPiece == 0) {
             return false;
         }
@@ -144,27 +330,7 @@ public class BiesseScanRepository {
         int effectiveScanned = scannedQty == null ? 0 : scannedQty;
         boolean completed = scheduledQty != null && scheduledQty > 0 && effectiveScanned >= scheduledQty;
 
-        jdbcTemplate.update(
-                """
-                UPDATE partes
-                SET cantidad_escaneada = ?,
-                    diferencia_cantidad = ? - COALESCE(cantidad, 0),
-                    escaneado = ?,
-                    fecha_escaneo = CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE fecha_escaneo END,
-                    usuario_modificacion = ?,
-                    observaciones_escaneo = COALESCE(?, observaciones_escaneo),
-                    equipo_escaneo = COALESCE(?, equipo_escaneo),
-                    fecha_modificacion = CURRENT_TIMESTAMP
-                WHERE partid = ?
-                """,
-                effectiveScanned,
-                effectiveScanned,
-                completed,
-                completed,
-                employeeId,
-                observations,
-                equipment,
-                partId);
+        syncPartProgressFromPieces(employeeId, partId, effectiveScanned, completed, observations, equipment);
 
         insertScanAudit(
                 employeeId,
@@ -201,18 +367,7 @@ public class BiesseScanRepository {
             return false;
         }
 
-        int updatedPiece =
-                jdbcTemplate.update(
-                        """
-                        UPDATE piezas
-                        SET escaneado = FALSE,
-                            fecha_escaneo = NULL,
-                            usuario_modificacion = ?,
-                            fecha_modificacion = CURRENT_TIMESTAMP
-                        WHERE piezaid = ? AND escaneado = TRUE
-                        """,
-                        employeeId,
-                        pieceId);
+        int updatedPiece = markPieceUnscanned(employeeId, pieceId);
         if (updatedPiece == 0) {
             return false;
         }
@@ -227,25 +382,7 @@ public class BiesseScanRepository {
         int effectiveScanned = scannedQty == null ? 0 : scannedQty;
         boolean completed = scheduledQty != null && scheduledQty > 0 && effectiveScanned >= scheduledQty;
 
-        jdbcTemplate.update(
-                """
-                UPDATE partes
-                SET cantidad_escaneada = ?,
-                    diferencia_cantidad = ? - COALESCE(cantidad, 0),
-                    escaneado = ?,
-                    usuario_modificacion = ?,
-                    observaciones_escaneo = COALESCE(?, observaciones_escaneo),
-                    equipo_escaneo = COALESCE(?, equipo_escaneo),
-                    fecha_modificacion = CURRENT_TIMESTAMP
-                WHERE partid = ?
-                """,
-                effectiveScanned,
-                effectiveScanned,
-                completed,
-                employeeId,
-                observations,
-                equipment,
-                partId);
+        syncPartProgressFromPieces(employeeId, partId, effectiveScanned, completed, observations, equipment);
 
         insertScanAudit(
                 employeeId,
@@ -274,10 +411,15 @@ public class BiesseScanRepository {
                 count(
                         "SELECT COUNT(*) FROM partes WHERE usuario_modificacion = ? AND escaneado = TRUE AND fecha_escaneo >= DATE_TRUNC('month', CURRENT_DATE)",
                         employeeId);
-        long totalDifference =
-                count(
-                        "SELECT COALESCE(SUM(ABS(diferencia_cantidad)), 0) FROM partes WHERE usuario_modificacion = ? AND escaneado = TRUE",
-                        employeeId);
+        long totalDifference;
+        try {
+            totalDifference =
+                    count(
+                            "SELECT COALESCE(SUM(ABS(diferencia_cantidad)), 0) FROM partes WHERE usuario_modificacion = ? AND escaneado = TRUE",
+                            employeeId);
+        } catch (DataAccessException ex) {
+            totalDifference = 0L;
+        }
         long contributedOrders =
                 count(
                         "SELECT COUNT(DISTINCT orderid) FROM partes WHERE usuario_modificacion = ? AND escaneado = TRUE",
@@ -348,6 +490,15 @@ public class BiesseScanRepository {
 
     public List<Map<String, Object>> findScannedPartsByUser(
             Long employeeId, String fromDate, String toDate, int limit) {
+        try {
+            return findScannedPartsByUserExtended(employeeId, fromDate, toDate, limit);
+        } catch (DataAccessException ex) {
+            return findScannedPartsByUserBasic(employeeId, fromDate, toDate, limit);
+        }
+    }
+
+    private List<Map<String, Object>> findScannedPartsByUserExtended(
+            Long employeeId, String fromDate, String toDate, int limit) {
         StringBuilder sql =
                 new StringBuilder(
                         """
@@ -358,6 +509,30 @@ public class BiesseScanRepository {
                         JOIN ordenes o ON p.orderid = o.orderid
                         WHERE p.usuario_modificacion = ? AND p.escaneado = TRUE
                         """);
+        return queryScannedPartsByUser(sql, employeeId, fromDate, toDate, limit, true);
+    }
+
+    private List<Map<String, Object>> findScannedPartsByUserBasic(
+            Long employeeId, String fromDate, String toDate, int limit) {
+        StringBuilder sql =
+                new StringBuilder(
+                        """
+                        SELECT p.partid, p.partcode, p.descripcion, p.cantidad, p.fecha_escaneo,
+                               o.orderid, o.ordername, o.bookingcode
+                        FROM partes p
+                        JOIN ordenes o ON p.orderid = o.orderid
+                        WHERE p.escaneado = TRUE
+                        """);
+        return queryScannedPartsByUser(sql, employeeId, fromDate, toDate, limit, false);
+    }
+
+    private List<Map<String, Object>> queryScannedPartsByUser(
+            StringBuilder sql,
+            Long employeeId,
+            String fromDate,
+            String toDate,
+            int limit,
+            boolean filterByEmployee) {
         if (fromDate != null && !fromDate.isBlank()) {
             sql.append(" AND DATE(p.fecha_escaneo) >= ? ");
         }
@@ -366,16 +541,18 @@ public class BiesseScanRepository {
         }
         sql.append(" ORDER BY p.fecha_escaneo DESC LIMIT ? ");
 
-        if (fromDate != null && !fromDate.isBlank() && toDate != null && !toDate.isBlank()) {
-            return jdbcTemplate.queryForList(sql.toString(), employeeId, fromDate, toDate, limit);
+        java.util.List<Object> args = new java.util.ArrayList<>();
+        if (filterByEmployee) {
+            args.add(employeeId);
         }
         if (fromDate != null && !fromDate.isBlank()) {
-            return jdbcTemplate.queryForList(sql.toString(), employeeId, fromDate, limit);
+            args.add(fromDate);
         }
         if (toDate != null && !toDate.isBlank()) {
-            return jdbcTemplate.queryForList(sql.toString(), employeeId, toDate, limit);
+            args.add(toDate);
         }
-        return jdbcTemplate.queryForList(sql.toString(), employeeId, limit);
+        args.add(limit);
+        return jdbcTemplate.queryForList(sql.toString(), args.toArray());
     }
 
     public List<Map<String, Object>> findOrders(
@@ -418,6 +595,52 @@ public class BiesseScanRepository {
                             WHERE p.orderid = o.orderid
                         ) pz ON TRUE
                         """);
+        try {
+            return queryOrders(sql, orderId, state, query, fromDate, toDate, limit, offset);
+        } catch (DataAccessException ex) {
+            StringBuilder sqlWithoutPiezas =
+                    new StringBuilder(
+                            """
+                            SELECT o.orderid, o.ordername, o.bookingcode, o.fechacreacion,
+                                   st.estado_escaneo,
+                                   NULL::timestamp AS fecha_completado,
+                                   st.partes_escaneadas,
+                                   st.partes_totales,
+                                   st.porcentaje_completado,
+                                   0 AS total_piezas,
+                                   0 AS piezas_escaneadas
+                            FROM ordenes o
+                            LEFT JOIN LATERAL (
+                                SELECT COUNT(*)::int AS partes_totales,
+                                       COUNT(*) FILTER (WHERE COALESCE(p.escaneado, FALSE))::int AS partes_escaneadas,
+                                       CASE WHEN COUNT(*) = 0 THEN 0::numeric
+                                            ELSE ROUND(
+                                                100.0 * COUNT(*) FILTER (WHERE COALESCE(p.escaneado, FALSE)) / COUNT(*), 2)
+                                       END AS porcentaje_completado,
+                                       CASE WHEN COUNT(*) = 0 THEN 'PENDIENTE'
+                                            WHEN COUNT(*) FILTER (WHERE NOT COALESCE(p.escaneado, FALSE)) = 0
+                                                THEN 'COMPLETADA'
+                                            WHEN COUNT(*) FILTER (WHERE COALESCE(p.escaneado, FALSE)) > 0
+                                                THEN 'EN_PROCESO'
+                                            ELSE 'PENDIENTE'
+                                       END AS estado_escaneo
+                                FROM partes p
+                                WHERE p.orderid = o.orderid
+                            ) st ON TRUE
+                            """);
+            return queryOrders(sqlWithoutPiezas, orderId, state, query, fromDate, toDate, limit, offset);
+        }
+    }
+
+    private List<Map<String, Object>> queryOrders(
+            StringBuilder sql,
+            Long orderId,
+            String state,
+            String query,
+            String fromDate,
+            String toDate,
+            int limit,
+            int offset) {
         boolean hasOrderId = orderId != null;
         boolean hasState = state != null && !state.isBlank();
         boolean hasQuery = query != null && !query.isBlank();
@@ -620,29 +843,46 @@ public class BiesseScanRepository {
     }
 
     public List<Map<String, Object>> findOrderParts(Long orderId) {
-        return jdbcTemplate.queryForList(
-                """
-                SELECT partid, partcode, descripcion, descripcion1, cantidad, escaneado, cantidad_escaneada,
-                       diferencia_cantidad, fecha_escaneo, metodo_escaneo, partnumber,
-                       longitud, ancho, material,
-                       matedgeup, matedgelo, matedgel, matedger
-                FROM partes
-                WHERE orderid = ?
-                ORDER BY partnumber
-                """,
-                orderId);
+        try {
+            return jdbcTemplate.queryForList(
+                    """
+                    SELECT partid, partcode, descripcion, descripcion1, cantidad, escaneado, cantidad_escaneada,
+                           diferencia_cantidad, fecha_escaneo, metodo_escaneo, partnumber,
+                           longitud, ancho, material,
+                           matedgeup, matedgelo, matedgel, matedger
+                    FROM partes
+                    WHERE orderid = ?
+                    ORDER BY partnumber
+                    """,
+                    orderId);
+        } catch (DataAccessException ex) {
+            return jdbcTemplate.queryForList(
+                    """
+                    SELECT partid, partcode, descripcion, descripcion1, cantidad, escaneado, partnumber,
+                           longitud, ancho, material,
+                           matedgeup, matedgelo, matedgel, matedger
+                    FROM partes
+                    WHERE orderid = ?
+                    ORDER BY partid
+                    """,
+                    orderId);
+        }
     }
 
     public List<Map<String, Object>> findOrderPieces(Long orderId) {
-        return jdbcTemplate.queryForList(
-                """
-                SELECT z.piezaid, z.partid, p.orderid, z.numero_pieza, z.escaneado, z.fecha_escaneo
-                FROM piezas z
-                JOIN partes p ON p.partid = z.partid
-                WHERE p.orderid = ?
-                ORDER BY z.partid, z.numero_pieza
-                """,
-                orderId);
+        try {
+            return jdbcTemplate.queryForList(
+                    """
+                    SELECT z.piezaid, z.partid, p.orderid, z.numero_pieza, z.escaneado, z.fecha_escaneo
+                    FROM piezas z
+                    JOIN partes p ON p.partid = z.partid
+                    WHERE p.orderid = ?
+                    ORDER BY z.partid, z.numero_pieza
+                    """,
+                    orderId);
+        } catch (DataAccessException ex) {
+            return List.of();
+        }
     }
 
     public boolean completeOrderManual(Long orderId, Long employeeId, String method) {

@@ -27,6 +27,9 @@ public class ApiExceptionHandler {
                 .body(
                         Map.of(
                                 "error", "database_error",
-                                "message", "Error de base de datos en module-biesse."));
+                                "message",
+                                message != null && !message.isBlank()
+                                        ? "Error de base de datos en module-biesse: " + message
+                                        : "Error de base de datos en module-biesse."));
     }
 }
