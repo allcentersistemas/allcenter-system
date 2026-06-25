@@ -23,33 +23,37 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/gestion/clientes")
 @RequiredArgsConstructor
-@PreAuthorize("@portalAuth.canGestion()")
 public class GestionClienteController {
 
     private final ClientService clientService;
 
     @GetMapping
+    @PreAuthorize("@portalAuth.canGestion()")
     public ResponseEntity<List<ClientResponse>> list() {
         return ResponseEntity.ok(clientService.list());
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("@portalAuth.canRead()")
     public ResponseEntity<ClientResponse> getById(@PathVariable long id) {
         return ResponseEntity.ok(clientService.getById(id));
     }
 
     @PostMapping
+    @PreAuthorize("@portalAuth.canGestion()")
     public ResponseEntity<ClientResponse> create(@Valid @RequestBody ClientCreateRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(clientService.create(request));
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("@portalAuth.canGestion()")
     public ResponseEntity<ClientResponse> update(
             @PathVariable long id, @Valid @RequestBody ClientAdminUpdateRequest request) {
         return ResponseEntity.ok(clientService.updateAdmin(id, request));
     }
 
     @PostMapping("/{id}/reset-password")
+    @PreAuthorize("@portalAuth.canGestion()")
     public ResponseEntity<Void> resetPassword(
             @PathVariable long id, @Valid @RequestBody AdminResetPasswordRequest request) {
         clientService.resetPasswordByAdmin(id, request.newPassword());
@@ -57,6 +61,7 @@ public class GestionClienteController {
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("@portalAuth.canGestion()")
     public ResponseEntity<Void> delete(@PathVariable long id) {
         clientService.delete(id);
         return ResponseEntity.noContent().build();
