@@ -287,40 +287,10 @@ public class BiesseScanRepository {
     }
 
     /**
-     * Recalcula contadores y estado de escaneo de la orden (PENDIENTE → EN_PROCESO → COMPLETADA).
-     * No borra fecha_completado si la orden ya estaba completada.
+     * Recalcula contadores en memoria al leer; no escribe columnas extra en ordenes.
      */
     public void syncOrderScanProgress(Long orderId) {
-        Map<String, Object> stats = findOrderPartStats(orderId);
-        long total = ((Number) stats.get("total")).longValue();
-        if (total <= 0) {
-            return;
-        }
-        long escaneadas = ((Number) stats.get("escaneadas")).longValue();
-        double pct = Math.min(100.0, (escaneadas * 100.0) / total);
-        String estado;
-        if (escaneadas >= total) {
-            estado = "COMPLETADA";
-        } else if (escaneadas > 0) {
-            estado = "EN_PROCESO";
-        } else {
-            estado = "PENDIENTE";
-        }
-        jdbcTemplate.update(
-                """
-                UPDATE ordenes
-                SET partes_escaneadas = ?,
-                    partes_totales = ?,
-                    porcentaje_completado = ?,
-                    estado_escaneo = ?,
-                    fecha_modificacion = CURRENT_TIMESTAMP
-                WHERE orderid = ?
-                """,
-                escaneadas,
-                total,
-                pct,
-                estado,
-                orderId);
+        // Sin actualizar ordenes: el listado/detalle calcula el avance desde partes.
     }
 
     public void completeOrderIfNeeded(Long orderId, Long employeeId) {
@@ -338,34 +308,42 @@ public class BiesseScanRepository {
             return;
         }
 
-        jdbcTemplate.update(
-                """
-                UPDATE ordenes
-                SET estado_escaneo = 'COMPLETADA',
-                    fecha_completado = CURRENT_TIMESTAMP,
-                    usuario_completado_id = ?,
-                    procesado = TRUE,
-                    partes_escaneadas = ?,
-                    partes_totales = ?,
-                    porcentaje_completado = 100,
-                    fecha_modificacion = CURRENT_TIMESTAMP
-                WHERE orderid = ?
-                """,
-                employeeId,
-                done,
-                total,
-                orderId);
+        try {
+            jdbcTemplate.update(
+                    """
+                    UPDATE ordenes
+                    SET estado_escaneo = 'COMPLETADA',
+                        fecha_completado = CURRENT_TIMESTAMP,
+                        usuario_completado_id = ?,
+                        procesado = TRUE,
+                        partes_escaneadas = ?,
+                        partes_totales = ?,
+                        porcentaje_completado = 100,
+                        fecha_modificacion = CURRENT_TIMESTAMP
+                    WHERE orderid = ?
+                    """,
+                    employeeId,
+                    done,
+                    total,
+                    orderId);
+        } catch (Exception ignored) {
+            // Esquema legacy sin columnas denormalizadas en ordenes
+        }
 
-        jdbcTemplate.update(
-                """
-                INSERT INTO finalizacionordenes
-                (orderid, usuarioid, partesescaneadas, partestotales, metodofinalizacion, fechafinalizacion)
-                VALUES (?, ?, ?, ?, 'AUTOMATICA', CURRENT_TIMESTAMP)
-                """,
-                orderId,
-                employeeId,
-                done,
-                total);
+        try {
+            jdbcTemplate.update(
+                    """
+                    INSERT INTO finalizacionordenes
+                    (orderid, usuarioid, partesescaneadas, partestotales, metodofinalizacion, fechafinalizacion)
+                    VALUES (?, ?, ?, ?, 'AUTOMATICA', CURRENT_TIMESTAMP)
+                    """,
+                    orderId,
+                    employeeId,
+                    done,
+                    total);
+        } catch (Exception ignored) {
+            // Tabla opcional en algunos despliegues
+        }
     }
 
     public List<Map<String, Object>> findScannedPartsByUser(
@@ -402,14 +380,43 @@ public class BiesseScanRepository {
 
     public List<Map<String, Object>> findOrders(
             Long orderId, String state, String query, String fromDate, String toDate, int limit, int offset) {
+        // Solo columnas base de ordenes; avance de escaneo calculado desde partes/piezas (sin migrar BD).
         StringBuilder sql =
                 new StringBuilder(
                         """
-                        SELECT o.orderid, o.ordername, o.bookingcode, o.fechacreacion, o.estado_escaneo,
-                               o.fecha_completado, o.partes_escaneadas, o.partes_totales, o.porcentaje_completado,
-                               (SELECT COUNT(*)::int FROM piezas z WHERE z.orderid = o.orderid) AS total_piezas,
-                               (SELECT COUNT(*)::int FROM piezas z WHERE z.orderid = o.orderid AND z.escaneado = TRUE) AS piezas_escaneadas
+                        SELECT o.orderid, o.ordername, o.bookingcode, o.fechacreacion,
+                               st.estado_escaneo,
+                               NULL::timestamp AS fecha_completado,
+                               st.partes_escaneadas,
+                               st.partes_totales,
+                               st.porcentaje_completado,
+                               COALESCE(pz.total_piezas, 0) AS total_piezas,
+                               COALESCE(pz.piezas_escaneadas, 0) AS piezas_escaneadas
                         FROM ordenes o
+                        LEFT JOIN LATERAL (
+                            SELECT COUNT(*)::int AS partes_totales,
+                                   COUNT(*) FILTER (WHERE COALESCE(p.escaneado, FALSE))::int AS partes_escaneadas,
+                                   CASE WHEN COUNT(*) = 0 THEN 0::numeric
+                                        ELSE ROUND(
+                                            100.0 * COUNT(*) FILTER (WHERE COALESCE(p.escaneado, FALSE)) / COUNT(*), 2)
+                                   END AS porcentaje_completado,
+                                   CASE WHEN COUNT(*) = 0 THEN 'PENDIENTE'
+                                        WHEN COUNT(*) FILTER (WHERE NOT COALESCE(p.escaneado, FALSE)) = 0
+                                            THEN 'COMPLETADA'
+                                        WHEN COUNT(*) FILTER (WHERE COALESCE(p.escaneado, FALSE)) > 0
+                                            THEN 'EN_PROCESO'
+                                        ELSE 'PENDIENTE'
+                                   END AS estado_escaneo
+                            FROM partes p
+                            WHERE p.orderid = o.orderid
+                        ) st ON TRUE
+                        LEFT JOIN LATERAL (
+                            SELECT COUNT(*)::int AS total_piezas,
+                                   COUNT(*) FILTER (WHERE COALESCE(z.escaneado, FALSE))::int AS piezas_escaneadas
+                            FROM piezas z
+                            INNER JOIN partes p ON p.partid = z.partid
+                            WHERE p.orderid = o.orderid
+                        ) pz ON TRUE
                         """);
         boolean hasOrderId = orderId != null;
         boolean hasState = state != null && !state.isBlank();
@@ -423,7 +430,7 @@ public class BiesseScanRepository {
                 sql.append(" AND o.orderid = ? ");
             }
             if (hasState) {
-                sql.append(" AND o.estado_escaneo = ? ");
+                sql.append(" AND st.estado_escaneo = ? ");
             }
             if (hasQuery) {
                 sql.append(
@@ -464,14 +471,23 @@ public class BiesseScanRepository {
     }
 
     public int updateOrderObservaciones(Long orderId, String observaciones) {
-        return jdbcTemplate.update(
-                """
-                UPDATE ordenes
-                SET observaciones = ?, fecha_modificacion = CURRENT_TIMESTAMP
-                WHERE orderid = ?
-                """,
-                observaciones,
-                orderId);
+        try {
+            return jdbcTemplate.update(
+                    """
+                    UPDATE ordenes
+                    SET observaciones = ?, fecha_modificacion = CURRENT_TIMESTAMP
+                    WHERE orderid = ?
+                    """,
+                    observaciones,
+                    orderId);
+        } catch (Exception ex) {
+            try {
+                return jdbcTemplate.update(
+                        "UPDATE ordenes SET observaciones = ? WHERE orderid = ?", observaciones, orderId);
+            } catch (Exception ignored) {
+                return 0;
+            }
+        }
     }
 
     public List<Map<String, Object>> findScanAudit(Long orderId, Long partId, String action, int limit, int offset) {
@@ -505,13 +521,48 @@ public class BiesseScanRepository {
         List<Map<String, Object>> rows =
                 jdbcTemplate.queryForList(
                         """
-                        SELECT orderid, ordername, bookingcode, fechacreacion, estado_escaneo, fecha_completado,
-                               partes_escaneadas, partes_totales, porcentaje_completado, observaciones
+                        SELECT orderid, ordername, bookingcode, fechacreacion
                         FROM ordenes
                         WHERE orderid = ?
                         """,
                         orderId);
-        return rows.isEmpty() ? null : rows.getFirst();
+        if (rows.isEmpty()) {
+            return null;
+        }
+        Map<String, Object> order = new java.util.HashMap<>(rows.getFirst());
+        enrichOrderScanFields(order, orderId);
+        return order;
+    }
+
+    private void enrichOrderScanFields(Map<String, Object> order, Long orderId) {
+        Map<String, Object> stats = findOrderPartStats(orderId);
+        long total = ((Number) stats.getOrDefault("total", 0)).longValue();
+        long escaneadas = ((Number) stats.getOrDefault("escaneadas", 0)).longValue();
+        double pct = total == 0 ? 0.0 : Math.min(100.0, (escaneadas * 100.0) / total);
+        String estado;
+        if (total == 0) {
+            estado = "PENDIENTE";
+        } else if (escaneadas >= total) {
+            estado = "COMPLETADA";
+        } else if (escaneadas > 0) {
+            estado = "EN_PROCESO";
+        } else {
+            estado = "PENDIENTE";
+        }
+        order.put("estado_escaneo", estado);
+        order.put("fecha_completado", null);
+        order.put("partes_escaneadas", escaneadas);
+        order.put("partes_totales", total);
+        order.put("porcentaje_completado", pct);
+        order.put("observaciones", null);
+        try {
+            String observaciones =
+                    jdbcTemplate.queryForObject(
+                            "SELECT observaciones FROM ordenes WHERE orderid = ?", String.class, orderId);
+            order.put("observaciones", observaciones);
+        } catch (Exception ignored) {
+            // Columna opcional en esquemas legacy
+        }
     }
 
     public Map<String, Object> resolvePieceByCompositeCode(String orderName, String partToken, String pieceToken) {
@@ -585,9 +636,10 @@ public class BiesseScanRepository {
     public List<Map<String, Object>> findOrderPieces(Long orderId) {
         return jdbcTemplate.queryForList(
                 """
-                SELECT z.piezaid, z.partid, z.orderid, z.numero_pieza, z.escaneado, z.fecha_escaneo
+                SELECT z.piezaid, z.partid, p.orderid, z.numero_pieza, z.escaneado, z.fecha_escaneo
                 FROM piezas z
-                WHERE z.orderid = ?
+                JOIN partes p ON p.partid = z.partid
+                WHERE p.orderid = ?
                 ORDER BY z.partid, z.numero_pieza
                 """,
                 orderId);
@@ -601,35 +653,43 @@ public class BiesseScanRepository {
             return false;
         }
 
-        jdbcTemplate.update(
-                """
-                UPDATE ordenes
-                SET estado_escaneo = 'COMPLETADA',
-                    fecha_completado = CURRENT_TIMESTAMP,
-                    usuario_completado_id = ?,
-                    procesado = TRUE,
-                    partes_escaneadas = ?,
-                    partes_totales = ?,
-                    porcentaje_completado = 100,
-                    fecha_modificacion = CURRENT_TIMESTAMP
-                WHERE orderid = ?
-                """,
-                employeeId,
-                done,
-                total,
-                orderId);
+        try {
+            jdbcTemplate.update(
+                    """
+                    UPDATE ordenes
+                    SET estado_escaneo = 'COMPLETADA',
+                        fecha_completado = CURRENT_TIMESTAMP,
+                        usuario_completado_id = ?,
+                        procesado = TRUE,
+                        partes_escaneadas = ?,
+                        partes_totales = ?,
+                        porcentaje_completado = 100,
+                        fecha_modificacion = CURRENT_TIMESTAMP
+                    WHERE orderid = ?
+                    """,
+                    employeeId,
+                    done,
+                    total,
+                    orderId);
+        } catch (Exception ignored) {
+            // Esquema legacy sin columnas denormalizadas en ordenes
+        }
 
-        jdbcTemplate.update(
-                """
-                INSERT INTO finalizacionordenes
-                (orderid, usuarioid, partesescaneadas, partestotales, metodofinalizacion, fechafinalizacion)
-                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                """,
-                orderId,
-                employeeId,
-                done,
-                total,
-                method);
+        try {
+            jdbcTemplate.update(
+                    """
+                    INSERT INTO finalizacionordenes
+                    (orderid, usuarioid, partesescaneadas, partestotales, metodofinalizacion, fechafinalizacion)
+                    VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    """,
+                    orderId,
+                    employeeId,
+                    done,
+                    total,
+                    method);
+        } catch (Exception ignored) {
+            // Tabla opcional en algunos despliegues
+        }
 
         insertScanAudit(
                 employeeId,
@@ -644,7 +704,19 @@ public class BiesseScanRepository {
 
     public Map<String, Object> getGeneralStats() {
         long totalOrders = countGeneric("SELECT COUNT(*) FROM ordenes");
-        long completedOrders = countGeneric("SELECT COUNT(*) FROM ordenes WHERE estado_escaneo = 'COMPLETADA'");
+        long completedOrders =
+                countGeneric(
+                        """
+                        SELECT COUNT(*) FROM (
+                            SELECT o.orderid
+                            FROM ordenes o
+                            WHERE EXISTS (SELECT 1 FROM partes p WHERE p.orderid = o.orderid)
+                              AND NOT EXISTS (
+                                  SELECT 1 FROM partes p
+                                  WHERE p.orderid = o.orderid AND NOT COALESCE(p.escaneado, FALSE)
+                              )
+                        ) completed
+                        """);
         long totalParts = countGeneric("SELECT COUNT(*) FROM partes");
         long scannedParts = countGeneric("SELECT COUNT(*) FROM partes WHERE escaneado = TRUE");
         long pendingParts = countGeneric("SELECT COUNT(*) FROM partes WHERE escaneado = FALSE");
