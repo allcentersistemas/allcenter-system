@@ -1,6 +1,7 @@
 package com.allcenter.modulebiesse.service;
 
 import com.allcenter.modulebiesse.dto.PendingPartResponse;
+import com.allcenter.modulebiesse.dto.ScanInterpretResponse;
 import com.allcenter.modulebiesse.dto.ScanPartRequest;
 import com.allcenter.modulebiesse.dto.ScanPieceRequest;
 import com.allcenter.modulebiesse.dto.ScanResultResponse;
@@ -12,6 +13,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,7 +38,7 @@ public class BiesseScanService {
     public ScanResultResponse scanPart(Long employeeId, ScanPartRequest req) {
         Map<String, Object> part = repository.findPartById(req.partId());
         if (part == null) {
-            throw new ResponseStatusException(NOT_FOUND, "Part not found");
+            throw new ResponseStatusException(NOT_FOUND, "Parte no encontrada");
         }
 
         String method = normalizeMethod(req.method());
@@ -146,6 +149,78 @@ public class BiesseScanService {
         response.put("part_stats", repository.findOrderPartStats(orderId));
         response.put("parts", parts);
         return response;
+    }
+
+    /**
+     * Interpreta un código de barras como la app Android ({@code ScanInterpretRequest} /
+     * {@code ScanInterpretResponse}).
+     */
+    public ScanInterpretResponse interpretScan(String rawCode, Long currentOrderId, Boolean confirmOrderSwitch) {
+        String normalized = normalizeBarcodeInput(rawCode);
+        if (normalized.length() < 2) {
+            return interpretError("Código vacío");
+        }
+        boolean confirm = Boolean.TRUE.equals(confirmOrderSwitch);
+
+        Matcher composite =
+                Pattern.compile("^(.*)-P?(\\d+)-(\\d+)$", Pattern.CASE_INSENSITIVE).matcher(normalized);
+        if (composite.matches()) {
+            Map<String, Object> piece =
+                    repository.resolvePieceByCompositeCode(
+                            composite.group(1).trim(), composite.group(2), composite.group(3));
+            if (piece != null) {
+                Long orderId = ((Number) piece.get("orderid")).longValue();
+                ScanInterpretResponse switchCheck = checkOrderSwitch(currentOrderId, orderId, confirm, piece);
+                if (switchCheck != null) {
+                    return switchCheck;
+                }
+                return scanPieceResponse(piece, "Pieza identificada");
+            }
+        }
+
+        Matcher partOnly = Pattern.compile("^(.*)-P?(\\d+)$", Pattern.CASE_INSENSITIVE).matcher(normalized);
+        if (partOnly.matches()) {
+            String orderToken = partOnly.group(1).trim();
+            String partToken = partOnly.group(2);
+            Map<String, Object> order = repository.findOrderByNameToken(orderToken);
+            if (order != null) {
+                Long orderId = ((Number) order.get("orderid")).longValue();
+                ScanInterpretResponse switchCheck = checkOrderSwitch(currentOrderId, orderId, confirm, order);
+                if (switchCheck != null) {
+                    return switchCheck;
+                }
+                Map<String, Object> part = repository.findPartByOrderAndToken(orderId, partToken);
+                if (part != null) {
+                    return scanPartResponse(part, order, "Parte identificada");
+                }
+            }
+        }
+
+        Long orderId = currentOrderId != null ? currentOrderId : repository.detectOrderIdFromCode(normalized);
+        if (orderId == null) {
+            return interpretError("No se pudo identificar la orden desde el código");
+        }
+
+        Map<String, Object> order = repository.findOrderById(orderId);
+        if (order == null) {
+            return interpretError("No se pudo cargar detalle de la orden");
+        }
+
+        ScanInterpretResponse switchCheck = checkOrderSwitch(currentOrderId, orderId, confirm, order);
+        if (switchCheck != null) {
+            return switchCheck;
+        }
+
+        if (isOrderLabelOnly(normalized, order)) {
+            return loadOrderResponse(order, "Orden cargada");
+        }
+
+        ScanInterpretResponse withinOrder = interpretWithinOrder(orderId, normalized, order);
+        if (withinOrder != null) {
+            return withinOrder;
+        }
+
+        return interpretError("No se encontró parte válida en el código");
     }
 
     @Transactional
@@ -310,5 +385,153 @@ public class BiesseScanService {
             return value;
         }
         return "MANUAL";
+    }
+
+    private static String normalizeBarcodeInput(String raw) {
+        if (raw == null) {
+            return "";
+        }
+        String trimmed = raw.trim().replaceAll("\\s+", " ");
+        StringBuilder out = new StringBuilder(trimmed.length());
+        for (int i = 0; i < trimmed.length(); i++) {
+            char c = trimmed.charAt(i);
+            switch (c) {
+                case '\u2010', '\u2011', '\u2012', '\u2013', '\u2014', '\u2212', '\uFE63', '\uFF0D' -> out.append('-');
+                default -> {
+                    if (!Character.isISOControl(c) || c == '\t') {
+                        out.append(c);
+                    }
+                }
+            }
+        }
+        return out.toString().trim();
+    }
+
+    private ScanInterpretResponse checkOrderSwitch(
+            Long currentOrderId, Long targetOrderId, boolean confirm, Map<String, Object> context) {
+        if (currentOrderId == null || currentOrderId.equals(targetOrderId) || confirm) {
+            return null;
+        }
+        String orderName = String.valueOf(context.getOrDefault("ordername", ""));
+        return new ScanInterpretResponse(
+                "ORDER_SWITCH_REQUIRED",
+                targetOrderId,
+                orderName,
+                null,
+                null,
+                null,
+                null,
+                null,
+                true,
+                targetOrderId,
+                "El código corresponde a otra orden");
+    }
+
+    private static boolean isOrderLabelOnly(String normalized, Map<String, Object> order) {
+        String upper = normalized.toUpperCase(Locale.ROOT);
+        String orderName = String.valueOf(order.getOrDefault("ordername", "")).toUpperCase(Locale.ROOT);
+        Object booking = order.get("bookingcode");
+        String bookingCode = booking != null ? String.valueOf(booking).toUpperCase(Locale.ROOT) : "";
+        return upper.equals(orderName) || (!bookingCode.isBlank() && upper.equals(bookingCode));
+    }
+
+    private ScanInterpretResponse interpretWithinOrder(
+            Long orderId, String normalized, Map<String, Object> order) {
+        String upper = normalized.toUpperCase(Locale.ROOT);
+
+        Matcher suffixPiece =
+                Pattern.compile("-P?(\\d+)-(\\d+)$", Pattern.CASE_INSENSITIVE).matcher(normalized);
+        if (suffixPiece.find()) {
+            String partToken = suffixPiece.group(1);
+            int pieceNumber = Integer.parseInt(suffixPiece.group(2));
+            Map<String, Object> piece = repository.findPieceByOrderPartAndNumber(orderId, partToken, pieceNumber);
+            if (piece != null) {
+                return scanPieceResponse(piece, "Pieza identificada");
+            }
+            Map<String, Object> part = repository.findPartByOrderAndToken(orderId, partToken);
+            if (part != null) {
+                return scanPartResponse(part, order, "Parte identificada");
+            }
+        }
+
+        List<Map<String, Object>> parts = repository.findOrderParts(orderId);
+        for (Map<String, Object> part : parts) {
+            Object partCodeObj = part.get("partcode");
+            if (partCodeObj == null) {
+                continue;
+            }
+            String partCode = String.valueOf(partCodeObj).toUpperCase(Locale.ROOT);
+            if (partCode.isBlank() || !upper.contains(partCode)) {
+                continue;
+            }
+            Matcher trailing = Pattern.compile("-(\\d+)$").matcher(upper);
+            if (trailing.find()) {
+                int pieceNumber = Integer.parseInt(trailing.group(1));
+                Map<String, Object> piece =
+                        repository.findPieceByOrderPartAndNumber(
+                                orderId, String.valueOf(part.get("partnumber")), pieceNumber);
+                if (piece == null && partCode.startsWith("P")) {
+                    piece =
+                            repository.findPieceByOrderPartAndNumber(
+                                    orderId, partCode.substring(1), pieceNumber);
+                }
+                if (piece != null) {
+                    return scanPieceResponse(piece, "Pieza identificada");
+                }
+            }
+            return scanPartResponse(part, order, "Parte identificada");
+        }
+        return null;
+    }
+
+    private static ScanInterpretResponse loadOrderResponse(Map<String, Object> order, String message) {
+        return new ScanInterpretResponse(
+                "LOAD_ORDER",
+                ((Number) order.get("orderid")).longValue(),
+                String.valueOf(order.get("ordername")),
+                null,
+                null,
+                null,
+                null,
+                null,
+                false,
+                null,
+                message);
+    }
+
+    private static ScanInterpretResponse scanPartResponse(
+            Map<String, Object> part, Map<String, Object> order, String message) {
+        return new ScanInterpretResponse(
+                "SCAN_PART",
+                ((Number) order.get("orderid")).longValue(),
+                String.valueOf(order.get("ordername")),
+                part.get("partcode") != null ? String.valueOf(part.get("partcode")) : null,
+                ((Number) part.get("partid")).longValue(),
+                null,
+                null,
+                1,
+                false,
+                null,
+                message);
+    }
+
+    private static ScanInterpretResponse scanPieceResponse(Map<String, Object> piece, String message) {
+        return new ScanInterpretResponse(
+                "SCAN_PIECE",
+                ((Number) piece.get("orderid")).longValue(),
+                piece.get("ordername") != null ? String.valueOf(piece.get("ordername")) : null,
+                piece.get("partcode") != null ? String.valueOf(piece.get("partcode")) : null,
+                ((Number) piece.get("partid")).longValue(),
+                piece.get("numero_pieza") != null ? ((Number) piece.get("numero_pieza")).intValue() : null,
+                ((Number) piece.get("piezaid")).longValue(),
+                null,
+                false,
+                null,
+                message);
+    }
+
+    private static ScanInterpretResponse interpretError(String message) {
+        return new ScanInterpretResponse(
+                "ERROR", null, null, null, null, null, null, null, false, null, message);
     }
 }

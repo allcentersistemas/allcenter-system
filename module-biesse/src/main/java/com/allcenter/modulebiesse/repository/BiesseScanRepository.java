@@ -860,6 +860,116 @@ public class BiesseScanRepository {
         return rows.isEmpty() ? null : rows.getFirst();
     }
 
+    public Map<String, Object> findOrderByNameToken(String token) {
+        if (token == null || token.isBlank()) {
+            return null;
+        }
+        List<Map<String, Object>> rows =
+                jdbcTemplate.queryForList(
+                        """
+                        SELECT orderid, ordername, bookingcode
+                        FROM ordenes
+                        WHERE UPPER(TRIM(ordername)) = UPPER(TRIM(?))
+                           OR (bookingcode IS NOT NULL AND UPPER(TRIM(bookingcode)) = UPPER(TRIM(?)))
+                        ORDER BY fechacreacion DESC
+                        LIMIT 1
+                        """,
+                        token.trim(),
+                        token.trim());
+        return rows.isEmpty() ? null : rows.getFirst();
+    }
+
+    public Long detectOrderIdFromCode(String normalized) {
+        if (normalized == null || normalized.isBlank()) {
+            return null;
+        }
+        String upper = normalized.trim().toUpperCase();
+        int partIdx = upper.indexOf("-P");
+        String tokenBeforePart = partIdx >= 0 ? upper.substring(0, partIdx).trim() : upper;
+        String tokenNoSpaces = tokenBeforePart.replaceAll("\\s+", "");
+        String fullNoSpaces = upper.replaceAll("\\s+", "");
+
+        Map<String, Object> exact = findOrderByNameToken(tokenBeforePart);
+        if (exact != null) {
+            return ((Number) exact.get("orderid")).longValue();
+        }
+
+        List<Map<String, Object>> candidates =
+                jdbcTemplate.queryForList(
+                        """
+                        SELECT orderid, ordername, bookingcode
+                        FROM ordenes
+                        ORDER BY fechacreacion DESC
+                        LIMIT 500
+                        """);
+        for (Map<String, Object> row : candidates) {
+            String orderName = String.valueOf(row.get("ordername")).replaceAll("\\s+", "").toUpperCase();
+            Object booking = row.get("bookingcode");
+            String bookingNorm =
+                    booking != null ? String.valueOf(booking).replaceAll("\\s+", "").toUpperCase() : "";
+            if (orderName.equals(tokenNoSpaces) || (!bookingNorm.isBlank() && bookingNorm.equals(tokenNoSpaces))) {
+                return ((Number) row.get("orderid")).longValue();
+            }
+            if (fullNoSpaces.startsWith(orderName)
+                    || (!bookingNorm.isBlank() && fullNoSpaces.startsWith(bookingNorm))) {
+                return ((Number) row.get("orderid")).longValue();
+            }
+        }
+        return null;
+    }
+
+    public Map<String, Object> findPartByOrderAndToken(Long orderId, String partToken) {
+        if (orderId == null || partToken == null || partToken.isBlank()) {
+            return null;
+        }
+        List<Map<String, Object>> rows =
+                jdbcTemplate.queryForList(
+                        """
+                        SELECT partid, orderid, partcode, partnumber, cantidad, escaneado
+                        FROM partes
+                        WHERE orderid = ?
+                          AND (
+                               CAST(partnumber AS TEXT) = ?
+                               OR UPPER(TRIM(partcode)) = UPPER(TRIM(?))
+                               OR UPPER(TRIM(partcode)) = UPPER(TRIM(?))
+                              )
+                        LIMIT 1
+                        """,
+                        orderId,
+                        partToken.trim(),
+                        partToken.trim(),
+                        "P" + partToken.trim());
+        return rows.isEmpty() ? null : rows.getFirst();
+    }
+
+    public Map<String, Object> findPieceByOrderPartAndNumber(Long orderId, String partToken, int pieceNumber) {
+        if (orderId == null || partToken == null || partToken.isBlank() || pieceNumber < 1) {
+            return null;
+        }
+        List<Map<String, Object>> rows =
+                jdbcTemplate.queryForList(
+                        """
+                        SELECT z.piezaid, z.numero_pieza, p.partid, p.partnumber, p.partcode, p.orderid, o.ordername
+                        FROM piezas z
+                        JOIN partes p ON p.partid = z.partid
+                        JOIN ordenes o ON o.orderid = p.orderid
+                        WHERE p.orderid = ?
+                          AND (
+                               CAST(p.partnumber AS TEXT) = ?
+                               OR UPPER(TRIM(p.partcode)) = UPPER(TRIM(?))
+                               OR UPPER(TRIM(p.partcode)) = UPPER(TRIM(?))
+                              )
+                          AND z.numero_pieza = ?
+                        LIMIT 1
+                        """,
+                        orderId,
+                        partToken.trim(),
+                        partToken.trim(),
+                        "P" + partToken.trim(),
+                        pieceNumber);
+        return rows.isEmpty() ? null : rows.getFirst();
+    }
+
     public Map<String, Object> findPieceById(Long pieceId) {
         List<Map<String, Object>> rows =
                 jdbcTemplate.queryForList(
