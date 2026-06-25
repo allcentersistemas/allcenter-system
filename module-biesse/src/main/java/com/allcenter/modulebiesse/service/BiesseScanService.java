@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 import static org.springframework.http.HttpStatus.BAD_REQUEST;
+import static org.springframework.http.HttpStatus.CONFLICT;
 import static org.springframework.http.HttpStatus.NOT_FOUND;
 
 @Service
@@ -56,10 +57,23 @@ public class BiesseScanService {
                 orderId,
                 req.partId(),
                 "ESCANEAR",
-                "Parte " + part.get("partcode") + " escaneada. Programada=" + scheduledQuantity + ", Escaneada="
-                        + req.scannedQuantity() + ", Diferencia=" + difference + ", Metodo=" + method,
+                "Parte "
+                        + part.get("partcode")
+                        + ": Método="
+                        + method
+                        + ", Programada="
+                        + scheduledQuantity
+                        + ", Escaneada="
+                        + req.scannedQuantity()
+                        + ", Diferencia="
+                        + difference
+                        + ", Observaciones: "
+                        + (req.observations() != null && !req.observations().isBlank()
+                                ? req.observations()
+                                : "Ninguna"),
                 method,
-                req.equipment());
+                req.equipment() != null ? req.equipment() : "",
+                req.scanTimeMs());
         repository.syncOrderScanProgress(orderId);
         repository.completeOrderIfNeeded(orderId, employeeId);
 
@@ -153,6 +167,35 @@ public class BiesseScanService {
                 "MANUAL",
                 "FRONTEND");
         return repository.findOrderById(orderId);
+    }
+
+    @Transactional
+    public void deleteOrder(Long employeeId, Long orderId) {
+        Map<String, Object> order = repository.findOrderById(orderId);
+        if (order == null) {
+            throw new ResponseStatusException(NOT_FOUND, "Order not found");
+        }
+        int paleLines = repository.countPaleDetailsByOrderId(orderId);
+        if (paleLines > 0) {
+            throw new ResponseStatusException(
+                    CONFLICT,
+                    "La orden figura en "
+                            + paleLines
+                            + " línea(s) de palé. Quítela de los palés antes de eliminar la orden.");
+        }
+        String orderName = String.valueOf(order.getOrDefault("ordername", orderId));
+        boolean deleted = repository.deleteOrderById(orderId);
+        if (!deleted) {
+            throw new ResponseStatusException(BAD_REQUEST, "Order delete failed");
+        }
+        repository.insertScanAudit(
+                employeeId,
+                null,
+                null,
+                "ELIMINAR_ORDEN",
+                "Orden " + orderId + " (" + orderName + ") eliminada manualmente",
+                "MANUAL",
+                "FRONTEND");
     }
 
     @Transactional

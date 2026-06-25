@@ -145,38 +145,59 @@ public class BiesseScanRepository {
 
     public void insertScanAudit(
             Long employeeId, Long orderId, Long partId, String action, String details, String method, String equipment) {
-        try {
-            jdbcTemplate.update(
-                    """
-                    INSERT INTO auditoriaescaneos
-                    (usuarioid, orderid, partid, accion, detalles, equipo, metodo, exito, fecha)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, TRUE, CURRENT_TIMESTAMP)
-                    """,
-                    employeeId,
-                    orderId,
-                    partId,
-                    action,
-                    details,
-                    equipment,
-                    method);
-        } catch (DataAccessException ex) {
+        insertScanAudit(employeeId, orderId, partId, action, details, method, equipment, null);
+    }
+
+    /**
+     * Mismo formato que aplicacion_escaneo / servicio_sincronizacion (auditoriaescaneos).
+     */
+    public void insertScanAudit(
+            Long employeeId,
+            Long orderId,
+            Long partId,
+            String action,
+            String details,
+            String method,
+            String equipment,
+            Integer tiempoRespuestaMs) {
+        String equipo = equipment != null ? equipment : "";
+        String metodo = method != null && !method.isBlank() ? method : "AUTOMATICO";
+
+        if (tiempoRespuestaMs != null) {
             try {
                 jdbcTemplate.update(
                         """
                         INSERT INTO auditoriaescaneos
-                        (usuarioid, orderid, partid, accion, detalles, equipo, fecha)
-                        VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                        (usuarioid, orderid, partid, accion, detalles, equipo, metodo, tiempo_respuesta_ms, exito)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, TRUE)
                         """,
                         employeeId,
                         orderId,
                         partId,
                         action,
                         details,
-                        equipment);
-            } catch (DataAccessException ignored) {
-                // Auditoría opcional: no debe bloquear el escaneo
+                        equipo,
+                        metodo,
+                        tiempoRespuestaMs);
+                return;
+            } catch (DataAccessException ex) {
+                // Columna tiempo_respuesta_ms ausente en algún despliegue legacy
             }
         }
+
+        jdbcTemplate.update(
+                """
+                INSERT INTO auditoriaescaneos
+                (usuarioid, orderid, partid, accion, detalles, equipo, metodo, exito)
+                VALUES (?, ?, ?, ?, ?, ?, ?, TRUE)
+                """,
+                employeeId,
+                orderId,
+                partId,
+                action,
+                details,
+                equipo,
+                metodo);
     }
 
     private int markPieceScanned(Long employeeId, Long pieceId) {
@@ -332,15 +353,22 @@ public class BiesseScanRepository {
 
         syncPartProgressFromPieces(employeeId, partId, effectiveScanned, completed, observations, equipment);
 
+        Long orderId = ((Number) pieceInfo.get("orderid")).longValue();
         insertScanAudit(
                 employeeId,
-                ((Number) pieceInfo.get("orderid")).longValue(),
+                orderId,
                 partId,
                 "ESCANEAR_PIEZA",
-                "Pieza " + pieceId + " escaneada de parte " + pieceInfo.get("partcode"),
+                "Pieza piezaid="
+                        + pieceId
+                        + " de parte "
+                        + pieceInfo.get("partcode")
+                        + " escaneada. Acumulado partes: "
+                        + effectiveScanned
+                        + "/"
+                        + (scheduledQty != null ? scheduledQty : 0),
                 "AUTOMATICO",
-                equipment);
-        Long orderId = ((Number) pieceInfo.get("orderid")).longValue();
+                equipment != null ? equipment : "");
         syncOrderScanProgress(orderId);
         completeOrderIfNeeded(orderId, employeeId);
         return true;
@@ -711,6 +739,26 @@ public class BiesseScanRepository {
                 return 0;
             }
         }
+    }
+
+    public int countPaleDetailsByOrderId(Long orderId) {
+        try {
+            Integer count =
+                    jdbcTemplate.queryForObject(
+                            "SELECT COUNT(*) FROM paledetalle WHERE orderid = ?", Integer.class, orderId);
+            return count != null ? count : 0;
+        } catch (Exception ex) {
+            return 0;
+        }
+    }
+
+    public boolean deleteOrderById(Long orderId) {
+        try {
+            jdbcTemplate.update("DELETE FROM synclogs WHERE orden_id = ?", orderId);
+        } catch (Exception ignored) {
+            // synclogs puede no existir en todos los despliegues
+        }
+        return jdbcTemplate.update("DELETE FROM ordenes WHERE orderid = ?", orderId) > 0;
     }
 
     public List<Map<String, Object>> findScanAudit(Long orderId, Long partId, String action, int limit, int offset) {

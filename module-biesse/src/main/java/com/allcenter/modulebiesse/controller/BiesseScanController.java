@@ -15,6 +15,7 @@ import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -129,6 +130,15 @@ public class BiesseScanController {
         portalAuth.requireAdminOps(authorization);
         Long employeeId = authGatewayService.resolveEmployeeId(authorization);
         return ResponseEntity.ok(scanService.updateOrder(employeeId, orderId, request.observaciones()));
+    }
+
+    @DeleteMapping("/orders/{orderId}")
+    public ResponseEntity<Map<String, String>> deleteOrder(
+            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization, @PathVariable Long orderId) {
+        portalAuth.requireAdminOps(authorization);
+        Long employeeId = authGatewayService.resolveEmployeeId(authorization);
+        scanService.deleteOrder(employeeId, orderId);
+        return ResponseEntity.ok(Map.of("success", "true", "message", "Orden eliminada"));
     }
 
     @PostMapping("/orders/{orderId}/complete")
