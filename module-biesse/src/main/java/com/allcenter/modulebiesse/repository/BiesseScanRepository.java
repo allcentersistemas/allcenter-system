@@ -753,34 +753,35 @@ public class BiesseScanRepository {
     }
 
     public boolean pieceExists(Long pieceId) {
-        if (pieceId == null) {
-            return false;
-        }
-        try {
-            Integer count =
-                    jdbcTemplate.queryForObject(
-                            "SELECT COUNT(*) FROM piezas WHERE piezaid = ?", Integer.class, pieceId);
-            return count != null && count > 0;
-        } catch (Exception ex) {
-            return false;
-        }
+        return getPieceScanState(pieceId) != null;
     }
 
     public boolean isPieceScanned(Long pieceId) {
+        PieceScanState state = getPieceScanState(pieceId);
+        return state != null && state.scanned();
+    }
+
+    /** Una sola consulta para existencia y estado de escaneo. */
+    public PieceScanState getPieceScanState(Long pieceId) {
         if (pieceId == null) {
-            return false;
+            return null;
         }
         try {
-            Boolean scanned =
-                    jdbcTemplate.query(
-                            "SELECT escaneado FROM piezas WHERE piezaid = ?",
-                            rs -> rs.next() ? rs.getBoolean("escaneado") : null,
-                            pieceId);
-            return Boolean.TRUE.equals(scanned);
+            return jdbcTemplate.query(
+                    "SELECT piezaid, escaneado FROM piezas WHERE piezaid = ?",
+                    rs -> {
+                        if (!rs.next()) {
+                            return null;
+                        }
+                        return new PieceScanState(rs.getLong("piezaid"), rs.getBoolean("escaneado"));
+                    },
+                    pieceId);
         } catch (Exception ex) {
-            return false;
+            return null;
         }
     }
+
+    public record PieceScanState(long pieceId, boolean scanned) {}
 
     /**
      * Si la pieza figura en un palé (tabla compartida con module-system cuando existe en la misma BD).
@@ -789,33 +790,21 @@ public class BiesseScanRepository {
         if (pieceId == null) {
             return null;
         }
-        String[] queries = {
-            """
-            SELECT p.codigo, p.paleeid AS pale_id, p.estado
-            FROM paledetalle pd
-            JOIN pale p ON p.paleeid = pd.paleenvioid
-            WHERE pd.piezaid = ?
-            LIMIT 1
-            """,
-            """
-            SELECT p.codigo, p.paleenvioid AS pale_id, p.estado
-            FROM paledetalle pd
-            JOIN pale p ON p.paleenvioid = pd.paleenvioid
-            WHERE pd.piezaid = ?
-            LIMIT 1
-            """
-        };
-        for (String sql : queries) {
-            try {
-                List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, pieceId);
-                if (!rows.isEmpty()) {
-                    return rows.getFirst();
-                }
-            } catch (Exception ignored) {
-                // Esquema legacy o tabla en otra BD
-            }
+        try {
+            List<Map<String, Object>> rows =
+                    jdbcTemplate.queryForList(
+                            """
+                            SELECT p.codigo, p.paleeid AS pale_id, p.estado
+                            FROM paledetalle pd
+                            JOIN pale p ON p.paleeid = pd.paleenvioid
+                            WHERE pd.piezaid = ?
+                            LIMIT 1
+                            """,
+                            pieceId);
+            return rows.isEmpty() ? null : rows.getFirst();
+        } catch (Exception ignored) {
+            return null;
         }
-        return null;
     }
 
     public boolean deleteOrderById(Long orderId) {
@@ -907,21 +896,7 @@ public class BiesseScanRepository {
         if (direct != null) {
             return direct;
         }
-        String composite = buildCompositeScanCode(orderName, partToken, pieceToken);
-        Long detectedOrderId = detectOrderIdFromCode(composite);
-        if (detectedOrderId != null) {
-            Map<String, Object> byDetected = findPieceInOrderContext(detectedOrderId, null, partToken, pieceToken);
-            if (byDetected != null) {
-                return byDetected;
-            }
-        }
-        for (Long orderId : findCandidateOrderIdsForToken(orderName)) {
-            Map<String, Object> candidate = findPieceInOrderContext(orderId, null, partToken, pieceToken);
-            if (candidate != null) {
-                return candidate;
-            }
-        }
-        return null;
+        return findPieceByFuzzyOrderToken(orderName, partToken, pieceToken);
     }
 
     public Map<String, Object> resolvePieceFromScanCode(String rawCode) {
@@ -1011,42 +986,63 @@ public class BiesseScanRepository {
         return rows.isEmpty() ? null : rows.getFirst();
     }
 
-    private java.util.List<Long> findCandidateOrderIdsForToken(String orderToken) {
+    /** Una consulta con coincidencia flexible de nombre de orden (sin cargar cientos de órdenes en memoria). */
+    private Map<String, Object> findPieceByFuzzyOrderToken(String orderToken, String partToken, String pieceToken) {
         if (orderToken == null || orderToken.isBlank()) {
-            return List.of();
+            return null;
         }
-        String norm = orderToken.replaceAll("\\s+", "").toUpperCase(java.util.Locale.ROOT);
-        java.util.LinkedHashSet<Long> ids = new java.util.LinkedHashSet<>();
-        List<Map<String, Object>> rows =
-                jdbcTemplate.queryForList(
-                        """
-                        SELECT orderid, ordername, bookingcode
-                        FROM ordenes
-                        ORDER BY LENGTH(ordername) DESC, fechacreacion DESC
-                        LIMIT 500
-                        """);
-        for (Map<String, Object> row : rows) {
-            String orderName =
-                    String.valueOf(row.get("ordername")).replaceAll("\\s+", "").toUpperCase(java.util.Locale.ROOT);
-            Object booking = row.get("bookingcode");
-            String bookingNorm =
-                    booking != null
-                            ? String.valueOf(booking).replaceAll("\\s+", "").toUpperCase(java.util.Locale.ROOT)
-                            : "";
-            if (norm.equals(orderName)
-                    || norm.equals(bookingNorm)
-                    || norm.startsWith(orderName)
-                    || (!bookingNorm.isBlank() && norm.startsWith(bookingNorm))
-                    || orderName.startsWith(norm)
-                    || (!bookingNorm.isBlank() && bookingNorm.startsWith(norm))) {
-                ids.add(((Number) row.get("orderid")).longValue());
-            }
+        String token = orderToken.trim();
+        String tokenNoSpaces = token.replaceAll("\\s+", "");
+        String trimmedPart = partToken.trim();
+        String partWithP = trimmedPart.toUpperCase(java.util.Locale.ROOT).startsWith("P")
+                ? trimmedPart
+                : "P" + trimmedPart;
+        Integer partNumber = parsePositiveInt(trimmedPart);
+        try {
+            List<Map<String, Object>> rows =
+                    jdbcTemplate.queryForList(
+                            """
+                            SELECT z.piezaid, z.numero_pieza, p.partid, p.partnumber, p.partcode, p.orderid, o.ordername, o.bookingcode,
+                                   p.longitud AS longitud_parte, p.ancho AS ancho_parte
+                            FROM piezas z
+                            JOIN partes p ON p.partid = z.partid
+                            JOIN ordenes o ON o.orderid = p.orderid
+                            WHERE CAST(z.numero_pieza AS TEXT) = ?
+                              AND (
+                                   CAST(p.partnumber AS TEXT) = ?
+                                   OR CAST(p.partid AS TEXT) = ?
+                                   OR UPPER(TRIM(p.partcode)) = UPPER(TRIM(?))
+                                   OR UPPER(TRIM(p.partcode)) = UPPER(TRIM(?))
+                                   OR (? IS NOT NULL AND p.partnumber = ?)
+                                  )
+                              AND (
+                                   UPPER(TRIM(o.ordername)) = UPPER(TRIM(?))
+                                   OR (o.bookingcode IS NOT NULL AND UPPER(TRIM(o.bookingcode)) = UPPER(TRIM(?)))
+                                   OR UPPER(REPLACE(o.ordername, ' ', '')) = UPPER(?)
+                                   OR (o.bookingcode IS NOT NULL AND UPPER(REPLACE(o.bookingcode, ' ', '')) = UPPER(?))
+                                   OR UPPER(REPLACE(o.ordername, ' ', '')) LIKE UPPER(?) || '%'
+                                   OR UPPER(?) LIKE UPPER(REPLACE(o.ordername, ' ', '')) || '%'
+                                  )
+                            ORDER BY o.fechacreacion DESC
+                            LIMIT 1
+                            """,
+                            pieceToken.trim(),
+                            trimmedPart,
+                            trimmedPart,
+                            trimmedPart,
+                            partWithP,
+                            partNumber,
+                            partNumber,
+                            token,
+                            token,
+                            tokenNoSpaces,
+                            tokenNoSpaces,
+                            tokenNoSpaces,
+                            tokenNoSpaces);
+            return rows.isEmpty() ? null : rows.getFirst();
+        } catch (Exception ex) {
+            return null;
         }
-        return new java.util.ArrayList<>(ids);
-    }
-
-    private static String buildCompositeScanCode(String orderName, String partToken, String pieceToken) {
-        return orderName + "-P" + partToken + "-" + pieceToken;
     }
 
     private static String normalizeScanCode(String raw) {
@@ -1108,33 +1104,34 @@ public class BiesseScanRepository {
         int partIdx = upper.indexOf("-P");
         String tokenBeforePart = partIdx >= 0 ? upper.substring(0, partIdx).trim() : upper;
         String tokenNoSpaces = tokenBeforePart.replaceAll("\\s+", "");
-        String fullNoSpaces = upper.replaceAll("\\s+", "");
 
         Map<String, Object> exact = findOrderByNameToken(tokenBeforePart);
         if (exact != null) {
             return ((Number) exact.get("orderid")).longValue();
         }
 
-        List<Map<String, Object>> candidates =
-                jdbcTemplate.queryForList(
-                        """
-                        SELECT orderid, ordername, bookingcode
-                        FROM ordenes
-                        ORDER BY fechacreacion DESC
-                        LIMIT 500
-                        """);
-        for (Map<String, Object> row : candidates) {
-            String orderName = String.valueOf(row.get("ordername")).replaceAll("\\s+", "").toUpperCase();
-            Object booking = row.get("bookingcode");
-            String bookingNorm =
-                    booking != null ? String.valueOf(booking).replaceAll("\\s+", "").toUpperCase() : "";
-            if (orderName.equals(tokenNoSpaces) || (!bookingNorm.isBlank() && bookingNorm.equals(tokenNoSpaces))) {
-                return ((Number) row.get("orderid")).longValue();
+        try {
+            List<Map<String, Object>> rows =
+                    jdbcTemplate.queryForList(
+                            """
+                            SELECT orderid
+                            FROM ordenes
+                            WHERE UPPER(REPLACE(ordername, ' ', '')) = UPPER(?)
+                               OR (bookingcode IS NOT NULL AND UPPER(REPLACE(bookingcode, ' ', '')) = UPPER(?))
+                               OR UPPER(REPLACE(ordername, ' ', '')) LIKE UPPER(?) || '%'
+                               OR UPPER(?) LIKE UPPER(REPLACE(ordername, ' ', '')) || '%'
+                            ORDER BY fechacreacion DESC
+                            LIMIT 1
+                            """,
+                            tokenNoSpaces,
+                            tokenNoSpaces,
+                            tokenNoSpaces,
+                            tokenNoSpaces);
+            if (!rows.isEmpty()) {
+                return ((Number) rows.getFirst().get("orderid")).longValue();
             }
-            if (fullNoSpaces.startsWith(orderName)
-                    || (!bookingNorm.isBlank() && fullNoSpaces.startsWith(bookingNorm))) {
-                return ((Number) row.get("orderid")).longValue();
-            }
+        } catch (Exception ignored) {
+            // fallback silencioso
         }
         return null;
     }

@@ -87,7 +87,8 @@ public class BiesseScanService {
     public ScanResultResponse scanPiece(Long employeeId, ScanPieceRequest req) {
         Long pieceId = req.pieceId();
         boolean fromPallet = isPalletEquipment(req.equipment());
-        if (!repository.pieceExists(pieceId)) {
+        BiesseScanRepository.PieceScanState state = repository.getPieceScanState(pieceId);
+        if (state == null) {
             throw new ResponseStatusException(NOT_FOUND, "Pieza no reconocida");
         }
         if (!fromPallet) {
@@ -97,10 +98,10 @@ public class BiesseScanService {
                 throw new ResponseStatusException(
                         CONFLICT, "La pieza ya está en el palé " + paleCode);
             }
-            if (repository.isPieceScanned(pieceId)) {
+            if (state.scanned()) {
                 throw new ResponseStatusException(BAD_REQUEST, "La pieza ya fue escaneada");
             }
-        } else if (repository.isPieceScanned(pieceId)) {
+        } else if (state.scanned()) {
             return new ScanResultResponse(true, "Pieza ya estaba escaneada");
         }
         boolean ok = repository.scanPiece(employeeId, pieceId, req.observations(), req.equipment());
@@ -183,7 +184,15 @@ public class BiesseScanService {
         Matcher composite =
                 Pattern.compile("^(.*)-P?(\\d+)-(\\d+)$", Pattern.CASE_INSENSITIVE).matcher(normalized);
         if (composite.matches()) {
-            Map<String, Object> piece = repository.resolvePieceFromScanCode(normalized);
+            String partToken = composite.group(2).trim();
+            int pieceNumber = Integer.parseInt(composite.group(3).trim());
+            Map<String, Object> piece = null;
+            if (currentOrderId != null) {
+                piece = repository.findPieceByOrderPartAndNumber(currentOrderId, partToken, pieceNumber);
+            }
+            if (piece == null) {
+                piece = repository.resolvePieceFromScanCode(normalized);
+            }
             if (piece == null) {
                 return interpretError("Pieza no reconocida para el código: " + normalized);
             }
