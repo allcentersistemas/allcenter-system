@@ -86,17 +86,22 @@ public class BiesseScanService {
     @Transactional
     public ScanResultResponse scanPiece(Long employeeId, ScanPieceRequest req) {
         Long pieceId = req.pieceId();
+        boolean fromPallet = isPalletEquipment(req.equipment());
         if (!repository.pieceExists(pieceId)) {
             throw new ResponseStatusException(NOT_FOUND, "Pieza no reconocida");
         }
-        Map<String, Object> paleAssignment = repository.findPaleAssignmentByPieceId(pieceId);
-        if (paleAssignment != null) {
-            String paleCode = String.valueOf(paleAssignment.getOrDefault("codigo", "—"));
-            throw new ResponseStatusException(
-                    CONFLICT, "La pieza ya está en el palé " + paleCode);
-        }
-        if (repository.isPieceScanned(pieceId)) {
-            throw new ResponseStatusException(BAD_REQUEST, "La pieza ya fue escaneada");
+        if (!fromPallet) {
+            Map<String, Object> paleAssignment = repository.findPaleAssignmentByPieceId(pieceId);
+            if (paleAssignment != null) {
+                String paleCode = String.valueOf(paleAssignment.getOrDefault("codigo", "—"));
+                throw new ResponseStatusException(
+                        CONFLICT, "La pieza ya está en el palé " + paleCode);
+            }
+            if (repository.isPieceScanned(pieceId)) {
+                throw new ResponseStatusException(BAD_REQUEST, "La pieza ya fue escaneada");
+            }
+        } else if (repository.isPieceScanned(pieceId)) {
+            return new ScanResultResponse(true, "Pieza ya estaba escaneada");
         }
         boolean ok = repository.scanPiece(employeeId, pieceId, req.observations(), req.equipment());
         if (!ok) {
@@ -405,6 +410,10 @@ public class BiesseScanService {
             return value;
         }
         return "MANUAL";
+    }
+
+    private static boolean isPalletEquipment(String equipment) {
+        return equipment != null && "PALLET".equalsIgnoreCase(equipment.trim());
     }
 
     private static String normalizeBarcodeInput(String raw) {

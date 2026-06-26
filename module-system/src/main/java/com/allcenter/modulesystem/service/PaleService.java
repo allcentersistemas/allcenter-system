@@ -379,9 +379,9 @@ public class PaleService {
         }
         detail.setAgregadoPor(req.addedBy());
         detail.setFechaAgregado(LocalDateTime.now());
-        detalleRepository.save(detail);
 
         registerPieceScanInBiesse(authorization, req.pieceId(), pale.getCodigo());
+        detalleRepository.save(detail);
 
         refreshPaleSummary(pale);
         recordAudit(
@@ -464,6 +464,20 @@ public class PaleService {
      * Marca la pieza como escaneada en module-biesse (tabla piezas). Si falla, la transacción revierte el detalle del
      * palé.
      */
+    private static String extractBiesseErrorMessage(org.springframework.web.client.HttpStatusCodeException ex) {
+        String raw = ex.getResponseBodyAsString();
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        java.util.regex.Matcher matcher =
+                java.util.regex.Pattern.compile("\"message\"\\s*:\\s*\"([^\"]+)\"")
+                        .matcher(raw);
+        if (matcher.find()) {
+            return matcher.group(1);
+        }
+        return null;
+    }
+
     private void unscanPieceInBiesse(String authorization, Long pieceId, String paleCode) {
         HttpHeaders headers = new HttpHeaders();
         headers.set(HttpHeaders.AUTHORIZATION, authorization);
@@ -514,9 +528,9 @@ public class PaleService {
                         resp.get("message") != null ? resp.get("message").toString() : "No se pudo marcar pieza escaneada");
             }
         } catch (org.springframework.web.client.HttpStatusCodeException ex) {
-            String msg = "No se pudo registrar escaneo de pieza en module-biesse";
-            if (ex.getStatusCode().value() == 400) {
-                msg = "Pieza no escaneable (puede estar ya escaneada o no existir)";
+            String msg = extractBiesseErrorMessage(ex);
+            if (msg == null || msg.isBlank()) {
+                msg = "No se pudo registrar escaneo de pieza en module-biesse";
             }
             throw new ResponseStatusException(ex.getStatusCode(), msg);
         } catch (ResponseStatusException ex) {
