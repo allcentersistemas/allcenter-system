@@ -54,6 +54,27 @@ public class ProyectoOptimizacionSchemaAligner implements ApplicationRunner {
                 WHERE fecha_estado_enviado IS NULL
                   AND (estado IS NULL OR estado IN ('ENVIADO', 'EN_ATENCION', 'COTIZADO', 'VENDIDO', 'CANCELADO'))
                 """);
+        alignEstadoCheckConstraint();
+    }
+
+    /** PostgreSQL CHECK legacy solo permitía ENVIADO, EN_ATENCION, COTIZADO. */
+    private void alignEstadoCheckConstraint() {
+        try {
+            jdbc.execute(
+                    """
+                    ALTER TABLE proyecto_optimizacion
+                    DROP CONSTRAINT IF EXISTS proyecto_optimizacion_estado_check
+                    """);
+            jdbc.execute(
+                    """
+                    ALTER TABLE proyecto_optimizacion
+                    ADD CONSTRAINT proyecto_optimizacion_estado_check
+                    CHECK (estado IN ('ENVIADO', 'EN_ATENCION', 'COTIZADO', 'VENDIDO', 'CANCELADO'))
+                    """);
+            log.info("proyecto_optimizacion.estado CHECK actualizado (VENDIDO, CANCELADO)");
+        } catch (Exception ex) {
+            log.warn("No se pudo actualizar CHECK de estado en proyecto_optimizacion: {}", ex.getMessage());
+        }
     }
 
     private void addColumnIfMissing(String table, String column, String sqlType) {
