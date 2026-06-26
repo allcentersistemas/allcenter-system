@@ -98,6 +98,13 @@ public class ClientOptimizacionController {
                 payload == null ? null : payload.maquinaId());
     }
 
+    @PostMapping("/proyectos/{proyectoId}/cancelar")
+    public OrderDtos.ProyectoResponse cancelarProyecto(
+            @AuthenticationPrincipal ClientUserDetails principal,
+            @PathVariable Long proyectoId) {
+        return service.cancelProjectForClient(principal.getClientUser().getId(), proyectoId);
+    }
+
     @GetMapping("/proyectos/{proyectoId}/cotizacion")
     public ResponseEntity<Resource> downloadCotizacion(
             @AuthenticationPrincipal ClientUserDetails principal,

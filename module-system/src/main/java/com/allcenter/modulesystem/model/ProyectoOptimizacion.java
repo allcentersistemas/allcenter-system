@@ -56,4 +56,19 @@ public class ProyectoOptimizacion {
 
     @Column(name = "cotizacion_archivo", length = 512)
     private String cotizacionArchivo;
+
+    @Column(name = "fecha_estado_enviado")
+    private LocalDateTime fechaEstadoEnviado;
+
+    @Column(name = "fecha_estado_en_atencion")
+    private LocalDateTime fechaEstadoEnAtencion;
+
+    @Column(name = "fecha_estado_cotizado")
+    private LocalDateTime fechaEstadoCotizado;
+
+    @Column(name = "fecha_estado_vendido")
+    private LocalDateTime fechaEstadoVendido;
+
+    @Column(name = "fecha_estado_cancelado")
+    private LocalDateTime fechaEstadoCancelado;
 }

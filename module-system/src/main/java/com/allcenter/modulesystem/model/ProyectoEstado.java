@@ -3,7 +3,9 @@ package com.allcenter.modulesystem.model;
 public enum ProyectoEstado {
     ENVIADO,
     EN_ATENCION,
-    COTIZADO;
+    COTIZADO,
+    VENDIDO,
+    CANCELADO;
 
     public static ProyectoEstado fromString(String value) {
         if (value == null || value.isBlank()) {
@@ -14,5 +16,9 @@ public enum ProyectoEstado {
             return ENVIADO;
         }
         return ProyectoEstado.valueOf(normalized);
+    }
+
+    public boolean isTerminal() {
+        return this == VENDIDO || this == CANCELADO;
     }
 }

@@ -133,10 +133,32 @@ public class OrderController {
     }
 
     @PatchMapping("/proyectos/{proyectoId}/estado")
+    @Deprecated
     public OrderDtos.ProyectoResponse updateEstado(
             @PathVariable Long proyectoId,
             @RequestBody OrderDtos.ProyectoEstadoPayload payload) {
         return service.updateEstado(proyectoId, payload == null ? null : payload.estado());
+    }
+
+    @PatchMapping("/proyectos/{proyectoId}/gestion")
+    @PreAuthorize("@portalAuth.canGestion()")
+    public OrderDtos.ProyectoResponse updateGestion(
+            @PathVariable Long proyectoId,
+            @RequestBody OrderDtos.ProyectoGestionPayload payload) {
+        return service.updateProyectoGestion(proyectoId, payload);
+    }
+
+    @PostMapping("/proyectos/{proyectoId}/vendido")
+    public OrderDtos.ProyectoResponse markVendido(
+            @AuthenticationPrincipal EmployeeUserDetails principal,
+            @PathVariable Long proyectoId) {
+        return service.markVendido(principal.getEmployee().getId(), proyectoId);
+    }
+
+    @PostMapping("/proyectos/{proyectoId}/cancelar")
+    @PreAuthorize("@portalAuth.canCancel()")
+    public OrderDtos.ProyectoResponse cancelarProyecto(@PathVariable Long proyectoId) {
+        return service.cancelProjectForEmployee(proyectoId);
     }
 
     @PatchMapping("/proyectos/{proyectoId}/maquina")

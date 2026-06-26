@@ -30,6 +30,11 @@ public class ProyectoOptimizacionSchemaAligner implements ApplicationRunner {
         addColumnIfMissing("proyecto_optimizacion", "vendedor_id", "BIGINT");
         addColumnIfMissing("proyecto_optimizacion", "maquina_id", "BIGINT");
         addColumnIfMissing("proyecto_optimizacion", "cotizacion_archivo", "VARCHAR(512)");
+        addColumnIfMissing("proyecto_optimizacion", "fecha_estado_enviado", "TIMESTAMP");
+        addColumnIfMissing("proyecto_optimizacion", "fecha_estado_en_atencion", "TIMESTAMP");
+        addColumnIfMissing("proyecto_optimizacion", "fecha_estado_cotizado", "TIMESTAMP");
+        addColumnIfMissing("proyecto_optimizacion", "fecha_estado_vendido", "TIMESTAMP");
+        addColumnIfMissing("proyecto_optimizacion", "fecha_estado_cancelado", "TIMESTAMP");
         jdbc.update(
                 """
                 UPDATE proyecto_optimizacion
@@ -41,6 +46,13 @@ public class ProyectoOptimizacionSchemaAligner implements ApplicationRunner {
                 UPDATE proyecto_optimizacion
                 SET fechacreacion = CURRENT_TIMESTAMP
                 WHERE fechacreacion IS NULL
+                """);
+        jdbc.update(
+                """
+                UPDATE proyecto_optimizacion
+                SET fecha_estado_enviado = fechacreacion
+                WHERE fecha_estado_enviado IS NULL
+                  AND (estado IS NULL OR estado IN ('ENVIADO', 'EN_ATENCION', 'COTIZADO', 'VENDIDO', 'CANCELADO'))
                 """);
     }
 

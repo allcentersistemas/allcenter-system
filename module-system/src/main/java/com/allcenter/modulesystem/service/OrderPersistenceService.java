@@ -126,20 +126,80 @@ public class OrderPersistenceService {
             proyecto.setVendedorId(employeeId);
         }
         if (proyecto.getEstado() == ProyectoEstado.ENVIADO) {
-            proyecto.setEstado(ProyectoEstado.EN_ATENCION);
+            applyEstadoChange(proyecto, ProyectoEstado.EN_ATENCION);
+        }
+        return toProyectoResponse(proyectoRepository.save(proyecto), true);
+    }
+
+    @Transactional
+    public OrderDtos.ProyectoResponse markVendido(long employeeId, Long proyectoId) {
+        ProyectoOptimizacion proyecto = requireProject(proyectoId);
+        if (proyecto.getVendedorId() != null && !proyecto.getVendedorId().equals(employeeId)) {
+            throw new IllegalArgumentException("Solo el vendedor asignado puede marcar el proyecto como vendido.");
+        }
+        if (proyecto.getEstado() != ProyectoEstado.COTIZADO) {
+            throw new IllegalArgumentException("Solo se puede marcar como vendido un proyecto cotizado.");
+        }
+        if (proyecto.getVendedorId() == null) {
+            proyecto.setVendedorId(employeeId);
+        }
+        applyEstadoChange(proyecto, ProyectoEstado.VENDIDO);
+        return toProyectoResponse(proyectoRepository.save(proyecto), true);
+    }
+
+    @Transactional
+    public OrderDtos.ProyectoResponse cancelProjectForEmployee(Long proyectoId) {
+        ProyectoOptimizacion proyecto = requireProject(proyectoId);
+        cancelProjectInternal(proyecto);
+        return toProyectoResponse(proyectoRepository.save(proyecto), true);
+    }
+
+    @Transactional
+    public OrderDtos.ProyectoResponse cancelProjectForClient(long clientUserId, Long proyectoId) {
+        ProyectoOptimizacion proyecto = requireOwnedProject(clientUserId, proyectoId);
+        cancelProjectInternal(proyecto);
+        return toProyectoResponse(proyectoRepository.save(proyecto), false);
+    }
+
+    @Transactional
+    public OrderDtos.ProyectoResponse updateProyectoGestion(Long proyectoId, OrderDtos.ProyectoGestionPayload payload) {
+        if (payload == null) {
+            throw new IllegalArgumentException("Datos del proyecto obligatorios.");
+        }
+        ProyectoOptimizacion proyecto = requireProject(proyectoId);
+        if (proyecto.getEstado() != null && proyecto.getEstado().isTerminal()) {
+            throw new IllegalArgumentException("No se puede editar un proyecto vendido o cancelado.");
+        }
+        if (payload.nombre() != null && !payload.nombre().isBlank()) {
+            proyecto.setNombre(payload.nombre().trim());
+        }
+        if (payload.cliente() != null) {
+            proyecto.setCliente(valueOrNull(payload.cliente()));
+        }
+        if (payload.referencia() != null) {
+            proyecto.setReferencia(valueOrNull(payload.referencia()));
+        }
+        if (payload.descripcion() != null) {
+            proyecto.setDescripcion(valueOrNull(payload.descripcion()));
+        }
+        Long vendedorId = payload.vendedorId();
+        if (vendedorId != null) {
+            employeeRepository
+                    .findById(vendedorId)
+                    .orElseThrow(() -> new IllegalArgumentException("Vendedor no encontrado."));
+        }
+        proyecto.setVendedorId(vendedorId);
+        if (payload.maquinaId() != null) {
+            maquinaService.requireActiveMaquina(payload.maquinaId());
+            proyecto.setMaquinaId(payload.maquinaId());
         }
         return toProyectoResponse(proyectoRepository.save(proyecto), true);
     }
 
     @Transactional
     public OrderDtos.ProyectoResponse updateEstado(Long proyectoId, String estadoRaw) {
-        ProyectoEstado estado = ProyectoEstado.fromString(estadoRaw);
-        if (estado == null) {
-            throw new IllegalArgumentException("Estado no válido.");
-        }
-        ProyectoOptimizacion proyecto = requireProject(proyectoId);
-        proyecto.setEstado(estado);
-        return toProyectoResponse(proyectoRepository.save(proyecto), true);
+        throw new IllegalArgumentException(
+                "El estado del proyecto solo cambia mediante las acciones del flujo (capturar, cotizar, vender, cancelar).");
     }
 
     @Transactional
@@ -171,7 +231,7 @@ public class OrderPersistenceService {
         try {
             String filename = optimizacionStorage.saveCotizacion(proyectoId, file);
             proyecto.setCotizacionArchivo(filename);
-            proyecto.setEstado(ProyectoEstado.COTIZADO);
+            applyEstadoChange(proyecto, ProyectoEstado.COTIZADO);
             if (proyecto.getVendedorId() == null) {
                 proyecto.setVendedorId(employeeId);
             }
@@ -234,7 +294,8 @@ public class OrderPersistenceService {
     }
 
     private boolean clientCanEdit(ProyectoOptimizacion proyecto) {
-        return false;
+        ProyectoEstado estado = proyecto.getEstado();
+        return estado == null || estado == ProyectoEstado.ENVIADO;
     }
 
     @Transactional(readOnly = true)
@@ -359,7 +420,7 @@ public class OrderPersistenceService {
         }
         proyectoOptimizacion.setDescripcion(valueOrNull(payload.descripcion()));
         proyectoOptimizacion.setFechacreacion(LocalDateTime.now(ZoneId.of("America/Lima")));
-        proyectoOptimizacion.setEstado(ProyectoEstado.ENVIADO);
+        applyEstadoChange(proyectoOptimizacion, ProyectoEstado.ENVIADO);
         proyectoOptimizacion.setCodigoproyecto(System.currentTimeMillis());
         if (payload.maquinaId() != null) {
             maquinaService.requireActiveMaquina(payload.maquinaId());
@@ -451,7 +512,8 @@ public class OrderPersistenceService {
                 editable,
                 proyecto.getMaquinaId(),
                 maquinaService.resolveParametros(proyecto.getMaquinaId()),
-                hasCotizacionOnDisk(proyecto));
+                hasCotizacionOnDisk(proyecto),
+                toEstadoTiempos(proyecto));
     }
 
     private boolean hasCotizacionOnDisk(ProyectoOptimizacion proyecto) {
@@ -478,7 +540,44 @@ public class OrderPersistenceService {
                 editable,
                 proyectoOptimizacion.getMaquinaId(),
                 maquinaService.resolveParametros(proyectoOptimizacion.getMaquinaId()),
-                proyectoOptimizacion.getCotizacionArchivo());
+                proyectoOptimizacion.getCotizacionArchivo(),
+                toEstadoTiempos(proyectoOptimizacion));
+    }
+
+    private OrderDtos.ProyectoEstadoTiempos toEstadoTiempos(ProyectoOptimizacion proyecto) {
+        return new OrderDtos.ProyectoEstadoTiempos(
+                proyecto.getFechaEstadoEnviado(),
+                proyecto.getFechaEstadoEnAtencion(),
+                proyecto.getFechaEstadoCotizado(),
+                proyecto.getFechaEstadoVendido(),
+                proyecto.getFechaEstadoCancelado());
+    }
+
+    private void applyEstadoChange(ProyectoOptimizacion proyecto, ProyectoEstado nuevo) {
+        LocalDateTime now = LocalDateTime.now(ZoneId.of("America/Lima"));
+        proyecto.setEstado(nuevo);
+        switch (nuevo) {
+            case ENVIADO -> proyecto.setFechaEstadoEnviado(now);
+            case EN_ATENCION -> proyecto.setFechaEstadoEnAtencion(now);
+            case COTIZADO -> proyecto.setFechaEstadoCotizado(now);
+            case VENDIDO -> proyecto.setFechaEstadoVendido(now);
+            case CANCELADO -> proyecto.setFechaEstadoCancelado(now);
+        }
+    }
+
+    private void cancelProjectInternal(ProyectoOptimizacion proyecto) {
+        ProyectoEstado estado = proyecto.getEstado();
+        if (estado == ProyectoEstado.VENDIDO) {
+            throw new IllegalArgumentException("No se puede cancelar un proyecto vendido.");
+        }
+        if (estado == ProyectoEstado.CANCELADO) {
+            throw new IllegalArgumentException("El proyecto ya está cancelado.");
+        }
+        if (estado == ProyectoEstado.COTIZADO) {
+            throw new IllegalArgumentException(
+                    "No se puede cancelar un proyecto ya cotizado. Contacte a ventas.");
+        }
+        applyEstadoChange(proyecto, ProyectoEstado.CANCELADO);
     }
 
     private String estadoLabel(ProyectoEstado estado) {

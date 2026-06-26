@@ -73,7 +73,8 @@ public final class OrderDtos {
             boolean editable,
             Long maquinaId,
             String maquinaParametros,
-            boolean tieneCotizacion
+            boolean tieneCotizacion,
+            ProyectoEstadoTiempos estadoTiempos
     ) {
     }
 
@@ -92,7 +93,8 @@ public final class OrderDtos {
             boolean editable,
             Long maquinaId,
             String maquinaParametros,
-            String cotizacionArchivo
+            String cotizacionArchivo,
+            ProyectoEstadoTiempos estadoTiempos
     ) {
     }
 
@@ -140,6 +142,25 @@ public final class OrderDtos {
 
     public record ProyectoEstadoPayload(
             String estado
+    ) {
+    }
+
+    public record ProyectoGestionPayload(
+            String nombre,
+            String cliente,
+            String referencia,
+            String descripcion,
+            Long vendedorId,
+            Long maquinaId
+    ) {
+    }
+
+    public record ProyectoEstadoTiempos(
+            LocalDateTime enviado,
+            LocalDateTime enAtencion,
+            LocalDateTime cotizado,
+            LocalDateTime vendido,
+            LocalDateTime cancelado
     ) {
     }
 
