@@ -13,6 +13,7 @@ import com.allcenter.modulesystem.repository.OrdenRepository;
 import com.allcenter.modulesystem.repository.ProyectoRepository;
 import com.allcenter.modulesystem.dto.ClientResponse;
 import com.allcenter.modulesystem.dto.OrderDtos;
+import com.allcenter.modulesystem.security.PortalRoleNames;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
 import jakarta.persistence.EntityNotFoundException;
@@ -173,7 +174,10 @@ public class OrderPersistenceService {
         if (payload.nombre() != null && !payload.nombre().isBlank()) {
             proyecto.setNombre(payload.nombre().trim());
         }
-        if (payload.cliente() != null) {
+        if (payload.clientUserId() != null) {
+            proyecto.setClientUserId(payload.clientUserId());
+            proyecto.setCliente(resolveClienteLabel(payload.clientUserId()));
+        } else if (payload.cliente() != null) {
             proyecto.setCliente(valueOrNull(payload.cliente()));
         }
         if (payload.referencia() != null) {
@@ -184,9 +188,13 @@ public class OrderPersistenceService {
         }
         Long vendedorId = payload.vendedorId();
         if (vendedorId != null) {
-            employeeRepository
-                    .findById(vendedorId)
-                    .orElseThrow(() -> new IllegalArgumentException("Vendedor no encontrado."));
+            boolean esVendedorActivo =
+                    employeeRepository.findAllActiveByRoleName(PortalRoleNames.VENTAS).stream()
+                            .anyMatch(e -> vendedorId.equals(e.getId()));
+            if (!esVendedorActivo) {
+                throw new IllegalArgumentException(
+                        "El vendedor asignado debe ser un empleado activo con rol de ventas.");
+            }
         }
         proyecto.setVendedorId(vendedorId);
         if (payload.maquinaId() != null) {

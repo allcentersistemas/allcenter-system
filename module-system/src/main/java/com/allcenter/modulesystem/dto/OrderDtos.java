@@ -148,6 +148,7 @@ public final class OrderDtos {
     public record ProyectoGestionPayload(
             String nombre,
             String cliente,
+            Long clientUserId,
             String referencia,
             String descripcion,
             Long vendedorId,
