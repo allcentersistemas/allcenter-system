@@ -114,6 +114,17 @@ public class MailService {
             return "SMTP: falló la autenticación. Revisa SMTP_USERNAME, SMTP_PASSWORD y que APP_MAIL_FROM "
                     + "esté autorizado en tu proveedor (Gmail, SendGrid, etc.).";
         }
+        if (msg.contains("sslhandshakeexception")
+                || msg.contains("certificate_unknown")
+                || msg.contains("no subject alternative names")) {
+            return "SMTP: el certificado TLS no coincide con SMTP_HOST. Use el nombre del servidor de correo "
+                    + "(p. ej. mail.tudominio.com), no la IP. Si el host es correcto, pruebe SMTP_PORT=465 "
+                    + "o configure SMTP_SSL_TRUST con ese hostname.";
+        }
+        if (msg.contains("could not convert socket to tls")) {
+            return "SMTP: no se pudo iniciar TLS. Revise SMTP_HOST (hostname con certificado válido), "
+                    + "SMTP_PORT (587 STARTTLS o 465 SSL) y SMTP_STARTTLS.";
+        }
         return null;
     }
 }

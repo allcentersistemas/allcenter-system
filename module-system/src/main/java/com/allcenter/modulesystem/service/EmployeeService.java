@@ -346,7 +346,18 @@ public class EmployeeService {
                     req.securityIdentifier().trim().isEmpty() ? null : req.securityIdentifier().trim());
         }
         if (req.samAccountName() != null) {
-            e.setSamAccountName(req.samAccountName().trim().isEmpty() ? null : req.samAccountName().trim());
+            String username = req.samAccountName().trim();
+            if (!username.isEmpty()) {
+                if (username.length() < 2) {
+                    throw new BadRequestException("El usuario debe tener al menos 2 caracteres");
+                }
+                if (employeeRepository.existsBySamAccountNameIgnoreCaseAndIdNot(username, id)) {
+                    throw new ConflictException("El usuario \"" + username + "\" ya está en uso");
+                }
+                e.setSamAccountName(username);
+            } else {
+                e.setSamAccountName(null);
+            }
         }
         if (req.userPrincipalName() != null) {
             e.setUserPrincipalName(

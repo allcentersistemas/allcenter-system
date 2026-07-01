@@ -19,6 +19,7 @@ public final class PortalRoleNames {
     public static final String DESPACHO = "DESPACHO";
     public static final String PRODUCCION = "PRODUCCION";
     public static final String VENTAS = "VENTAS";
+    public static final String ADMIN_VENTAS = "ADMIN_VENTAS";
     /** Compatibilidad */
     public static final String ADMIN_PRODUCCION = "ADMIN_PRODUCCION";
     public static final String USER = "USER";

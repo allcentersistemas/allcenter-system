@@ -25,10 +25,13 @@ public class MailSenderConfiguration {
             @Value("${spring.mail.username:}") String username,
             @Value("${spring.mail.password:}") String password,
             @Value("${SMTP_AUTH:#{null}}") String smtpAuthEnv,
-            @Value("${spring.mail.properties.mail.smtp.starttls.enable:true}") String starttls) {
+            @Value("${spring.mail.properties.mail.smtp.starttls.enable:true}") String starttls,
+            @Value("${SMTP_SSL_TRUST:}") String sslTrust,
+            @Value("${SMTP_CHECK_SERVER_IDENTITY:true}") String checkServerIdentity) {
 
         JavaMailSenderImpl sender = new JavaMailSenderImpl();
-        sender.setHost(host.trim());
+        String smtpHost = host == null ? "" : host.trim();
+        sender.setHost(smtpHost);
         sender.setPort(port);
 
         String user = username == null ? "" : username.trim();
@@ -53,10 +56,23 @@ public class MailSenderConfiguration {
         Properties props = sender.getJavaMailProperties();
         props.put("mail.transport.protocol", "smtp");
         props.put("mail.smtp.auth", Boolean.toString(useAuth));
-        props.put("mail.smtp.starttls.enable", starttls);
         props.put("mail.smtp.connectiontimeout", "10000");
         props.put("mail.smtp.timeout", "10000");
         props.put("mail.smtp.writetimeout", "10000");
+
+        boolean useImplicitSsl = port == 465;
+        if (useImplicitSsl) {
+            props.put("mail.smtp.ssl.enable", "true");
+            props.put("mail.smtp.starttls.enable", "false");
+        } else {
+            props.put("mail.smtp.starttls.enable", starttls);
+        }
+
+        String trustHost = sslTrust == null || sslTrust.isBlank() ? smtpHost : sslTrust.trim();
+        if (StringUtils.hasText(trustHost)) {
+            props.put("mail.smtp.ssl.trust", trustHost);
+        }
+        props.put("mail.smtp.ssl.checkserveridentity", checkServerIdentity);
 
         return sender;
     }

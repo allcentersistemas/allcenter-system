@@ -42,6 +42,8 @@ public interface EmployeeRepository extends JpaRepository<Employee, Long> {
 
     boolean existsBySamAccountNameIgnoreCase(String samAccountName);
 
+    boolean existsBySamAccountNameIgnoreCaseAndIdNot(String samAccountName, Long id);
+
     @Query("SELECT DISTINCT e FROM Employee e LEFT JOIN FETCH e.roles WHERE e.id = :id")
     Optional<Employee> findByIdWithRoles(@Param("id") Long id);
 

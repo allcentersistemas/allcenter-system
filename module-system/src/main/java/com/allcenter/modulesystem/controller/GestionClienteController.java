@@ -28,7 +28,7 @@ public class GestionClienteController {
     private final ClientService clientService;
 
     @GetMapping
-    @PreAuthorize("@portalAuth.canGestion()")
+    @PreAuthorize("@portalAuth.canGestionOrVentasGestion()")
     public ResponseEntity<List<ClientResponse>> list() {
         return ResponseEntity.ok(clientService.list());
     }
@@ -40,20 +40,20 @@ public class GestionClienteController {
     }
 
     @PostMapping
-    @PreAuthorize("@portalAuth.canGestion()")
+    @PreAuthorize("@portalAuth.canGestionOrVentasGestion()")
     public ResponseEntity<ClientResponse> create(@Valid @RequestBody ClientCreateRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(clientService.create(request));
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("@portalAuth.canGestion()")
+    @PreAuthorize("@portalAuth.canGestionOrVentasGestion()")
     public ResponseEntity<ClientResponse> update(
             @PathVariable long id, @Valid @RequestBody ClientAdminUpdateRequest request) {
         return ResponseEntity.ok(clientService.updateAdmin(id, request));
     }
 
     @PostMapping("/{id}/reset-password")
-    @PreAuthorize("@portalAuth.canGestion()")
+    @PreAuthorize("@portalAuth.canGestionOrVentasGestion()")
     public ResponseEntity<Void> resetPassword(
             @PathVariable long id, @Valid @RequestBody AdminResetPasswordRequest request) {
         clientService.resetPasswordByAdmin(id, request.newPassword());
@@ -61,7 +61,7 @@ public class GestionClienteController {
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("@portalAuth.canGestion()")
+    @PreAuthorize("@portalAuth.canGestionOrVentasGestion()")
     public ResponseEntity<Void> delete(@PathVariable long id) {
         clientService.delete(id);
         return ResponseEntity.noContent().build();

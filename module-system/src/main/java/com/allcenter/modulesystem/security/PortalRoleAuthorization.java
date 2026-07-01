@@ -53,6 +53,15 @@ public class PortalRoleAuthorization {
         return isGestion();
     }
 
+    /** Admin ventas: gestión de clientes portal y proyectos de optimización. */
+    public boolean canVentasGestion() {
+        return hasAnyRole(Set.of(PortalRoleNames.ADMIN_VENTAS));
+    }
+
+    public boolean canGestionOrVentasGestion() {
+        return canGestion() || canVentasGestion();
+    }
+
     /** Solo rol MASTER (no SISTEMAS ni otros admin). */
     public boolean isMaster() {
         return hasAnyRole(Set.of(PortalRoleNames.MASTER));

@@ -141,7 +141,7 @@ public class OrderController {
     }
 
     @PatchMapping("/proyectos/{proyectoId}/gestion")
-    @PreAuthorize("@portalAuth.canGestion()")
+    @PreAuthorize("@portalAuth.canGestionOrVentasGestion()")
     public OrderDtos.ProyectoResponse updateGestion(
             @PathVariable Long proyectoId,
             @RequestBody OrderDtos.ProyectoGestionPayload payload) {
@@ -156,7 +156,7 @@ public class OrderController {
     }
 
     @PostMapping("/proyectos/{proyectoId}/cancelar")
-    @PreAuthorize("@portalAuth.canCancel()")
+    @PreAuthorize("@portalAuth.canCancel() or @portalAuth.canVentasGestion()")
     public OrderDtos.ProyectoResponse cancelarProyecto(@PathVariable Long proyectoId) {
         return service.cancelProjectForEmployee(proyectoId);
     }

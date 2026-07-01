@@ -32,7 +32,8 @@ public class RoleBootstrap implements ApplicationRunner {
         ensureRole("PROCESOS", "Consulta y registro operativo de procesos");
         ensureRole("LOGISTICA", "Logística: guías, stock y palés (crear/leer)");
         ensureRole("CALIDAD", "Calidad: consulta y registro");
-        ensureRole("VENTAS", "Ventas: consulta y registro comercial");
+        ensureRole("VENTAS", "Ventas: proyecto optimización");
+        ensureRole("ADMIN_VENTAS", "Admin ventas: proyectos, clientes portal y gestión comercial");
     }
 
     private void ensureRole(String name, String description) {
