@@ -16,7 +16,8 @@ public record BackupRunDto(
         Long totalBytes,
         boolean emailed,
         int progressPercent,
-        String progressStage) {
+        String progressStage,
+        String emailRecipientsSent) {
 
     public record BackupFileDto(String name, boolean downloadable) {}
 
@@ -42,6 +43,7 @@ public record BackupRunDto(
                 run.getTotalBytes(),
                 run.isEmailed(),
                 run.getProgressPercent(),
-                run.getProgressStage() == null ? "" : run.getProgressStage());
+                run.getProgressStage() == null ? "" : run.getProgressStage(),
+                run.getEmailRecipientsSent() == null ? "" : run.getEmailRecipientsSent());
     }
 }

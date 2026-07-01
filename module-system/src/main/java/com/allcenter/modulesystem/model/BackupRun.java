@@ -47,4 +47,7 @@ public class BackupRun {
 
     @Column(length = 120)
     private String progressStage = "";
+
+    @Column(length = 1000)
+    private String emailRecipientsSent = "";
 }

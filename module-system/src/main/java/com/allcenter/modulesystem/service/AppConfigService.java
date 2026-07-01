@@ -14,16 +14,19 @@ import jakarta.mail.internet.MimeMessage;
 import java.util.List;
 import java.util.Properties;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.JavaMailSenderImpl;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
+import org.springframework.core.io.FileSystemResource;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class AppConfigService {
 
     private final AppConfigRepository configRepository;
@@ -86,6 +89,15 @@ public class AppConfigService {
         return envMailProperties.fromName();
     }
 
+    @Transactional(readOnly = true)
+    public String effectiveSmtpUsername() {
+        AppConfig config = ensureConfigRow();
+        if (StringUtils.hasText(config.getSmtpUsername())) {
+            return config.getSmtpUsername().trim();
+        }
+        return envSmtpUsername == null ? "" : envSmtpUsername.trim();
+    }
+
     @Transactional
     public AppConfigDto updateConfig(AppConfigUpdateRequest request) {
         AppConfig config = ensureConfigRow();
@@ -138,16 +150,15 @@ public class AppConfigService {
             throw new BadRequestException("El correo está desactivado. Actívelo en configuración.");
         }
         AppConfig config = ensureConfigRow();
-        JavaMailSender sender = buildMailSender(config);
-        String from = effectiveMailFrom();
-        if (!StringUtils.hasText(from)) {
-            throw new BadRequestException("Configure remitente (mailFrom) para enviar correos");
+        String envelopeFrom = resolveEnvelopeFrom();
+        if (!StringUtils.hasText(envelopeFrom)) {
+            throw new BadRequestException("Configure remitente (mailFrom) o usuario SMTP para enviar correos");
         }
         try {
+            JavaMailSender sender = buildMailSender(config);
             MimeMessage message = sender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(message, false, "UTF-8");
-            String displayFrom = formatFromHeader(from, effectiveMailFromName());
-            helper.setFrom(displayFrom);
+            helper.setFrom(formatFromHeader(envelopeFrom, effectiveMailFromName()));
             helper.setTo(request.to().trim());
             helper.setSubject("Prueba de correo — AllCenter");
             helper.setText(
@@ -155,6 +166,7 @@ public class AppConfigService {
                             + "Si lo recibió, la configuración SMTP es correcta.",
                     false);
             sender.send(message);
+            log.info("Correo de prueba enviado a {} desde {}", request.to().trim(), envelopeFrom);
         } catch (Exception ex) {
             throw new BadRequestException("No se pudo enviar el correo de prueba: " + ex.getMessage());
         }
@@ -168,45 +180,61 @@ public class AppConfigService {
         return buildMailSender(ensureConfigRow(), 300_000);
     }
 
-    void sendHtmlWithAttachments(String to, String subject, String htmlBody, List<MailAttachment> attachments) {
+    void sendBackupNotification(
+            String to, String subject, String plainBody, String htmlBody, List<MailFileAttachment> fileAttachments) {
         if (!isMailEnabled()) {
             throw new BadRequestException("El correo está desactivado. Actívelo en Configuración.");
         }
-        String from = effectiveMailFrom();
-        if (!StringUtils.hasText(from)) {
-            throw new BadRequestException("Configure remitente (mailFrom) para enviar correos");
+        String envelopeFrom = resolveEnvelopeFrom();
+        if (!StringUtils.hasText(envelopeFrom)) {
+            throw new BadRequestException("Configure remitente (mailFrom) o usuario SMTP para enviar correos");
         }
         if (to == null || to.isBlank()) {
             throw new BadRequestException("Destinatario de correo vacío");
         }
         try {
-            boolean multipart = attachments != null && !attachments.isEmpty();
+            boolean hasFiles = fileAttachments != null && !fileAttachments.isEmpty();
             JavaMailSender sender = buildMailSenderForLargeAttachments();
             MimeMessage message = sender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(message, multipart, "UTF-8");
-            helper.setFrom(formatFromHeader(from, effectiveMailFromName()));
+            MimeMessageHelper helper = new MimeMessageHelper(message, hasFiles, "UTF-8");
+            helper.setFrom(formatFromHeader(envelopeFrom, effectiveMailFromName()));
             helper.setTo(to.trim());
             helper.setSubject(subject);
-            helper.setText(htmlBody, true);
-            if (multipart) {
-                for (MailAttachment att : attachments) {
-                    if (att == null || att.filename() == null || att.content() == null) {
+            if (hasFiles) {
+                helper.setText(plainBody, htmlBody);
+                for (MailFileAttachment att : fileAttachments) {
+                    if (att == null || att.path() == null || !java.nio.file.Files.isRegularFile(att.path())) {
                         continue;
                     }
                     helper.addAttachment(
                             att.filename(),
-                            () -> new java.io.ByteArrayInputStream(att.content()),
+                            new FileSystemResource(att.path().toFile()),
                             att.contentType());
                 }
+            } else {
+                helper.setText(plainBody, false);
             }
             sender.send(message);
+            log.info(
+                    "Correo de backup enviado a {} desde {} (adjuntos: {})",
+                    to.trim(),
+                    envelopeFrom,
+                    hasFiles ? fileAttachments.size() : 0);
         } catch (Exception ex) {
             throw new BadRequestException("No se pudo enviar el correo: " + ex.getMessage());
         }
     }
 
     void sendHtmlMessage(String to, String subject, String htmlBody) {
-        sendHtmlWithAttachments(to, subject, htmlBody, List.of());
+        sendBackupNotification(to, subject, htmlBody.replaceAll("<[^>]+>", " "), htmlBody, List.of());
+    }
+
+    private String resolveEnvelopeFrom() {
+        String smtpUser = effectiveSmtpUsername();
+        if (StringUtils.hasText(smtpUser) && smtpUser.contains("@")) {
+            return smtpUser;
+        }
+        return effectiveMailFrom();
     }
 
     private JavaMailSender buildMailSender(AppConfig config) {

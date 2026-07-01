@@ -29,6 +29,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import java.util.zip.GZIPOutputStream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -207,6 +209,7 @@ public class BackupService {
         long totalBytes = 0L;
         boolean emailed = false;
         String emailError = null;
+        String emailRecipientsSent = "";
 
         try {
             updateProgress(run, 5, "Preparando backup…");
@@ -242,9 +245,11 @@ public class BackupService {
             if (config.isSendByEmail()) {
                 updateProgress(run, 75, "Enviando correo…");
                 try {
-                    emailed = sendBackupEmail(config, dumpByFile, totalBytes, run.getStartedAt());
+                    var emailResult = sendBackupEmail(config, createdFiles, dumpByFile, totalBytes, run.getStartedAt());
+                    emailed = emailResult.sent();
+                    emailRecipientsSent = emailResult.recipients();
                     if (!emailed) {
-                        emailError = "No se envió correo: revise destinatarios en la configuración de backups.";
+                        emailError = emailResult.detail();
                     }
                 } catch (Exception mailEx) {
                     emailError = mailEx.getMessage() == null ? mailEx.getClass().getSimpleName() : mailEx.getMessage();
@@ -257,7 +262,8 @@ public class BackupService {
             if (emailError != null) {
                 run.setMessage("Backup completado. Correo no enviado: " + emailError);
             } else if (config.isSendByEmail() && emailed) {
-                run.setMessage("Backup completado y correo enviado");
+                run.setMessage(
+                        "Backup completado. Correo enviado a: " + emailRecipientsSent + ". Revise spam si no lo ve.");
             } else {
                 run.setMessage("Backup completado");
             }
@@ -275,6 +281,7 @@ public class BackupService {
             run.setFileNames(String.join(",", createdFiles));
             run.setTotalBytes(totalBytes > 0 ? totalBytes : null);
             run.setEmailed(emailed);
+            run.setEmailRecipientsSent(emailRecipientsSent);
             if ("SUCCESS".equals(run.getStatus())) {
                 run.setProgressPercent(100);
                 run.setProgressStage("Completado");
@@ -290,11 +297,14 @@ public class BackupService {
         runRepository.save(run);
     }
 
-    private boolean sendBackupEmail(
+    private record BackupEmailResult(boolean sent, String recipients, String detail) {}
+
+    private BackupEmailResult sendBackupEmail(
             BackupConfig config,
+            List<String> createdFiles,
             java.util.Map<String, byte[]> dumpByFile,
             long totalBytes,
-            Instant startedAt) {
+            Instant startedAt) throws IOException {
         List<String> recipients = parseRecipients(config.getEmailRecipients());
         if (recipients.isEmpty()) {
             throw new BadRequestException("No hay correos destino en la configuración de backups");
@@ -303,11 +313,15 @@ public class BackupService {
             throw new BadRequestException("El correo está desactivado en Configuración del portal");
         }
 
+        String recipientList = String.join(", ", recipients);
         long maxBytes = (long) backupProperties.maxAttachmentMb() * 1024L * 1024L;
-        boolean attach = totalBytes <= maxBytes;
+        boolean attach = totalBytes <= maxBytes && !createdFiles.isEmpty();
         String stamp = STAMP.format(LocalDateTime.ofInstant(startedAt, ZoneId.systemDefault()));
         String subject = "Backup AllCenter — " + stamp;
 
+        String plain = "Se generó un backup de la base de datos AllCenter.\n"
+                + "Fecha: " + stamp + "\n"
+                + "Archivos: " + String.join(", ", dumpByFile.keySet()) + "\n";
         StringBuilder html = new StringBuilder();
         html.append("<p>Se generó un backup de la base de datos AllCenter.</p>");
         html.append("<p><strong>Fecha:</strong> ").append(stamp).append("</p>");
@@ -316,31 +330,69 @@ public class BackupService {
                     .append(String.join(", ", dumpByFile.keySet()))
                     .append("</p>");
         }
+
+        Path zipPath = null;
+        List<MailFileAttachment> fileAttachments = List.of();
         if (attach) {
-            html.append("<p>Los archivos van adjuntos a este correo.</p>");
+            zipPath = createZipBundle(stamp, createdFiles, dumpByFile);
+            long zipSize = Files.size(zipPath);
+            String zipName = zipPath.getFileName().toString();
+            plain += "Adjunto: " + zipName + " (" + formatSize(zipSize) + ")\n";
+            html.append("<p>Adjunto: <strong>").append(zipName).append("</strong> (")
+                    .append(formatSize(zipSize))
+                    .append(").</p>");
+            fileAttachments = List.of(new MailFileAttachment(zipName, zipPath, "application/zip"));
         } else {
+            plain += "Los archivos superan el límite de adjunto ("
+                    + backupProperties.maxAttachmentMb()
+                    + " MB). Descárguelos desde Gestión → Backups.\n";
             html.append("<p>Los archivos superan el límite de adjunto (")
                     .append(backupProperties.maxAttachmentMb())
                     .append(" MB). Descárguelos desde Gestión → Backups en el portal.</p>");
         }
+        plain += "\nSi no ve este correo, revise la carpeta de spam.";
 
-        List<MailAttachment> attachments = new ArrayList<>();
-        if (attach) {
-            for (var entry : dumpByFile.entrySet()) {
-                attachments.add(new MailAttachment(entry.getKey(), entry.getValue(), "application/gzip"));
+        try {
+            for (String recipient : recipients) {
+                appConfigService.sendBackupNotification(
+                        recipient, subject, plain, html.toString(), fileAttachments);
+            }
+            return new BackupEmailResult(true, recipientList, "Enviado a " + recipientList);
+        } finally {
+            if (zipPath != null) {
+                Files.deleteIfExists(zipPath);
             }
         }
+    }
 
-        int sent = 0;
-        for (String recipient : recipients) {
-            if (attach) {
-                appConfigService.sendHtmlWithAttachments(recipient, subject, html.toString(), attachments);
-            } else {
-                appConfigService.sendHtmlMessage(recipient, subject, html.toString());
+    private Path createZipBundle(String stamp, List<String> fileNames, java.util.Map<String, byte[]> dumpByFile)
+            throws IOException {
+        String zipName = "allcenter_backup_" + stamp + ".zip";
+        Path zipPath = storageRoot().resolve(zipName);
+        try (ZipOutputStream zos = new ZipOutputStream(Files.newOutputStream(zipPath))) {
+            for (String fileName : fileNames) {
+                Path source = storageRoot().resolve(fileName);
+                ZipEntry entry = new ZipEntry(fileName);
+                zos.putNextEntry(entry);
+                if (Files.isRegularFile(source)) {
+                    Files.copy(source, zos);
+                } else if (dumpByFile.containsKey(fileName)) {
+                    zos.write(dumpByFile.get(fileName));
+                }
+                zos.closeEntry();
             }
-            sent++;
         }
-        return sent > 0;
+        return zipPath;
+    }
+
+    private static String formatSize(long bytes) {
+        if (bytes < 1024) {
+            return bytes + " B";
+        }
+        if (bytes < 1024 * 1024) {
+            return String.format("%.1f KB", bytes / 1024.0);
+        }
+        return String.format("%.1f MB", bytes / (1024.0 * 1024.0));
     }
 
     private String persistDump(String dbLabel, byte[] gzipBytes, boolean saveToFolder, String stamp)
