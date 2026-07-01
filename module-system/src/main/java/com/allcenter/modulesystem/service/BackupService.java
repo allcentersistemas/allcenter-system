@@ -24,6 +24,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -120,8 +121,27 @@ public class BackupService {
                 .toList();
     }
 
-    public BackupRunDto runManual() {
-        return executeBackup("MANUAL");
+    @Transactional(readOnly = true)
+    public BackupRunDto getRun(Long runId) {
+        BackupRun run = runRepository
+                .findById(runId)
+                .orElseThrow(() -> new BadRequestException("Backup no encontrado"));
+        return BackupRunDto.from(run, this::isFileDownloadable);
+    }
+
+    public BackupRunDto startManualBackup() {
+        if (!running.compareAndSet(false, true)) {
+            throw new BadRequestException("Ya hay un backup en ejecución");
+        }
+        if (!isPgDumpAvailable()) {
+            running.set(false);
+            throw new BadRequestException(
+                    "pg_dump no está disponible en el servidor. Instale postgresql-client.");
+        }
+        BackupRun run = createRunningRun("MANUAL");
+        Long runId = run.getId();
+        CompletableFuture.runAsync(() -> performBackup(runId, "MANUAL"));
+        return BackupRunDto.from(run, this::isFileDownloadable);
     }
 
     public void runScheduledIfDue() {
@@ -132,11 +152,17 @@ public class BackupService {
         if (!isDue(config)) {
             return;
         }
-        try {
-            executeBackup("SCHEDULED");
-        } catch (Exception ex) {
-            log.error("Backup programado falló: {}", ex.getMessage(), ex);
+        if (!running.compareAndSet(false, true)) {
+            log.info("Backup programado omitido: ya hay uno en ejecución");
+            return;
         }
+        if (!isPgDumpAvailable()) {
+            running.set(false);
+            log.warn("Backup programado omitido: pg_dump no disponible");
+            return;
+        }
+        BackupRun run = createRunningRun("SCHEDULED");
+        CompletableFuture.runAsync(() -> performBackup(run.getId(), "SCHEDULED"));
     }
 
     public Resource resolveDownloadFile(Long runId, String filename) {
@@ -156,29 +182,29 @@ public class BackupService {
         return new FileSystemResource(file);
     }
 
-    private BackupRunDto executeBackup(String triggerType) {
-        if (!running.compareAndSet(false, true)) {
-            throw new BadRequestException("Ya hay un backup en ejecución");
-        }
-        BackupConfig config = ensureConfigRow();
+    private BackupRun createRunningRun(String triggerType) {
         BackupRun run = new BackupRun();
         run.setStartedAt(Instant.now());
         run.setStatus("RUNNING");
         run.setTriggerType(triggerType);
         run.setEmailed(false);
-        run = runRepository.save(run);
+        return runRepository.save(run);
+    }
 
+    private void performBackup(Long runId, String triggerType) {
+        BackupRun run = runRepository.findById(runId).orElse(null);
+        if (run == null) {
+            running.set(false);
+            return;
+        }
+
+        BackupConfig config = ensureConfigRow();
         List<String> createdFiles = new ArrayList<>();
         java.util.Map<String, byte[]> dumpByFile = new java.util.LinkedHashMap<>();
         long totalBytes = 0L;
         boolean emailed = false;
-        String errorMessage = null;
 
         try {
-            if (!isPgDumpAvailable()) {
-                throw new BadRequestException(
-                        "pg_dump no está disponible en el servidor. Instale postgresql-client.");
-            }
             ensureStorageDirectory();
             String stamp = STAMP.format(LocalDateTime.now());
 
@@ -191,7 +217,8 @@ public class BackupService {
 
             if (config.isIncludeBiesseDb() && isBiesseConfigured()) {
                 JdbcUrlParser.ConnectionInfo biesse = JdbcUrlParser.parse(backupProperties.biesseUrl());
-                byte[] biesseDump = dumpDatabase(biesse, backupProperties.biesseUsername(), backupProperties.biessePassword());
+                byte[] biesseDump =
+                        dumpDatabase(biesse, backupProperties.biesseUsername(), backupProperties.biessePassword());
                 String biesseFile = persistDump("obras", biesseDump, config.isSaveToFolder(), stamp);
                 createdFiles.add(biesseFile);
                 dumpByFile.put(biesseFile, biesseDump);
@@ -211,14 +238,10 @@ public class BackupService {
             config.setLastSuccessfulRunAt(Instant.now());
             configRepository.save(config);
         } catch (Exception ex) {
-            errorMessage = ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage();
+            String errorMessage = ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage();
             run.setStatus("FAILED");
             run.setMessage(errorMessage);
             log.error("Backup {} falló: {}", triggerType, errorMessage, ex);
-            if (ex instanceof BadRequestException bad) {
-                throw bad;
-            }
-            throw new BadRequestException("No se pudo completar el backup: " + errorMessage);
         } finally {
             run.setFinishedAt(Instant.now());
             run.setFileNames(String.join(",", createdFiles));
@@ -227,8 +250,6 @@ public class BackupService {
             runRepository.save(run);
             running.set(false);
         }
-
-        return BackupRunDto.from(run, this::isFileDownloadable);
     }
 
     private boolean sendBackupEmail(

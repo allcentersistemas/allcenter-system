@@ -9,6 +9,7 @@ import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -42,7 +43,13 @@ public class BackupController {
     @PostMapping("/run")
     @PreAuthorize("@portalAuth.isMaster()")
     public ResponseEntity<BackupRunDto> runNow() {
-        return ResponseEntity.ok(backupService.runManual());
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(backupService.startManualBackup());
+    }
+
+    @GetMapping("/history/{runId}")
+    @PreAuthorize("@portalAuth.isMaster()")
+    public ResponseEntity<BackupRunDto> getRun(@PathVariable Long runId) {
+        return ResponseEntity.ok(backupService.getRun(runId));
     }
 
     @GetMapping("/history")

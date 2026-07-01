@@ -48,6 +48,7 @@ public class InventoryApplicationService {
     private final GuiaRepository guiaRepository;
     private final PaleRepository paleRepository;
     private final PaleDetalleRepository paleDetalleRepository;
+    private final AppConfigService appConfigService;
 
     public List<InventoryDtos.CategoriaRow> listCategorias() {
         return List.of(
@@ -153,6 +154,9 @@ public class InventoryApplicationService {
      */
     @Transactional
     public void registerPaleInWarehouse(Pale pale, Long sucursalId, String createdByEmail) {
+        if (!appConfigService.isKardexEnabled()) {
+            return;
+        }
         if (sucursalId == null) {
             throw new ResponseStatusException(BAD_REQUEST, "El empleado debe tener sucursal asignada para registrar el palé en almacén");
         }
@@ -178,6 +182,9 @@ public class InventoryApplicationService {
     @Transactional
     public void creditStockFromPaleClose(
             Pale pale, List<PaleDetalle> detalles, Long sucursalId, String createdByEmail) {
+        if (!appConfigService.isKardexEnabled()) {
+            return;
+        }
         if (sucursalId == null || detalles == null || detalles.isEmpty()) {
             return;
         }
@@ -208,6 +215,9 @@ public class InventoryApplicationService {
     @Transactional
     public void creditStockFromRmIngreso(
             List<StockLine> lines, long entradaId, Long sucursalId, String createdByEmail) {
+        if (!appConfigService.isKardexEnabled()) {
+            return;
+        }
         if (lines == null || lines.isEmpty()) {
             return;
         }
@@ -225,6 +235,9 @@ public class InventoryApplicationService {
     @Transactional
     public void debitStockFromRmSalida(
             List<StockLine> lines, long salidaId, Long sucursalId, String createdByEmail) {
+        if (!appConfigService.isKardexEnabled()) {
+            return;
+        }
         if (lines == null || lines.isEmpty()) {
             return;
         }
