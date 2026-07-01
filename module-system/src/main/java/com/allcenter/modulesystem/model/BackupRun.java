@@ -41,4 +41,10 @@ public class BackupRun {
 
     @Column(nullable = false)
     private boolean emailed;
+
+    @Column(nullable = false)
+    private int progressPercent = 0;
+
+    @Column(length = 120)
+    private String progressStage = "";
 }

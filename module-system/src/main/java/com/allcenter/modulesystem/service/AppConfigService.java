@@ -11,6 +11,7 @@ import com.allcenter.modulesystem.repository.AppConfigRepository;
 import com.allcenter.modulesystem.repository.InvItemRepository;
 import com.allcenter.modulesystem.repository.InvStockMovementRepository;
 import jakarta.mail.internet.MimeMessage;
+import java.util.List;
 import java.util.Properties;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -160,10 +161,59 @@ public class AppConfigService {
     }
 
     JavaMailSender buildEffectiveMailSender() {
-        return buildMailSender(ensureConfigRow());
+        return buildMailSender(ensureConfigRow(), 10_000);
+    }
+
+    JavaMailSender buildMailSenderForLargeAttachments() {
+        return buildMailSender(ensureConfigRow(), 300_000);
+    }
+
+    void sendHtmlWithAttachments(String to, String subject, String htmlBody, List<MailAttachment> attachments) {
+        if (!isMailEnabled()) {
+            throw new BadRequestException("El correo está desactivado. Actívelo en Configuración.");
+        }
+        String from = effectiveMailFrom();
+        if (!StringUtils.hasText(from)) {
+            throw new BadRequestException("Configure remitente (mailFrom) para enviar correos");
+        }
+        if (to == null || to.isBlank()) {
+            throw new BadRequestException("Destinatario de correo vacío");
+        }
+        try {
+            boolean multipart = attachments != null && !attachments.isEmpty();
+            JavaMailSender sender = buildMailSenderForLargeAttachments();
+            MimeMessage message = sender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, multipart, "UTF-8");
+            helper.setFrom(formatFromHeader(from, effectiveMailFromName()));
+            helper.setTo(to.trim());
+            helper.setSubject(subject);
+            helper.setText(htmlBody, true);
+            if (multipart) {
+                for (MailAttachment att : attachments) {
+                    if (att == null || att.filename() == null || att.content() == null) {
+                        continue;
+                    }
+                    helper.addAttachment(
+                            att.filename(),
+                            () -> new java.io.ByteArrayInputStream(att.content()),
+                            att.contentType());
+                }
+            }
+            sender.send(message);
+        } catch (Exception ex) {
+            throw new BadRequestException("No se pudo enviar el correo: " + ex.getMessage());
+        }
+    }
+
+    void sendHtmlMessage(String to, String subject, String htmlBody) {
+        sendHtmlWithAttachments(to, subject, htmlBody, List.of());
     }
 
     private JavaMailSender buildMailSender(AppConfig config) {
+        return buildMailSender(config, 10_000);
+    }
+
+    private JavaMailSender buildMailSender(AppConfig config, int timeoutMs) {
         String host =
                 StringUtils.hasText(config.getSmtpHost()) ? config.getSmtpHost().trim() : envSmtpHost.trim();
         int port = config.getSmtpPort() > 0 ? config.getSmtpPort() : envSmtpPort;
@@ -197,9 +247,10 @@ public class AppConfigService {
         Properties props = sender.getJavaMailProperties();
         props.put("mail.transport.protocol", "smtp");
         props.put("mail.smtp.auth", Boolean.toString(useAuth));
-        props.put("mail.smtp.connectiontimeout", "10000");
-        props.put("mail.smtp.timeout", "10000");
-        props.put("mail.smtp.writetimeout", "10000");
+        String timeout = String.valueOf(Math.max(timeoutMs, 10_000));
+        props.put("mail.smtp.connectiontimeout", timeout);
+        props.put("mail.smtp.timeout", timeout);
+        props.put("mail.smtp.writetimeout", timeout);
 
         boolean starttls = config.isSmtpStarttls();
         if (!StringUtils.hasText(config.getSmtpHost()) && envSmtpStarttls != null) {

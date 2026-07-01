@@ -52,6 +52,7 @@ public class BackupService {
     private final BackupRunRepository runRepository;
     private final BackupProperties backupProperties;
     private final MailService mailService;
+    private final AppConfigService appConfigService;
 
     @Value("${spring.datasource.url}")
     private String systemJdbcUrl;
@@ -188,6 +189,8 @@ public class BackupService {
         run.setStatus("RUNNING");
         run.setTriggerType(triggerType);
         run.setEmailed(false);
+        run.setProgressPercent(0);
+        run.setProgressStage("Iniciando…");
         return runRepository.save(run);
     }
 
@@ -203,19 +206,24 @@ public class BackupService {
         java.util.Map<String, byte[]> dumpByFile = new java.util.LinkedHashMap<>();
         long totalBytes = 0L;
         boolean emailed = false;
+        String emailError = null;
 
         try {
+            updateProgress(run, 5, "Preparando backup…");
             ensureStorageDirectory();
             String stamp = STAMP.format(LocalDateTime.now());
 
+            updateProgress(run, 15, "Volcando base app_db…");
             byte[] systemDump = dumpDatabase(
                     JdbcUrlParser.parse(systemJdbcUrl), systemUsername, systemPassword);
             String systemFile = persistDump("app_db", systemDump, config.isSaveToFolder(), stamp);
             createdFiles.add(systemFile);
             dumpByFile.put(systemFile, systemDump);
             totalBytes += systemDump.length;
+            updateProgress(run, config.isIncludeBiesseDb() && isBiesseConfigured() ? 40 : 55, "Base app_db lista");
 
             if (config.isIncludeBiesseDb() && isBiesseConfigured()) {
+                updateProgress(run, 45, "Volcando base obras…");
                 JdbcUrlParser.ConnectionInfo biesse = JdbcUrlParser.parse(backupProperties.biesseUrl());
                 byte[] biesseDump =
                         dumpDatabase(biesse, backupProperties.biesseUsername(), backupProperties.biessePassword());
@@ -223,33 +231,63 @@ public class BackupService {
                 createdFiles.add(biesseFile);
                 dumpByFile.put(biesseFile, biesseDump);
                 totalBytes += biesseDump.length;
-            }
-
-            if (config.isSendByEmail()) {
-                emailed = sendBackupEmail(config, dumpByFile, totalBytes, run.getStartedAt());
+                updateProgress(run, 60, "Base obras lista");
             }
 
             if (config.isSaveToFolder()) {
+                updateProgress(run, 65, "Limpiando copias antiguas…");
                 pruneOldBackups(config.getRetentionCount());
             }
 
+            if (config.isSendByEmail()) {
+                updateProgress(run, 75, "Enviando correo…");
+                try {
+                    emailed = sendBackupEmail(config, dumpByFile, totalBytes, run.getStartedAt());
+                    if (!emailed) {
+                        emailError = "No se envió correo: revise destinatarios en la configuración de backups.";
+                    }
+                } catch (Exception mailEx) {
+                    emailError = mailEx.getMessage() == null ? mailEx.getClass().getSimpleName() : mailEx.getMessage();
+                    log.error("Backup {}: falló el envío de correo: {}", triggerType, emailError, mailEx);
+                }
+            }
+
+            updateProgress(run, 95, "Finalizando…");
             run.setStatus("SUCCESS");
-            run.setMessage("Backup completado");
+            if (emailError != null) {
+                run.setMessage("Backup completado. Correo no enviado: " + emailError);
+            } else if (config.isSendByEmail() && emailed) {
+                run.setMessage("Backup completado y correo enviado");
+            } else {
+                run.setMessage("Backup completado");
+            }
             config.setLastSuccessfulRunAt(Instant.now());
             configRepository.save(config);
         } catch (Exception ex) {
             String errorMessage = ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage();
             run.setStatus("FAILED");
             run.setMessage(errorMessage);
+            run.setProgressPercent(0);
+            run.setProgressStage("Error");
             log.error("Backup {} falló: {}", triggerType, errorMessage, ex);
         } finally {
             run.setFinishedAt(Instant.now());
             run.setFileNames(String.join(",", createdFiles));
             run.setTotalBytes(totalBytes > 0 ? totalBytes : null);
             run.setEmailed(emailed);
+            if ("SUCCESS".equals(run.getStatus())) {
+                run.setProgressPercent(100);
+                run.setProgressStage("Completado");
+            }
             runRepository.save(run);
             running.set(false);
         }
+    }
+
+    private void updateProgress(BackupRun run, int percent, String stage) {
+        run.setProgressPercent(Math.min(100, Math.max(0, percent)));
+        run.setProgressStage(stage);
+        runRepository.save(run);
     }
 
     private boolean sendBackupEmail(
@@ -259,7 +297,10 @@ public class BackupService {
             Instant startedAt) {
         List<String> recipients = parseRecipients(config.getEmailRecipients());
         if (recipients.isEmpty()) {
-            return false;
+            throw new BadRequestException("No hay correos destino en la configuración de backups");
+        }
+        if (!appConfigService.isMailEnabled()) {
+            throw new BadRequestException("El correo está desactivado en Configuración del portal");
         }
 
         long maxBytes = (long) backupProperties.maxAttachmentMb() * 1024L * 1024L;
@@ -290,14 +331,16 @@ public class BackupService {
             }
         }
 
+        int sent = 0;
         for (String recipient : recipients) {
             if (attach) {
-                mailService.sendHtmlWithAttachments(recipient, subject, html.toString(), attachments);
+                appConfigService.sendHtmlWithAttachments(recipient, subject, html.toString(), attachments);
             } else {
-                mailService.sendHtml(recipient, subject, html.toString());
+                appConfigService.sendHtmlMessage(recipient, subject, html.toString());
             }
+            sent++;
         }
-        return true;
+        return sent > 0;
     }
 
     private String persistDump(String dbLabel, byte[] gzipBytes, boolean saveToFolder, String stamp)
