@@ -1,6 +1,10 @@
 package com.allcenter.modulesystem.support;
 
+import com.allcenter.modulesystem.model.Employee;
+import com.allcenter.modulesystem.security.EmployeeUserDetails;
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
@@ -36,6 +40,20 @@ public final class PaleAuditSourceCapture {
             }
         }
         String actorEmail = trim(req.getHeader(HEADER_ACTOR_EMAIL));
+        if (actorId == null || actorEmail == null) {
+            Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+            if (auth != null && auth.getPrincipal() instanceof EmployeeUserDetails principal) {
+                Employee employee = principal.getEmployee();
+                if (employee != null) {
+                    if (actorId == null && employee.getId() != null) {
+                        actorId = employee.getId();
+                    }
+                    if (actorEmail == null && employee.getEmail() != null && !employee.getEmail().isBlank()) {
+                        actorEmail = employee.getEmail().trim();
+                    }
+                }
+            }
+        }
         AuditNet meta = AuditNet.from(req);
         return new Captured(actorId, actorEmail, meta.clientIpPublic(), meta.userAgent());
     }

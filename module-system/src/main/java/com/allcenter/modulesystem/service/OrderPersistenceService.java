@@ -6,6 +6,7 @@ import com.allcenter.modulesystem.model.Orden;
 import com.allcenter.modulesystem.model.OrdenDetalle;
 import com.allcenter.modulesystem.model.ProyectoEstado;
 import com.allcenter.modulesystem.model.ProyectoOptimizacion;
+import com.allcenter.modulesystem.model.AuditAction;
 import com.allcenter.modulesystem.repository.ClientUserRepository;
 import com.allcenter.modulesystem.repository.EmployeeRepository;
 import com.allcenter.modulesystem.repository.OrdenDetalleRepository;
@@ -42,6 +43,7 @@ public class OrderPersistenceService {
     private final MaquinaOptimizacionService maquinaService;
     private final com.allcenter.modulesystem.support.OptimizacionStorageService optimizacionStorage;
     private final MailService mailService;
+    private final AuditService auditService;
 
     public OrderPersistenceService(
             ProyectoRepository proyectoRepository,
@@ -52,7 +54,8 @@ public class OrderPersistenceService {
             ObjectMapper objectMapper,
             MaquinaOptimizacionService maquinaService,
             com.allcenter.modulesystem.support.OptimizacionStorageService optimizacionStorage,
-            MailService mailService
+            MailService mailService,
+            AuditService auditService
     ) {
         this.proyectoRepository = proyectoRepository;
         this.ordenRepository = ordenRepository;
@@ -63,6 +66,7 @@ public class OrderPersistenceService {
         this.maquinaService = maquinaService;
         this.optimizacionStorage = optimizacionStorage;
         this.mailService = mailService;
+        this.auditService = auditService;
     }
 
     @Transactional
@@ -134,7 +138,9 @@ public class OrderPersistenceService {
         if (proyecto.getEstado() == ProyectoEstado.ENVIADO) {
             applyEstadoChange(proyecto, ProyectoEstado.EN_ATENCION);
         }
-        return toProyectoResponse(proyectoRepository.save(proyecto), true);
+        ProyectoOptimizacion saved = proyectoRepository.save(proyecto);
+        recordProyectoAudit(AuditAction.UPDATE, saved, "Proyecto capturado por vendedor; estado EN_ATENCION");
+        return toProyectoResponse(saved, true);
     }
 
     @Transactional
@@ -150,21 +156,27 @@ public class OrderPersistenceService {
             proyecto.setVendedorId(employeeId);
         }
         applyEstadoChange(proyecto, ProyectoEstado.VENDIDO);
-        return toProyectoResponse(proyectoRepository.save(proyecto), true);
+        ProyectoOptimizacion saved = proyectoRepository.save(proyecto);
+        recordProyectoAudit(AuditAction.UPDATE, saved, "Proyecto marcado como VENDIDO");
+        return toProyectoResponse(saved, true);
     }
 
     @Transactional
     public OrderDtos.ProyectoResponse cancelProjectForEmployee(Long proyectoId) {
         ProyectoOptimizacion proyecto = requireProject(proyectoId);
         cancelProjectInternal(proyecto);
-        return toProyectoResponse(proyectoRepository.save(proyecto), true);
+        ProyectoOptimizacion saved = proyectoRepository.save(proyecto);
+        recordProyectoAudit(AuditAction.UPDATE, saved, "Proyecto cancelado por empleado");
+        return toProyectoResponse(saved, true);
     }
 
     @Transactional
     public OrderDtos.ProyectoResponse cancelProjectForClient(long clientUserId, Long proyectoId) {
         ProyectoOptimizacion proyecto = requireOwnedProject(clientUserId, proyectoId);
         cancelProjectInternal(proyecto);
-        return toProyectoResponse(proyectoRepository.save(proyecto), false);
+        ProyectoOptimizacion saved = proyectoRepository.save(proyecto);
+        recordProyectoAudit(AuditAction.UPDATE, saved, "Proyecto cancelado por cliente portal");
+        return toProyectoResponse(saved, false);
     }
 
     @Transactional
@@ -206,7 +218,9 @@ public class OrderPersistenceService {
             maquinaService.requireActiveMaquina(payload.maquinaId());
             proyecto.setMaquinaId(payload.maquinaId());
         }
-        return toProyectoResponse(proyectoRepository.save(proyecto), true);
+        ProyectoOptimizacion saved = proyectoRepository.save(proyecto);
+        recordProyectoAudit(AuditAction.UPDATE, saved, "Datos de gestión del proyecto actualizados");
+        return toProyectoResponse(saved, true);
     }
 
     @Transactional
@@ -250,6 +264,7 @@ public class OrderPersistenceService {
             }
             ProyectoOptimizacion saved = proyectoRepository.save(proyecto);
             notifyClientCotizacionEmail(saved, filename);
+            recordProyectoAudit(AuditAction.UPDATE, saved, "Cotización subida; estado COTIZADO");
             return toProyectoResponse(saved, true);
         } catch (java.io.IOException ex) {
             throw new IllegalArgumentException("No se pudo guardar la cotización.");
@@ -285,6 +300,7 @@ public class OrderPersistenceService {
         }
         proyectoRepository.save(proyecto);
         replaceProjectOrders(proyecto.getId(), payload.orders());
+        recordProyectoAudit(AuditAction.UPDATE, proyecto, "Árbol de proyecto actualizado por empleado");
         return getProjectTree(proyecto.getId(), true);
     }
 
@@ -348,6 +364,7 @@ public class OrderPersistenceService {
             }
             proyectoRepository.save(proyectoEntity);
             replaceProjectOrders(proyectoEntity.getId(), payload.orders());
+            recordProyectoAudit(AuditAction.UPDATE, proyectoEntity, "Proyecto actualizado por cliente portal");
             return getProjectTree(proyectoEntity.getId(), clientCanEdit(proyectoEntity));
         } else {
             proyecto = saveProyecto(payload.project(), clientUserId);
@@ -442,6 +459,10 @@ public class OrderPersistenceService {
             proyectoOptimizacion.setMaquinaId(payload.maquinaId());
         }
         ProyectoOptimizacion saved = proyectoRepository.save(proyectoOptimizacion);
+        recordProyectoAudit(
+                AuditAction.CREATE,
+                saved,
+                "Proyecto creado: " + saved.getNombre() + " (estado ENVIADO)");
         return toProyectoResponse(saved, clientUserId == null);
     }
 
@@ -578,6 +599,14 @@ public class OrderPersistenceService {
             case VENDIDO -> proyecto.setFechaEstadoVendido(now);
             case CANCELADO -> proyecto.setFechaEstadoCancelado(now);
         }
+    }
+
+    private void recordProyectoAudit(AuditAction action, ProyectoOptimizacion proyecto, String details) {
+        if (proyecto == null || proyecto.getId() == null) {
+            return;
+        }
+        auditService.recordEntityChange(
+                action, "ProyectoOptimizacion", String.valueOf(proyecto.getId()), details);
     }
 
     private void notifyClientCotizacionEmail(ProyectoOptimizacion proyecto, String storedFilename) {

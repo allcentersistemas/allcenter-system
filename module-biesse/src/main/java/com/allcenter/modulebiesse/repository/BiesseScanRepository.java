@@ -354,19 +354,31 @@ public class BiesseScanRepository {
         syncPartProgressFromPieces(employeeId, partId, effectiveScanned, completed, observations, equipment);
 
         Long orderId = ((Number) pieceInfo.get("orderid")).longValue();
+        String detalles =
+                "piezaid="
+                        + pieceId
+                        + " parte="
+                        + pieceInfo.get("partcode")
+                        + " acumulado="
+                        + effectiveScanned
+                        + "/"
+                        + (scheduledQty != null ? scheduledQty : 0);
+        if (equipment != null && equipment.equalsIgnoreCase("PALLET") && observations != null) {
+            String obs = observations.trim();
+            if (!obs.isEmpty()) {
+                detalles += " | " + obs;
+                String paleCode = extractPaleCodeFromObservations(obs);
+                if (paleCode != null) {
+                    detalles += " pale=" + paleCode;
+                }
+            }
+        }
         insertScanAudit(
                 employeeId,
                 orderId,
                 partId,
                 "ESCANEAR_PIEZA",
-                "Pieza piezaid="
-                        + pieceId
-                        + " de parte "
-                        + pieceInfo.get("partcode")
-                        + " escaneada. Acumulado partes: "
-                        + effectiveScanned
-                        + "/"
-                        + (scheduledQty != null ? scheduledQty : 0),
+                detalles,
                 "AUTOMATICO",
                 equipment != null ? equipment : "");
         syncOrderScanProgress(orderId);
@@ -1352,5 +1364,25 @@ public class BiesseScanRepository {
     private long countGeneric(String sql) {
         Number value = jdbcTemplate.queryForObject(sql, Number.class);
         return value == null ? 0L : value.longValue();
+    }
+
+  private static String extractPaleCodeFromObservations(String observations) {
+        if (observations == null || observations.isBlank()) {
+            return null;
+        }
+        String lower = observations.toLowerCase();
+        int idx = lower.indexOf("agregada a pale ");
+        if (idx < 0) {
+            idx = lower.indexOf("pale ");
+        }
+        if (idx < 0) {
+            return null;
+        }
+        String tail = observations.substring(idx).replaceFirst("(?i)^.*pale\\s+", "").trim();
+        if (tail.isEmpty()) {
+            return null;
+        }
+        int space = tail.indexOf(' ');
+        return space > 0 ? tail.substring(0, space).trim() : tail.trim();
     }
 }

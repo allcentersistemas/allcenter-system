@@ -4,6 +4,7 @@ import com.allcenter.modulesystem.exception.ForbiddenException;
 import com.allcenter.modulesystem.dto.AdminCreateEmployeeRequest;
 import com.allcenter.modulesystem.dto.AdminResetPasswordRequest;
 import com.allcenter.modulesystem.dto.EmployeeAdminPatchRequest;
+import com.allcenter.modulesystem.dto.EmployeeAuditDirectoryItem;
 import com.allcenter.modulesystem.dto.EmployeeCatalogItem;
 import com.allcenter.modulesystem.dto.EmployeeResponse;
 import com.allcenter.modulesystem.dto.EmployeeRolesRequest;
@@ -47,6 +48,13 @@ public class EmployeeController {
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<List<EmployeeCatalogItem>> catalogByRole(@PathVariable String roleName) {
         return ResponseEntity.ok(employeeService.listActiveCatalogByRole(roleName));
+    }
+
+    /** Directorio ligero para enriquecer auditoría (id, email, nombre). */
+    @GetMapping("/audit-directory")
+    @PreAuthorize("@portalAuth.canGestion()")
+    public ResponseEntity<List<EmployeeAuditDirectoryItem>> auditDirectory() {
+        return ResponseEntity.ok(employeeService.listAuditDirectory());
     }
 
     @PatchMapping("/me")

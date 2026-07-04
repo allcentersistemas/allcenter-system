@@ -10,6 +10,7 @@ import com.allcenter.modulesystem.model.Role;
 import com.allcenter.modulesystem.dto.AdminCreateEmployeeRequest;
 import com.allcenter.modulesystem.dto.EmployeeAdminPatchRequest;
 import com.allcenter.modulesystem.dto.EmployeeResponse;
+import com.allcenter.modulesystem.dto.EmployeeAuditDirectoryItem;
 import com.allcenter.modulesystem.dto.EmployeeCatalogItem;
 import com.allcenter.modulesystem.dto.EmployeeSelfPatchRequest;
 import com.allcenter.modulesystem.repository.EmployeeRepository;
@@ -61,6 +62,20 @@ public class EmployeeService {
         }
         return employeeRepository.findAllActiveByRoleName(roleName.trim()).stream()
                 .map(e -> new EmployeeCatalogItem(e.getId(), e.getEmail(), buildDisplayName(e)))
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<EmployeeAuditDirectoryItem> listAuditDirectory() {
+        return employeeRepository.findAuditDirectory().stream()
+                .map(
+                        row ->
+                                new EmployeeAuditDirectoryItem(
+                                        row.id(),
+                                        row.email(),
+                                        row.displayName() == null || row.displayName().isBlank()
+                                                ? row.email()
+                                                : row.displayName().trim()))
                 .toList();
     }
 

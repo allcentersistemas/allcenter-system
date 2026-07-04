@@ -12,6 +12,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -24,9 +25,11 @@ public class AuditController {
     @GetMapping("/entries")
     @PreAuthorize("@portalAuth.canGestion()")
     public ResponseEntity<Page<AuditEntryResponse>> list(
+            @RequestParam(required = false) String entityType,
+            @RequestParam(required = false) String entityId,
             @PageableDefault(size = 50, sort = "occurredAt", direction = Sort.Direction.DESC)
                     Pageable pageable) {
-        return ResponseEntity.ok(auditQueryService.findAll(pageable));
+        return ResponseEntity.ok(auditQueryService.findFiltered(entityType, entityId, pageable));
     }
 
     @GetMapping("/entries/{id}")

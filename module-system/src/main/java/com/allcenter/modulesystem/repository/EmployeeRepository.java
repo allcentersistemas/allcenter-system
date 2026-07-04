@@ -1,5 +1,6 @@
 package com.allcenter.modulesystem.repository;
 
+import com.allcenter.modulesystem.dto.EmployeeAuditDirectoryItem;
 import com.allcenter.modulesystem.model.Employee;
 import java.util.List;
 import java.util.Optional;
@@ -87,4 +88,17 @@ public interface EmployeeRepository extends JpaRepository<Employee, Long> {
             ORDER BY e.lastName ASC, e.firstName ASC
             """)
     List<Employee> findAllActiveByRoleName(@Param("roleName") String roleName);
+
+    @Query(
+            """
+            SELECT new com.allcenter.modulesystem.dto.EmployeeAuditDirectoryItem(
+              e.id,
+              e.email,
+              TRIM(CONCAT(COALESCE(e.firstName, ''), ' ', COALESCE(e.lastName, '')))
+            )
+            FROM Employee e
+            WHERE e.active = true
+            ORDER BY e.lastName ASC NULLS LAST, e.firstName ASC NULLS LAST, e.id ASC
+            """)
+    List<EmployeeAuditDirectoryItem> findAuditDirectory();
 }

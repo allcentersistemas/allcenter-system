@@ -24,14 +24,14 @@ public class RoleService {
     @Transactional(readOnly = true)
     public RoleResponse getById(Long id) {
         return roleRepository
-                .findById(id)
+                .findByIdWithPermissions(id)
                 .map(RoleResponse::from)
                 .orElseThrow(() -> new NotFoundException("No existe un rol con id " + id));
     }
 
     @Transactional(readOnly = true)
     public List<RoleResponse> findAll() {
-        return roleRepository.findAll().stream()
+        return roleRepository.findAllWithPermissions().stream()
                 .map(RoleResponse::from)
                 .sorted((a, b) -> a.name().compareToIgnoreCase(b.name()))
                 .toList();
@@ -47,18 +47,22 @@ public class RoleService {
         role.setName(normalized);
         role.setDescription(
                 request.description() != null ? request.description().trim() : null);
+        RolePermissionSupport.replacePermissions(role, request.permissions());
         roleRepository.save(role);
-        return RoleResponse.from(role);
+        return RoleResponse.from(roleRepository.findByIdWithPermissions(role.getId()).orElse(role));
     }
 
     @Transactional
     public RoleResponse patch(Long id, RolePatchRequest request) {
-        if (request.name() == null && request.description() == null) {
-            throw new BadRequestException("Debe enviar al menos el campo name o description para actualizar");
+        if (request.name() == null
+                && request.description() == null
+                && request.permissions() == null) {
+            throw new BadRequestException(
+                    "Debe enviar al menos el campo name, description o permissions para actualizar");
         }
         Role role =
                 roleRepository
-                        .findById(id)
+                        .findByIdWithPermissions(id)
                         .orElseThrow(() -> new NotFoundException("No existe un rol con id " + id));
         if (request.name() != null && !request.name().isBlank()) {
             String n = request.name().trim().toUpperCase();
@@ -71,8 +75,11 @@ public class RoleService {
             role.setDescription(
                     request.description().trim().isEmpty() ? null : request.description().trim());
         }
+        if (request.permissions() != null) {
+            RolePermissionSupport.replacePermissions(role, request.permissions());
+        }
         roleRepository.save(role);
-        return RoleResponse.from(role);
+        return RoleResponse.from(roleRepository.findByIdWithPermissions(id).orElse(role));
     }
 
     @Transactional
