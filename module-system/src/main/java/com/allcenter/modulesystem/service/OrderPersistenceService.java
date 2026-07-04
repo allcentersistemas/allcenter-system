@@ -17,6 +17,7 @@ import com.allcenter.modulesystem.security.PortalRoleNames;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
 import jakarta.persistence.EntityNotFoundException;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,6 +30,7 @@ import java.util.Map;
 import java.util.Objects;
 
 @Service
+@Slf4j
 public class OrderPersistenceService {
 
     private final ProyectoRepository proyectoRepository;
@@ -39,6 +41,7 @@ public class OrderPersistenceService {
     private final ObjectMapper objectMapper;
     private final MaquinaOptimizacionService maquinaService;
     private final com.allcenter.modulesystem.support.OptimizacionStorageService optimizacionStorage;
+    private final MailService mailService;
 
     public OrderPersistenceService(
             ProyectoRepository proyectoRepository,
@@ -48,7 +51,8 @@ public class OrderPersistenceService {
             EmployeeRepository employeeRepository,
             ObjectMapper objectMapper,
             MaquinaOptimizacionService maquinaService,
-            com.allcenter.modulesystem.support.OptimizacionStorageService optimizacionStorage
+            com.allcenter.modulesystem.support.OptimizacionStorageService optimizacionStorage,
+            MailService mailService
     ) {
         this.proyectoRepository = proyectoRepository;
         this.ordenRepository = ordenRepository;
@@ -58,6 +62,7 @@ public class OrderPersistenceService {
         this.objectMapper = objectMapper;
         this.maquinaService = maquinaService;
         this.optimizacionStorage = optimizacionStorage;
+        this.mailService = mailService;
     }
 
     @Transactional
@@ -243,7 +248,9 @@ public class OrderPersistenceService {
             if (proyecto.getVendedorId() == null) {
                 proyecto.setVendedorId(employeeId);
             }
-            return toProyectoResponse(proyectoRepository.save(proyecto), true);
+            ProyectoOptimizacion saved = proyectoRepository.save(proyecto);
+            notifyClientCotizacionEmail(saved, filename);
+            return toProyectoResponse(saved, true);
         } catch (java.io.IOException ex) {
             throw new IllegalArgumentException("No se pudo guardar la cotización.");
         }
@@ -571,6 +578,87 @@ public class OrderPersistenceService {
             case VENDIDO -> proyecto.setFechaEstadoVendido(now);
             case CANCELADO -> proyecto.setFechaEstadoCancelado(now);
         }
+    }
+
+    private void notifyClientCotizacionEmail(ProyectoOptimizacion proyecto, String storedFilename) {
+        if (!mailService.isEnabled()) {
+            log.debug(
+                    "Correo deshabilitado; no se envía cotización del proyecto {}",
+                    proyecto.getId());
+            return;
+        }
+        Long clientUserId = proyecto.getClientUserId();
+        if (clientUserId == null) {
+            log.info(
+                    "Proyecto {} sin cliente portal; no se envía cotización por correo",
+                    proyecto.getId());
+            return;
+        }
+        ClientUser client =
+                clientUserRepository.findById(clientUserId).orElse(null);
+        if (client == null || client.getEmail() == null || client.getEmail().isBlank()) {
+            log.warn(
+                    "Cliente {} sin correo; no se envía cotización del proyecto {}",
+                    clientUserId,
+                    proyecto.getId());
+            return;
+        }
+        try {
+            byte[] bytes = optimizacionStorage.readCotizacionBytes(proyecto.getId(), storedFilename);
+            String attachmentName =
+                    optimizacionStorage.cotizacionDownloadName(
+                            proyecto.getId(), storedFilename, proyecto.getNombre());
+            String contentType = optimizacionStorage.cotizacionContentType(storedFilename);
+            String recipientName = resolveClientDisplayName(client);
+            String projectName =
+                    proyecto.getNombre() == null || proyecto.getNombre().isBlank()
+                            ? "su proyecto"
+                            : proyecto.getNombre().trim();
+            String html =
+                    """
+                    <p>Hola %s,</p>
+                    <p>Su proyecto <strong>%s</strong> ha sido cotizado.</p>
+                    <p>Adjuntamos la cotización. También puede consultarla iniciando sesión en el portal cliente.</p>
+                    <p>Saludos,<br/>AllCenter</p>
+                    """
+                            .formatted(escapeHtml(recipientName), escapeHtml(projectName));
+            mailService.sendHtmlWithAttachments(
+                    client.getEmail().trim(),
+                    "Cotización disponible — " + projectName,
+                    html,
+                    List.of(new MailAttachment(attachmentName, bytes, contentType)));
+        } catch (Exception ex) {
+            log.error(
+                    "No se pudo enviar la cotización por correo (proyecto {}): {}",
+                    proyecto.getId(),
+                    ex.getMessage());
+        }
+    }
+
+    private static String resolveClientDisplayName(ClientUser client) {
+        if (client.isJuridica()
+                && client.getRazonSocial() != null
+                && !client.getRazonSocial().isBlank()) {
+            return client.getRazonSocial().trim();
+        }
+        if (client.getDisplayName() != null && !client.getDisplayName().isBlank()) {
+            return client.getDisplayName().trim();
+        }
+        if (client.getNombre() != null && !client.getNombre().isBlank()) {
+            return client.getNombre().trim();
+        }
+        return client.getEmail();
+    }
+
+    private static String escapeHtml(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;");
     }
 
     private void cancelProjectInternal(ProyectoOptimizacion proyecto) {

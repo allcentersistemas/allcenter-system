@@ -61,6 +61,49 @@ public class OptimizacionStorageService {
         return new FileSystemResource(file);
     }
 
+    public byte[] readCotizacionBytes(long proyectoId, String filename) throws IOException {
+        Path file = findCotizacionFile(proyectoId, filename);
+        if (file == null) {
+            throw new ResponseStatusException(
+                    NOT_FOUND,
+                    "El archivo de cotización no está en el servidor. Ventas debe volver a subirla.");
+        }
+        return Files.readAllBytes(file);
+    }
+
+    public String cotizacionContentType(String filename) {
+        String lower = filename == null ? "" : filename.toLowerCase(Locale.ROOT);
+        if (lower.endsWith(".pdf")) {
+            return "application/pdf";
+        }
+        if (lower.endsWith(".xlsx")) {
+            return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+        }
+        if (lower.endsWith(".xls")) {
+            return "application/vnd.ms-excel";
+        }
+        if (lower.endsWith(".docx")) {
+            return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+        }
+        if (lower.endsWith(".doc")) {
+            return "application/msword";
+        }
+        return "application/octet-stream";
+    }
+
+    public String cotizacionDownloadName(long proyectoId, String storedFilename, String proyectoNombre) {
+        String ext = ".pdf";
+        String normalized = normalizeStoredFilename(storedFilename);
+        if (normalized != null && normalized.contains(".")) {
+            ext = normalized.substring(normalized.lastIndexOf('.'));
+        }
+        String base =
+                proyectoNombre == null || proyectoNombre.isBlank()
+                        ? "cotizacion-proyecto-" + proyectoId
+                        : proyectoNombre.trim().replaceAll("[^\\w\\-. ]+", "_");
+        return "Cotizacion-" + base + ext;
+    }
+
     public boolean cotizacionExists(long proyectoId, String filename) {
         return findCotizacionFile(proyectoId, filename) != null;
     }
