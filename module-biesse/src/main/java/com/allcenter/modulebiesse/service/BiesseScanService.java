@@ -137,10 +137,11 @@ public class BiesseScanService {
         return repository.findOrders(orderId, state, query, fromDate, toDate, safeLimit, safeOffset);
     }
 
-    public List<Map<String, Object>> getAudit(Long orderId, Long partId, String action, int limit, int offset) {
+    public List<Map<String, Object>> getAudit(
+            Long orderId, Long partId, String orderQ, String partQ, String action, int limit, int offset) {
         int safeLimit = Math.max(1, Math.min(limit, 500));
         int safeOffset = Math.max(0, offset);
-        return repository.findScanAudit(orderId, partId, action, safeLimit, safeOffset);
+        return repository.findScanAudit(orderId, partId, orderQ, partQ, action, safeLimit, safeOffset);
     }
 
     public Map<String, Object> getOrderDetail(Long orderId) {

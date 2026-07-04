@@ -828,31 +828,161 @@ public class BiesseScanRepository {
         return jdbcTemplate.update("DELETE FROM ordenes WHERE orderid = ?", orderId) > 0;
     }
 
-    public List<Map<String, Object>> findScanAudit(Long orderId, Long partId, String action, int limit, int offset) {
+    public List<Map<String, Object>> findScanAudit(
+            Long orderId,
+            Long partId,
+            String orderQ,
+            String partQ,
+            String action,
+            int limit,
+            int offset) {
         StringBuilder sql =
                 new StringBuilder(
                         """
-                        SELECT auditoriaid, usuarioid, orderid, partid, accion, detalles, equipo, metodo, exito, fecha
-                        FROM auditoriaescaneos
+                        SELECT a.auditoriaid, a.usuarioid, a.orderid, a.partid, a.accion, a.detalles, a.equipo, a.metodo, a.exito, a.fecha,
+                               o.ordername, p.partcode
+                        FROM auditoriaescaneos a
+                        LEFT JOIN ordenes o ON o.orderid = a.orderid
+                        LEFT JOIN partes p ON p.partid = a.partid
                         WHERE 1=1
                         """);
         java.util.List<Object> args = new java.util.ArrayList<>();
-        if (orderId != null) {
-            sql.append(" AND orderid = ? ");
-            args.add(orderId);
-        }
-        if (partId != null) {
-            sql.append(" AND partid = ? ");
-            args.add(partId);
-        }
+        appendOrderAuditFilter(sql, args, orderId, orderQ);
+        appendPartAuditFilter(sql, args, partId, partQ);
         if (action != null && !action.isBlank()) {
-            sql.append(" AND UPPER(accion) = UPPER(?) ");
+            sql.append(" AND UPPER(a.accion) = UPPER(?) ");
             args.add(action.trim());
         }
-        sql.append(" ORDER BY fecha DESC LIMIT ? OFFSET ? ");
+        sql.append(" ORDER BY a.fecha DESC LIMIT ? OFFSET ? ");
         args.add(limit);
         args.add(offset);
-        return jdbcTemplate.queryForList(sql.toString(), args.toArray());
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql.toString(), args.toArray());
+        enrichScanAuditRows(rows);
+        return rows;
+    }
+
+    private static void appendOrderAuditFilter(
+            StringBuilder sql, java.util.List<Object> args, Long orderId, String orderQ) {
+        if (orderId != null) {
+            sql.append(" AND a.orderid = ? ");
+            args.add(orderId);
+            return;
+        }
+        if (orderQ == null || orderQ.isBlank()) {
+            return;
+        }
+        String token = orderQ.trim();
+        if (token.matches("\\d+")) {
+            sql.append(" AND a.orderid = ? ");
+            args.add(Long.parseLong(token));
+            return;
+        }
+        String like = "%" + token + "%";
+        sql.append(
+                """
+                 AND (
+                   UPPER(COALESCE(o.ordername, '')) LIKE UPPER(?)
+                   OR UPPER(COALESCE(o.bookingcode, '')) LIKE UPPER(?)
+                 )
+                """);
+        args.add(like);
+        args.add(like);
+    }
+
+    private static void appendPartAuditFilter(
+            StringBuilder sql, java.util.List<Object> args, Long partId, String partQ) {
+        if (partId != null) {
+            sql.append(" AND a.partid = ? ");
+            args.add(partId);
+            return;
+        }
+        if (partQ == null || partQ.isBlank()) {
+            return;
+        }
+        String token = partQ.trim();
+        if (token.matches("\\d+")) {
+            sql.append(" AND a.partid = ? ");
+            args.add(Long.parseLong(token));
+            return;
+        }
+        String normalized = token.toUpperCase(java.util.Locale.ROOT);
+        String withP =
+                normalized.startsWith("P") ? normalized : "P" + normalized.replaceAll("^P", "");
+        String like = "%" + token + "%";
+        sql.append(
+                """
+                 AND (
+                   UPPER(TRIM(COALESCE(p.partcode, ''))) = UPPER(TRIM(?))
+                   OR UPPER(TRIM(COALESCE(p.partcode, ''))) = UPPER(TRIM(?))
+                   OR UPPER(COALESCE(p.partcode, '')) LIKE UPPER(?)
+                   OR CAST(p.partnumber AS TEXT) = ?
+                 )
+                """);
+        args.add(token);
+        args.add(withP);
+        args.add(like);
+        args.add(token.replaceAll("\\D", "").isEmpty() ? token : token.replaceAll("\\D", ""));
+    }
+
+    private void enrichScanAuditRows(List<Map<String, Object>> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return;
+        }
+        java.util.Set<Long> pieceIds = new java.util.LinkedHashSet<>();
+        for (Map<String, Object> row : rows) {
+            Long piezaId = extractPiezaIdFromAuditRow(row);
+            if (piezaId != null) {
+                row.put("piezaid", piezaId);
+                pieceIds.add(piezaId);
+            }
+        }
+        if (pieceIds.isEmpty()) {
+            return;
+        }
+        String placeholders = pieceIds.stream().map(id -> "?").collect(java.util.stream.Collectors.joining(","));
+        String sql =
+                "SELECT piezaid, numero_pieza FROM piezas WHERE piezaid IN (" + placeholders + ")";
+        List<Map<String, Object>> pieces =
+                jdbcTemplate.queryForList(sql, pieceIds.toArray());
+        Map<Long, Integer> numeroById = new java.util.HashMap<>();
+        for (Map<String, Object> piece : pieces) {
+            Object idRaw = piece.get("piezaid");
+            Object numRaw = piece.get("numero_pieza");
+            if (idRaw instanceof Number n && numRaw instanceof Number num) {
+                numeroById.put(n.longValue(), num.intValue());
+            }
+        }
+        for (Map<String, Object> row : rows) {
+            Object idRaw = row.get("piezaid");
+            if (idRaw instanceof Number n) {
+                Integer numero = numeroById.get(n.longValue());
+                if (numero != null) {
+                    row.put("numero_pieza", numero);
+                }
+            }
+        }
+    }
+
+    private static Long extractPiezaIdFromAuditRow(Map<String, Object> row) {
+        Object existing = row.get("piezaid");
+        if (existing instanceof Number n) {
+            return n.longValue();
+        }
+        String detalles = row.get("detalles") == null ? "" : String.valueOf(row.get("detalles"));
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("piezaid\\s*=\\s*(\\d+)", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(detalles);
+        if (m.find()) {
+            try {
+                return Long.parseLong(m.group(1));
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    /** @deprecated use overload with orderQ/partQ */
+    public List<Map<String, Object>> findScanAudit(Long orderId, Long partId, String action, int limit, int offset) {
+        return findScanAudit(orderId, partId, null, null, action, limit, offset);
     }
 
     public Map<String, Object> findOrderById(Long orderId) {

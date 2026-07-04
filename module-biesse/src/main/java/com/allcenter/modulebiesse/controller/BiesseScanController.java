@@ -108,11 +108,14 @@ public class BiesseScanController {
             @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
             @RequestParam(required = false) Long orderId,
             @RequestParam(required = false) Long partId,
+            @RequestParam(required = false) String orderQ,
+            @RequestParam(required = false) String partQ,
             @RequestParam(required = false) String action,
             @RequestParam(defaultValue = "100") int limit,
             @RequestParam(defaultValue = "0") int offset) {
         portalAuth.requireAudit(authorization);
-        return ResponseEntity.ok(scanService.getAudit(orderId, partId, action, limit, offset));
+        return ResponseEntity.ok(
+                scanService.getAudit(orderId, partId, orderQ, partQ, action, limit, offset));
     }
 
     @GetMapping("/orders/{orderId}")
