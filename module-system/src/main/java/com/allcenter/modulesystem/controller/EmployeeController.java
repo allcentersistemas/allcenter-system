@@ -9,9 +9,9 @@ import com.allcenter.modulesystem.dto.EmployeeCatalogItem;
 import com.allcenter.modulesystem.dto.EmployeeResponse;
 import com.allcenter.modulesystem.dto.EmployeeRolesRequest;
 import com.allcenter.modulesystem.dto.EmployeeSelfPatchRequest;
+import com.allcenter.modulesystem.service.EmployeeService;
 import com.allcenter.modulesystem.security.PortalRoleAuthorization;
 import com.allcenter.modulesystem.security.EmployeeUserDetails;
-import com.allcenter.modulesystem.service.EmployeeService;
 import jakarta.validation.Valid;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -40,7 +40,7 @@ public class EmployeeController {
 
     @GetMapping("/me")
     public ResponseEntity<EmployeeResponse> me(@AuthenticationPrincipal EmployeeUserDetails principal) {
-        return ResponseEntity.ok(EmployeeResponse.from(principal.getEmployee()));
+        return ResponseEntity.ok(employeeService.getById(principal.getEmployee().getId()));
     }
 
     /** Catálogo de empleados activos por nombre de rol (p. ej. CHOFER). Cualquier usuario autenticado. */

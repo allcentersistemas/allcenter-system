@@ -10,8 +10,8 @@ import com.allcenter.modulesystem.dto.RefreshTokenRequest;
 import com.allcenter.modulesystem.dto.EmployeeRegisterRequest;
 import com.allcenter.modulesystem.dto.VerifyPasswordRequest;
 import com.allcenter.modulesystem.security.EmployeeUserDetails;
-import com.allcenter.modulesystem.repository.EmployeeRepository;
 import com.allcenter.modulesystem.service.EmployeeAuthService;
+import com.allcenter.modulesystem.service.EmployeeService;
 import com.allcenter.modulesystem.support.ClientRequestInfo;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -33,7 +33,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class EmployeeAuthController {
 
     private final EmployeeAuthService authService;
-    private final EmployeeRepository employeeRepository;
+    private final EmployeeService employeeService;
 
     /** Indica si aún puede ejecutarse el alta inicial (sin empleados en base). */
     @GetMapping("/first-setup/status")
@@ -89,11 +89,7 @@ public class EmployeeAuthController {
         if (principal == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
-        return employeeRepository
-                .findByIdWithRoles(principal.getEmployee().getId())
-                .map(EmployeeResponse::from)
-                .map(ResponseEntity::ok)
-                .orElse(ResponseEntity.notFound().build());
+        return ResponseEntity.ok(employeeService.getById(principal.getEmployee().getId()));
     }
 
     @PostMapping("/change-password")

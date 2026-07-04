@@ -146,6 +146,7 @@ public class EmployeeAuthService {
         return completeLoginSession(principal, ClientRequestInfo.from(null));
     }
 
+    @Transactional
     public EmployeeAuthSessionResponse login(LoginRequest request, ClientRequestInfo connection) {
         String username = normalizeLoginUsername(request.username());
         try {
@@ -321,6 +322,7 @@ public class EmployeeAuthService {
         return e.getEmail().trim();
     }
 
+    @Transactional(readOnly = true)
     private EmployeeAuthSessionResponse buildSession(EmployeeUserDetails principal, String refreshTokenRaw) {
         String access = jwtService.generateAccessToken(principal);
         Employee emp =

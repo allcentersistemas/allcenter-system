@@ -45,15 +45,16 @@ public interface EmployeeRepository extends JpaRepository<Employee, Long> {
 
     boolean existsBySamAccountNameIgnoreCaseAndIdNot(String samAccountName, Long id);
 
-    @Query("SELECT DISTINCT e FROM Employee e LEFT JOIN FETCH e.roles WHERE e.id = :id")
+    @Query(
+            "SELECT DISTINCT e FROM Employee e LEFT JOIN FETCH e.roles r LEFT JOIN FETCH r.permissions WHERE e.id = :id")
     Optional<Employee> findByIdWithRoles(@Param("id") Long id);
 
-    @Query("SELECT DISTINCT e FROM Employee e LEFT JOIN FETCH e.roles")
+    @Query("SELECT DISTINCT e FROM Employee e LEFT JOIN FETCH e.roles r LEFT JOIN FETCH r.permissions")
     List<Employee> findAllWithRoles();
 
     @Query(
             """
-            SELECT DISTINCT e FROM Employee e LEFT JOIN FETCH e.roles
+            SELECT DISTINCT e FROM Employee e LEFT JOIN FETCH e.roles r LEFT JOIN FETCH r.permissions
             WHERE (:activeOnly = false OR e.active = true)
             ORDER BY e.lastName ASC NULLS LAST, e.firstName ASC NULLS LAST, e.id ASC
             """)
@@ -62,7 +63,7 @@ public interface EmployeeRepository extends JpaRepository<Employee, Long> {
     /** :q debe venir ya recortado y no vacío (sin TRIM en JPQL: PostgreSQL infiere bytea). */
     @Query(
             """
-            SELECT DISTINCT e FROM Employee e LEFT JOIN FETCH e.roles
+            SELECT DISTINCT e FROM Employee e LEFT JOIN FETCH e.roles r LEFT JOIN FETCH r.permissions
             WHERE (:activeOnly = false OR e.active = true)
               AND (
                 LOWER(e.email) LIKE LOWER(CONCAT('%', :q, '%')) OR
