@@ -15,6 +15,7 @@ import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Semilla de permisos CASL por nombre de rol (equivalente a {@code rolePermissions.js}).
@@ -104,9 +105,10 @@ public class RolePermissionBootstrap implements ApplicationRunner {
     };
 
     @Override
+    @Transactional
     public void run(ApplicationArguments args) {
         Map<String, List<PermissionRuleDto>> catalog = buildCatalog();
-        for (Role role : roleRepository.findAll()) {
+        for (Role role : roleRepository.findAllWithPermissions()) {
             if (role.getPermissions() != null && !role.getPermissions().isEmpty()) {
                 continue;
             }
