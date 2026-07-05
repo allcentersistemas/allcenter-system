@@ -18,8 +18,10 @@ import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import java.io.IOException;
+import java.time.LocalDate;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.core.io.Resource;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -65,8 +67,14 @@ public class RmApiController {
     @GetMapping("/registros-vehiculo")
     @PreAuthorize("@portalAuth.canRead()")
     public Page<RmApiModels.VehiculoListRow> listVehiculos(
-            @RequestParam(required = false) String q, @PageableDefault(size = 20) Pageable pageable) {
-        return registroService.pageVehiculos(pageable, q).map(this::toVehiculoListRow);
+            @RequestParam(required = false) String q,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fechaDesde,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fechaHasta,
+            @RequestParam(required = false) String tipoRegistro,
+            @PageableDefault(size = 20) Pageable pageable) {
+        return registroService
+                .pageVehiculos(pageable, q, fechaDesde, fechaHasta, tipoRegistro)
+                .map(this::toVehiculoListRow);
     }
 
     @GetMapping("/registros-vehiculo/{id}")
@@ -121,8 +129,14 @@ public class RmApiController {
     @Transactional(readOnly = true)
     @PreAuthorize("@portalAuth.canRead()")
     public Page<RmApiModels.EntradaListRow> listEntradas(
-            @RequestParam(required = false) String q, @PageableDefault(size = 20) Pageable pageable) {
-        return registroService.pageEntradas(pageable, q).map(this::toEntradaListRow);
+            @RequestParam(required = false) String q,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fechaDesde,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fechaHasta,
+            @RequestParam(required = false) String tipoRegistro,
+            @PageableDefault(size = 20) Pageable pageable) {
+        return registroService
+                .pageEntradas(pageable, q, fechaDesde, fechaHasta, tipoRegistro)
+                .map(this::toEntradaListRow);
     }
 
     @GetMapping("/registros-entrada/{id}")
@@ -156,8 +170,14 @@ public class RmApiController {
     @Transactional(readOnly = true)
     @PreAuthorize("@portalAuth.canRead()")
     public Page<RmApiModels.SalidaListRow> listSalidas(
-            @RequestParam(required = false) String q, @PageableDefault(size = 20) Pageable pageable) {
-        return registroService.pageSalidas(pageable, q).map(this::toSalidaListRow);
+            @RequestParam(required = false) String q,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fechaDesde,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fechaHasta,
+            @RequestParam(required = false) String tipoRegistro,
+            @PageableDefault(size = 20) Pageable pageable) {
+        return registroService
+                .pageSalidas(pageable, q, fechaDesde, fechaHasta, tipoRegistro)
+                .map(this::toSalidaListRow);
     }
 
     @GetMapping("/registros-salida/{id}")
@@ -187,10 +207,13 @@ public class RmApiController {
 
     @GetMapping("/actas-conformidad")
     @PreAuthorize("@portalAuth.canRead()")
-    public Page<RmApiModels.ActaListRow> listActas(@PageableDefault(size = 20) Pageable pageable) {
-        return registroService
-                .pageActas(pageable)
-                .map(a -> new RmApiModels.ActaListRow(
+    public Page<RmApiModels.ActaListRow> listActas(
+            @RequestParam(required = false) String q,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fechaDesde,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fechaHasta,
+            @PageableDefault(size = 20) Pageable pageable) {
+        return registroService.pageActas(pageable, q, fechaDesde, fechaHasta).map(
+                a -> new RmApiModels.ActaListRow(
                         a.getId(),
                         a.getRazonSocialNombre(),
                         a.getDecision(),
@@ -263,7 +286,11 @@ public class RmApiController {
                 e.getCanceladoPorEmail(),
                 e.getCanceladoPorNombre(),
                 e.getCreatedAt(),
-                e.getLineas());
+                e.getLineas(),
+                vehiculoSummaryPlaca(e.getRegistroVehiculo()),
+                vehiculoSummaryChofer(e.getRegistroVehiculo()),
+                vehiculoSummaryMarca(e.getRegistroVehiculo()),
+                vehiculoSummaryTipo(e.getRegistroVehiculo()));
     }
 
     private RmApiModels.SalidaListRow toSalidaListRow(RmRegistroSalida s) {
@@ -284,7 +311,27 @@ public class RmApiController {
                 s.getCanceladoPorEmail(),
                 s.getCanceladoPorNombre(),
                 s.getCreatedAt(),
-                s.getLineas());
+                s.getLineas(),
+                vehiculoSummaryPlaca(s.getRegistroVehiculo()),
+                vehiculoSummaryChofer(s.getRegistroVehiculo()),
+                vehiculoSummaryMarca(s.getRegistroVehiculo()),
+                vehiculoSummaryTipo(s.getRegistroVehiculo()));
+    }
+
+    private static String vehiculoSummaryPlaca(RmRegistroVehiculo v) {
+        return v == null ? null : v.getPlaca();
+    }
+
+    private static String vehiculoSummaryChofer(RmRegistroVehiculo v) {
+        return v == null ? null : v.getChofer();
+    }
+
+    private static String vehiculoSummaryMarca(RmRegistroVehiculo v) {
+        return v == null ? null : v.getMarca();
+    }
+
+    private static String vehiculoSummaryTipo(RmRegistroVehiculo v) {
+        return v == null ? null : v.getTiporegistro();
     }
 
     private RmApiModels.VehiculoListRow toVehiculoListRow(RmRegistroVehiculo v) {

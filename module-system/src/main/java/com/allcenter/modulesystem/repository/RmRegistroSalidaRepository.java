@@ -1,6 +1,7 @@
 package com.allcenter.modulesystem.repository;
 
 import com.allcenter.modulesystem.model.RmRegistroSalida;
+import java.time.LocalDate;
 import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -19,23 +20,33 @@ public interface RmRegistroSalidaRepository extends JpaRepository<RmRegistroSali
             """
             SELECT DISTINCT s FROM RmRegistroSalida s
             LEFT JOIN s.registroVehiculo v
-            WHERE (
-                CONCAT('', s.numeroregistro, '') LIKE CONCAT('%', :q, '%') OR
-                LOWER(COALESCE(s.numeroGuia, '')) LIKE CONCAT('%', :q, '%') OR
-                LOWER(COALESCE(s.ocNumero, '')) LIKE CONCAT('%', :q, '%') OR
-                LOWER(COALESCE(v.placa, '')) LIKE CONCAT('%', :q, '%') OR
-                LOWER(COALESCE(v.chofer, '')) LIKE CONCAT('%', :q, '%') OR
-                LOWER(COALESCE(v.marca, '')) LIKE CONCAT('%', :q, '%') OR
-                EXISTS (
-                    SELECT 1 FROM Guia g WHERE g.id = s.guiaInventarioId AND (
-                        LOWER(g.numeroGuia) LIKE CONCAT('%', :q, '%') OR
-                        LOWER(COALESCE(g.ordenCompra, '')) LIKE CONCAT('%', :q, '%')
+            WHERE (:fechaDesde IS NULL OR s.fecha >= :fechaDesde)
+              AND (:fechaHasta IS NULL OR s.fecha <= :fechaHasta)
+              AND (:tipoRegistro IS NULL OR LOWER(v.tiporegistro) = LOWER(:tipoRegistro))
+              AND (
+                :q IS NULL OR (
+                    CONCAT('', s.numeroregistro, '') LIKE CONCAT('%', :q, '%') OR
+                    LOWER(COALESCE(s.numeroGuia, '')) LIKE CONCAT('%', :q, '%') OR
+                    LOWER(COALESCE(s.ocNumero, '')) LIKE CONCAT('%', :q, '%') OR
+                    LOWER(COALESCE(v.placa, '')) LIKE CONCAT('%', :q, '%') OR
+                    LOWER(COALESCE(v.chofer, '')) LIKE CONCAT('%', :q, '%') OR
+                    LOWER(COALESCE(v.marca, '')) LIKE CONCAT('%', :q, '%') OR
+                    EXISTS (
+                        SELECT 1 FROM Guia g WHERE g.id = s.guiaInventarioId AND (
+                            LOWER(g.numeroGuia) LIKE CONCAT('%', :q, '%') OR
+                            LOWER(COALESCE(g.ordenCompra, '')) LIKE CONCAT('%', :q, '%')
+                        )
                     )
                 )
-            )
+              )
             ORDER BY s.createdAt DESC
             """)
-    Page<RmRegistroSalida> searchByTerm(@Param("q") String q, Pageable pageable);
+    Page<RmRegistroSalida> pageFiltered(
+            @Param("q") String q,
+            @Param("fechaDesde") LocalDate fechaDesde,
+            @Param("fechaHasta") LocalDate fechaHasta,
+            @Param("tipoRegistro") String tipoRegistro,
+            Pageable pageable);
 
     @Query("select coalesce(max(s.numeroregistro), 0) from RmRegistroSalida s")
     int findMaxNumeroRegistro();

@@ -1,11 +1,31 @@
 package com.allcenter.modulesystem.repository;
 
 import com.allcenter.modulesystem.model.RmActaConformidad;
+import java.time.Instant;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 public interface RmActaConformidadRepository extends JpaRepository<RmActaConformidad, Long> {
 
-    Page<RmActaConformidad> findAllByOrderByCreatedAtDesc(Pageable pageable);
+    @Query(
+            """
+            SELECT a FROM RmActaConformidad a
+            WHERE (:desde IS NULL OR a.createdAt >= :desde)
+              AND (:hasta IS NULL OR a.createdAt <= :hasta)
+              AND (
+                :q IS NULL OR (
+                    LOWER(COALESCE(a.razonSocialNombre, '')) LIKE CONCAT('%', :q, '%') OR
+                    LOWER(COALESCE(a.decision, '')) LIKE CONCAT('%', :q, '%')
+                )
+              )
+            ORDER BY a.createdAt DESC
+            """)
+    Page<RmActaConformidad> pageFiltered(
+            @Param("q") String q,
+            @Param("desde") Instant desde,
+            @Param("hasta") Instant hasta,
+            Pageable pageable);
 }

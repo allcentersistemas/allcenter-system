@@ -29,6 +29,7 @@ import jakarta.annotation.PostConstruct;
 import java.io.IOException;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -188,12 +189,10 @@ public class RmRegistroApplicationService {
     }
 
     @Transactional(readOnly = true)
-    public Page<RmRegistroEntrada> pageEntradas(Pageable pageable, String q) {
-        String term = RmRegistroDocumentResolver.normalizeSearchTerm(q);
-        if (term == null) {
-            return entradaRepository.findAllByOrderByCreatedAtDesc(pageable);
-        }
-        return entradaRepository.searchByTerm(term, pageable);
+    public Page<RmRegistroEntrada> pageEntradas(
+            Pageable pageable, String q, LocalDate fechaDesde, LocalDate fechaHasta, String tipoRegistro) {
+        return entradaRepository.pageFiltered(
+                normalizeRmListQ(q), fechaDesde, fechaHasta, normalizeRmTipoRegistro(tipoRegistro), pageable);
     }
 
     @Transactional(readOnly = true)
@@ -375,12 +374,10 @@ public class RmRegistroApplicationService {
     }
 
     @Transactional(readOnly = true)
-    public Page<RmRegistroSalida> pageSalidas(Pageable pageable, String q) {
-        String term = RmRegistroDocumentResolver.normalizeSearchTerm(q);
-        if (term == null) {
-            return salidaRepository.findAllByOrderByCreatedAtDesc(pageable);
-        }
-        return salidaRepository.searchByTerm(term, pageable);
+    public Page<RmRegistroSalida> pageSalidas(
+            Pageable pageable, String q, LocalDate fechaDesde, LocalDate fechaHasta, String tipoRegistro) {
+        return salidaRepository.pageFiltered(
+                normalizeRmListQ(q), fechaDesde, fechaHasta, normalizeRmTipoRegistro(tipoRegistro), pageable);
     }
 
     @Transactional(readOnly = true)
@@ -541,12 +538,10 @@ public class RmRegistroApplicationService {
     }
 
     @Transactional(readOnly = true)
-    public Page<RmRegistroVehiculo> pageVehiculos(Pageable pageable, String q) {
-        String term = RmRegistroDocumentResolver.normalizeSearchTerm(q);
-        if (term == null) {
-            return vehiculoRepository.findAllByOrderByCreatedAtDesc(pageable);
-        }
-        return vehiculoRepository.searchByTerm(term, pageable);
+    public Page<RmRegistroVehiculo> pageVehiculos(
+            Pageable pageable, String q, LocalDate fechaDesde, LocalDate fechaHasta, String tipoRegistro) {
+        return vehiculoRepository.pageFiltered(
+                normalizeRmListQ(q), fechaDesde, fechaHasta, normalizeRmTipoRegistro(tipoRegistro), pageable);
     }
 
     @Transactional(readOnly = true)
@@ -604,8 +599,13 @@ public class RmRegistroApplicationService {
     }
 
     @Transactional(readOnly = true)
-    public Page<RmActaConformidad> pageActas(Pageable pageable) {
-        return actaRepository.findAllByOrderByCreatedAtDesc(pageable);
+    public Page<RmActaConformidad> pageActas(
+            Pageable pageable, String q, LocalDate fechaDesde, LocalDate fechaHasta) {
+        return actaRepository.pageFiltered(
+                normalizeRmListQ(q),
+                rmStartOfDay(fechaDesde),
+                rmEndOfDay(fechaHasta),
+                pageable);
     }
 
     @Transactional(readOnly = true)
@@ -1222,5 +1222,30 @@ public class RmRegistroApplicationService {
             return null;
         }
         return t.length() <= max ? t : t.substring(0, max);
+    }
+
+    private static String normalizeRmListQ(String q) {
+        return RmRegistroDocumentResolver.normalizeSearchTerm(q);
+    }
+
+    private static String normalizeRmTipoRegistro(String tipoRegistro) {
+        if (tipoRegistro == null || tipoRegistro.isBlank()) {
+            return null;
+        }
+        return tipoRegistro.trim();
+    }
+
+    private static Instant rmStartOfDay(LocalDate date) {
+        if (date == null) {
+            return null;
+        }
+        return date.atStartOfDay(ZoneId.of("America/Lima")).toInstant();
+    }
+
+    private static Instant rmEndOfDay(LocalDate date) {
+        if (date == null) {
+            return null;
+        }
+        return date.atTime(23, 59, 59, 999_999_999).atZone(ZoneId.of("America/Lima")).toInstant();
     }
 }

@@ -28,7 +28,11 @@ public final class RmApiModels {
             String canceladoPorEmail,
             String canceladoPorNombre,
             Instant createdAt,
-            long lineas) {}
+            long lineas,
+            String vehiculoPlaca,
+            String vehiculoChofer,
+            String vehiculoMarca,
+            String vehiculoTipoRegistro) {}
 
     public record SalidaListRow(
             Long id,
@@ -46,7 +50,11 @@ public final class RmApiModels {
             String canceladoPorEmail,
             String canceladoPorNombre,
             Instant createdAt,
-            long lineas) {}
+            long lineas,
+            String vehiculoPlaca,
+            String vehiculoChofer,
+            String vehiculoMarca,
+            String vehiculoTipoRegistro) {}
 
     public record VehiculoListRow(
             Long id,
