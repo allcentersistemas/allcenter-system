@@ -30,6 +30,7 @@ public class GuiaSchemaAligner implements ApplicationRunner {
         ensureOrigenColumns();
         ensureRmSalidaHeaderColumns();
         ensureRmRegistroNumeroAndVehiculoLink();
+        alignRmTextColumnsFromBytea();
         ensureRmEntradaDestinoColumn();
         ensureRmEntradaGuiaColumn();
         ensureRmEntradaNumeroGuiaColumn();
@@ -97,6 +98,51 @@ public class GuiaSchemaAligner implements ApplicationRunner {
         addColumnIfMissing("rm_registro_entrada", "numeroregistro", "INTEGER");
         addColumnIfMissing("rm_registro_salida", "numeroregistro", "INTEGER");
         addColumnIfMissing("rm_registro_salida", "registro_vehiculo_id", "BIGINT");
+    }
+
+    /** Columnas legacy creadas como bytea rompen LOWER() en listados RM paginados. */
+    private void alignRmTextColumnsFromBytea() {
+        alignByteaToVarchar("rm_registro_vehiculo", "tiporegistro", "VARCHAR(32)");
+        alignByteaToVarchar("rm_registro_vehiculo", "placa", "VARCHAR(32)");
+        alignByteaToVarchar("rm_registro_vehiculo", "chofer", "VARCHAR(256)");
+        alignByteaToVarchar("rm_registro_vehiculo", "marca", "VARCHAR(128)");
+        for (String table : new String[] {"rm_registro_entrada", "rm_registro_salida"}) {
+            alignByteaToVarchar(table, "numero_guia", "VARCHAR(128)");
+            alignByteaToVarchar(table, "oc_numero", "VARCHAR(128)");
+        }
+    }
+
+    private void alignByteaToVarchar(String table, String column, String targetSqlType) {
+        if (!tableExists(table) || !columnExists(table, column)) {
+            return;
+        }
+        try {
+            String dataType =
+                    jdbc.queryForObject(
+                            """
+                            SELECT data_type FROM information_schema.columns
+                            WHERE LOWER(table_name) = LOWER(?) AND LOWER(column_name) = LOWER(?)
+                            """,
+                            String.class,
+                            table,
+                            column);
+            if (!"bytea".equalsIgnoreCase(dataType)) {
+                return;
+            }
+            jdbc.execute(
+                    "ALTER TABLE "
+                            + table
+                            + " ALTER COLUMN "
+                            + column
+                            + " TYPE "
+                            + targetSqlType
+                            + " USING convert_from("
+                            + column
+                            + ", 'UTF8')");
+            log.info("{}.{} convertida de bytea a {}", table, column, targetSqlType);
+        } catch (Exception ex) {
+            log.warn("No se pudo alinear tipo texto en {}.{}: {}", table, column, ex.getMessage());
+        }
     }
 
     private void ensureRmEntradaGuiaColumn() {

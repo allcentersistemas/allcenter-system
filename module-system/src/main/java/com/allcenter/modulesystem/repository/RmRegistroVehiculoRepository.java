@@ -17,24 +17,24 @@ public interface RmRegistroVehiculoRepository extends JpaRepository<RmRegistroVe
             SELECT DISTINCT v FROM RmRegistroVehiculo v
             WHERE (:fechaDesde IS NULL OR v.fecha >= :fechaDesde)
               AND (:fechaHasta IS NULL OR v.fecha <= :fechaHasta)
-              AND (:tipoRegistro IS NULL OR LOWER(v.tiporegistro) = LOWER(:tipoRegistro))
+              AND (:tipoRegistro IS NULL OR LOWER(CAST(v.tiporegistro AS string)) = LOWER(CAST(:tipoRegistro AS string)))
               AND (
                 :q IS NULL OR (
-                    LOWER(CAST(v.numeroregistro AS string)) LIKE CONCAT('%', :q, '%') OR
-                    LOWER(COALESCE(v.placa, '')) LIKE CONCAT('%', :q, '%') OR
-                    LOWER(COALESCE(v.chofer, '')) LIKE CONCAT('%', :q, '%') OR
-                    LOWER(COALESCE(v.marca, '')) LIKE CONCAT('%', :q, '%') OR
-                    LOWER(COALESCE(v.tiporegistro, '')) LIKE CONCAT('%', :q, '%') OR
+                    CONCAT('', v.numeroregistro, '') LIKE CONCAT('%', :q, '%') OR
+                    LOWER(CAST(COALESCE(v.placa, '') AS string)) LIKE CONCAT('%', :q, '%') OR
+                    LOWER(CAST(COALESCE(v.chofer, '') AS string)) LIKE CONCAT('%', :q, '%') OR
+                    LOWER(CAST(COALESCE(v.marca, '') AS string)) LIKE CONCAT('%', :q, '%') OR
+                    LOWER(CAST(COALESCE(v.tiporegistro, '') AS string)) LIKE CONCAT('%', :q, '%') OR
                     EXISTS (
                         SELECT 1 FROM RmRegistroEntrada e WHERE e.registroVehiculo = v AND (
-                            LOWER(COALESCE(e.numeroGuia, '')) LIKE CONCAT('%', :q, '%') OR
-                            LOWER(COALESCE(e.ocNumero, '')) LIKE CONCAT('%', :q, '%')
+                            LOWER(CAST(COALESCE(e.numeroGuia, '') AS string)) LIKE CONCAT('%', :q, '%') OR
+                            LOWER(CAST(COALESCE(e.ocNumero, '') AS string)) LIKE CONCAT('%', :q, '%')
                         )
                     ) OR
                     EXISTS (
                         SELECT 1 FROM RmRegistroSalida s WHERE s.registroVehiculo = v AND (
-                            LOWER(COALESCE(s.numeroGuia, '')) LIKE CONCAT('%', :q, '%') OR
-                            LOWER(COALESCE(s.ocNumero, '')) LIKE CONCAT('%', :q, '%')
+                            LOWER(CAST(COALESCE(s.numeroGuia, '') AS string)) LIKE CONCAT('%', :q, '%') OR
+                            LOWER(CAST(COALESCE(s.ocNumero, '') AS string)) LIKE CONCAT('%', :q, '%')
                         )
                     )
                 )

@@ -17,8 +17,8 @@ public interface RmActaConformidadRepository extends JpaRepository<RmActaConform
               AND (:hasta IS NULL OR a.createdAt <= :hasta)
               AND (
                 :q IS NULL OR (
-                    LOWER(COALESCE(a.razonSocialNombre, '')) LIKE CONCAT('%', :q, '%') OR
-                    LOWER(COALESCE(a.decision, '')) LIKE CONCAT('%', :q, '%')
+                    LOWER(CAST(COALESCE(a.razonSocialNombre, '') AS string)) LIKE CONCAT('%', :q, '%') OR
+                    LOWER(CAST(COALESCE(a.decision, '') AS string)) LIKE CONCAT('%', :q, '%')
                 )
               )
             ORDER BY a.createdAt DESC

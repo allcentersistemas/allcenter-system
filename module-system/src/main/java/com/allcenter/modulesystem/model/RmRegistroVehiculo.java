@@ -67,7 +67,7 @@ public class RmRegistroVehiculo {
     @Column(length = 320)
     private String createdByEmail;
 
-    @Column
+    @Column(length = 32)
     private String tiporegistro;
 
     @PrePersist

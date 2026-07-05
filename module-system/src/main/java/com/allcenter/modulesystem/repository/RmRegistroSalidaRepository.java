@@ -22,19 +22,19 @@ public interface RmRegistroSalidaRepository extends JpaRepository<RmRegistroSali
             LEFT JOIN s.registroVehiculo v
             WHERE (:fechaDesde IS NULL OR s.fecha >= :fechaDesde)
               AND (:fechaHasta IS NULL OR s.fecha <= :fechaHasta)
-              AND (:tipoRegistro IS NULL OR LOWER(v.tiporegistro) = LOWER(:tipoRegistro))
+              AND (:tipoRegistro IS NULL OR LOWER(CAST(v.tiporegistro AS string)) = LOWER(CAST(:tipoRegistro AS string)))
               AND (
                 :q IS NULL OR (
                     CONCAT('', s.numeroregistro, '') LIKE CONCAT('%', :q, '%') OR
-                    LOWER(COALESCE(s.numeroGuia, '')) LIKE CONCAT('%', :q, '%') OR
-                    LOWER(COALESCE(s.ocNumero, '')) LIKE CONCAT('%', :q, '%') OR
-                    LOWER(COALESCE(v.placa, '')) LIKE CONCAT('%', :q, '%') OR
-                    LOWER(COALESCE(v.chofer, '')) LIKE CONCAT('%', :q, '%') OR
-                    LOWER(COALESCE(v.marca, '')) LIKE CONCAT('%', :q, '%') OR
+                    LOWER(CAST(COALESCE(s.numeroGuia, '') AS string)) LIKE CONCAT('%', :q, '%') OR
+                    LOWER(CAST(COALESCE(s.ocNumero, '') AS string)) LIKE CONCAT('%', :q, '%') OR
+                    LOWER(CAST(COALESCE(v.placa, '') AS string)) LIKE CONCAT('%', :q, '%') OR
+                    LOWER(CAST(COALESCE(v.chofer, '') AS string)) LIKE CONCAT('%', :q, '%') OR
+                    LOWER(CAST(COALESCE(v.marca, '') AS string)) LIKE CONCAT('%', :q, '%') OR
                     EXISTS (
                         SELECT 1 FROM Guia g WHERE g.id = s.guiaInventarioId AND (
-                            LOWER(g.numeroGuia) LIKE CONCAT('%', :q, '%') OR
-                            LOWER(COALESCE(g.ordenCompra, '')) LIKE CONCAT('%', :q, '%')
+                            LOWER(CAST(g.numeroGuia AS string)) LIKE CONCAT('%', :q, '%') OR
+                            LOWER(CAST(COALESCE(g.ordenCompra, '') AS string)) LIKE CONCAT('%', :q, '%')
                         )
                     )
                 )
