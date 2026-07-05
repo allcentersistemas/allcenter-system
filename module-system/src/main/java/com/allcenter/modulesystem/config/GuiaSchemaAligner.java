@@ -129,17 +129,34 @@ public class GuiaSchemaAligner implements ApplicationRunner {
             if (!"bytea".equalsIgnoreCase(dataType)) {
                 return;
             }
-            jdbc.execute(
-                    "ALTER TABLE "
-                            + table
-                            + " ALTER COLUMN "
-                            + column
-                            + " TYPE "
-                            + targetSqlType
-                            + " USING convert_from("
-                            + column
-                            + ", 'UTF8')");
-            log.info("{}.{} convertida de bytea a {}", table, column, targetSqlType);
+            String[] usingExprs = {
+                "convert_from(" + column + ", 'UTF8')",
+                "encode(" + column + ", 'escape')",
+                "trim(both from convert_from(" + column + ", 'UTF8'))"
+            };
+            for (String using : usingExprs) {
+                try {
+                    jdbc.execute(
+                            "ALTER TABLE "
+                                    + table
+                                    + " ALTER COLUMN "
+                                    + column
+                                    + " TYPE "
+                                    + targetSqlType
+                                    + " USING "
+                                    + using);
+                    log.info("{}.{} convertida de bytea a {} ({})", table, column, targetSqlType, using);
+                    return;
+                } catch (Exception attempt) {
+                    log.debug(
+                            "Intento bytea→text en {}.{} con {}: {}",
+                            table,
+                            column,
+                            using,
+                            attempt.getMessage());
+                }
+            }
+            log.warn("No se pudo convertir {}.{} de bytea a texto", table, column);
         } catch (Exception ex) {
             log.warn("No se pudo alinear tipo texto en {}.{}: {}", table, column, ex.getMessage());
         }

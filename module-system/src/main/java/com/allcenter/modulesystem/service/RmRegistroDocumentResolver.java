@@ -62,6 +62,12 @@ public class RmRegistroDocumentResolver {
         return trimmed.toLowerCase(Locale.ROOT);
     }
 
+    /** Patrón LIKE prearmado en Java para evitar CONCAT('%', :q, '%') con columnas legacy bytea en PostgreSQL. */
+    public static String normalizeSearchPattern(String q) {
+        String term = normalizeSearchTerm(q);
+        return term == null ? null : "%" + term + "%";
+    }
+
     private static String trimOrNull(String raw) {
         if (raw == null) {
             return null;

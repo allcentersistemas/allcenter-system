@@ -17,6 +17,7 @@ import com.allcenter.modulesystem.repository.TransporteRepository;
 import com.allcenter.modulesystem.model.Transporte;
 import com.allcenter.modulesystem.repository.RmRegistroEntradaDetalleRepository;
 import com.allcenter.modulesystem.repository.RmRegistroEntradaRepository;
+import com.allcenter.modulesystem.repository.RmRegistroListQueries;
 import com.allcenter.modulesystem.repository.RmRegistroSalidaDetalleRepository;
 import com.allcenter.modulesystem.repository.RmRegistroSalidaRepository;
 import com.allcenter.modulesystem.repository.RmRegistroVehiculoRepository;
@@ -70,6 +71,7 @@ public class RmRegistroApplicationService {
     private final TransporteRepository transporteRepository;
     private final InventoryApplicationService inventoryApplicationService;
     private final RmRegistroDocumentResolver documentResolver;
+    private final RmRegistroListQueries rmRegistroListQueries;
 
     @PostConstruct
     void initStorage() throws IOException {
@@ -191,8 +193,12 @@ public class RmRegistroApplicationService {
     @Transactional(readOnly = true)
     public Page<RmRegistroEntrada> pageEntradas(
             Pageable pageable, String q, LocalDate fechaDesde, LocalDate fechaHasta, String tipoRegistro) {
-        return entradaRepository.pageFiltered(
-                normalizeRmListQ(q), fechaDesde, fechaHasta, normalizeRmTipoRegistro(tipoRegistro), pageable);
+        return rmRegistroListQueries.pageEntradas(
+                pageable,
+                normalizeRmListPattern(q),
+                fechaDesde,
+                fechaHasta,
+                normalizeRmTipoRegistro(tipoRegistro));
     }
 
     @Transactional(readOnly = true)
@@ -376,8 +382,12 @@ public class RmRegistroApplicationService {
     @Transactional(readOnly = true)
     public Page<RmRegistroSalida> pageSalidas(
             Pageable pageable, String q, LocalDate fechaDesde, LocalDate fechaHasta, String tipoRegistro) {
-        return salidaRepository.pageFiltered(
-                normalizeRmListQ(q), fechaDesde, fechaHasta, normalizeRmTipoRegistro(tipoRegistro), pageable);
+        return rmRegistroListQueries.pageSalidas(
+                pageable,
+                normalizeRmListPattern(q),
+                fechaDesde,
+                fechaHasta,
+                normalizeRmTipoRegistro(tipoRegistro));
     }
 
     @Transactional(readOnly = true)
@@ -540,8 +550,12 @@ public class RmRegistroApplicationService {
     @Transactional(readOnly = true)
     public Page<RmRegistroVehiculo> pageVehiculos(
             Pageable pageable, String q, LocalDate fechaDesde, LocalDate fechaHasta, String tipoRegistro) {
-        return vehiculoRepository.pageFiltered(
-                normalizeRmListQ(q), fechaDesde, fechaHasta, normalizeRmTipoRegistro(tipoRegistro), pageable);
+        return rmRegistroListQueries.pageVehiculos(
+                pageable,
+                normalizeRmListPattern(q),
+                fechaDesde,
+                fechaHasta,
+                normalizeRmTipoRegistro(tipoRegistro));
     }
 
     @Transactional(readOnly = true)
@@ -601,11 +615,8 @@ public class RmRegistroApplicationService {
     @Transactional(readOnly = true)
     public Page<RmActaConformidad> pageActas(
             Pageable pageable, String q, LocalDate fechaDesde, LocalDate fechaHasta) {
-        return actaRepository.pageFiltered(
-                normalizeRmListQ(q),
-                rmStartOfDay(fechaDesde),
-                rmEndOfDay(fechaHasta),
-                pageable);
+        return rmRegistroListQueries.pageActas(
+                pageable, normalizeRmListPattern(q), rmStartOfDay(fechaDesde), rmEndOfDay(fechaHasta));
     }
 
     @Transactional(readOnly = true)
@@ -1224,15 +1235,15 @@ public class RmRegistroApplicationService {
         return t.length() <= max ? t : t.substring(0, max);
     }
 
-    private static String normalizeRmListQ(String q) {
-        return RmRegistroDocumentResolver.normalizeSearchTerm(q);
+    private static String normalizeRmListPattern(String q) {
+        return RmRegistroDocumentResolver.normalizeSearchPattern(q);
     }
 
     private static String normalizeRmTipoRegistro(String tipoRegistro) {
         if (tipoRegistro == null || tipoRegistro.isBlank()) {
             return null;
         }
-        return tipoRegistro.trim();
+        return tipoRegistro.trim().toLowerCase(Locale.ROOT);
     }
 
     private static Instant rmStartOfDay(LocalDate date) {
