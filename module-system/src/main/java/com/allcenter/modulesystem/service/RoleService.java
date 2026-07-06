@@ -8,6 +8,7 @@ import com.allcenter.modulesystem.dto.CreateRoleRequest;
 import com.allcenter.modulesystem.dto.RolePatchRequest;
 import com.allcenter.modulesystem.dto.RoleResponse;
 import com.allcenter.modulesystem.repository.EmployeeRepository;
+import com.allcenter.modulesystem.repository.RolePermissionRepository;
 import com.allcenter.modulesystem.repository.RoleRepository;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -19,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class RoleService {
 
     private final RoleRepository roleRepository;
+    private final RolePermissionRepository rolePermissionRepository;
     private final EmployeeRepository employeeRepository;
 
     @Transactional(readOnly = true)
@@ -47,7 +49,7 @@ public class RoleService {
         role.setName(normalized);
         role.setDescription(
                 request.description() != null ? request.description().trim() : null);
-        RolePermissionSupport.replacePermissions(role, request.permissions());
+        RolePermissionSupport.replacePermissions(role, request.permissions(), rolePermissionRepository);
         roleRepository.save(role);
         return RoleResponse.from(roleRepository.findByIdWithPermissions(role.getId()).orElse(role));
     }
@@ -76,7 +78,7 @@ public class RoleService {
                     request.description().trim().isEmpty() ? null : request.description().trim());
         }
         if (request.permissions() != null) {
-            RolePermissionSupport.replacePermissions(role, request.permissions());
+            RolePermissionSupport.replacePermissions(role, request.permissions(), rolePermissionRepository);
         }
         roleRepository.save(role);
         return RoleResponse.from(roleRepository.findByIdWithPermissions(id).orElse(role));
