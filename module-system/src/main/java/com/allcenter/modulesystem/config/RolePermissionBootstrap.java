@@ -79,6 +79,7 @@ public class RolePermissionBootstrap implements ApplicationRunner {
     private static final String F_LOCATION = "location.catalog";
     private static final String F_API = "api.catalog";
     private static final String F_DASHBOARD = "dashboard.resumen";
+    private static final String F_DASHBOARD_VENTAS = "dashboard.ventas";
     private static final String F_GESTION_CLIENTES = "gestion.clientes";
     private static final String F_GESTION_PROYECTOS = "gestion.proyectos";
 
@@ -134,25 +135,30 @@ public class RolePermissionBootstrap implements ApplicationRunner {
         List<PermissionRuleDto> master =
                 List.of(
                         new PermissionRuleDto(ACTION_MANAGE, "all"),
-                        new PermissionRuleDto(ACTION_VIEW, F_DASHBOARD));
+                        new PermissionRuleDto(ACTION_VIEW, F_DASHBOARD),
+                        new PermissionRuleDto(ACTION_VIEW, F_DASHBOARD_VENTAS));
 
         List<PermissionRuleDto> sistemas = new ArrayList<>();
         sistemas.add(new PermissionRuleDto(ACTION_MANAGE, "all"));
         sistemas.add(new PermissionRuleDto(ACTION_VIEW, F_DASHBOARD));
+        sistemas.add(new PermissionRuleDto(ACTION_VIEW, F_DASHBOARD_VENTAS));
         sistemas.addAll(gestionAdmin);
         sistemas.addAll(auditRules);
         sistemas.addAll(rules(ALL_ACTIONS, OPS_FEATURES));
 
         List<PermissionRuleDto> admin = new ArrayList<>();
         admin.add(new PermissionRuleDto(ACTION_VIEW, F_DASHBOARD));
+        admin.add(new PermissionRuleDto(ACTION_VIEW, F_DASHBOARD_VENTAS));
         admin.addAll(gestionAdmin);
         admin.addAll(auditRules);
         admin.addAll(adminOps);
 
         List<PermissionRuleDto> gerencia = new ArrayList<>(adminOps);
+        gerencia.add(new PermissionRuleDto(ACTION_VIEW, F_DASHBOARD_VENTAS));
         gerencia.addAll(auditRules);
 
-        List<PermissionRuleDto> ventas = rules(READ_CREATE, F_PROJECT_LIST);
+        List<PermissionRuleDto> ventas = new ArrayList<>(rules(READ_CREATE, F_PROJECT_LIST));
+        ventas.add(new PermissionRuleDto(ACTION_VIEW, F_DASHBOARD_VENTAS));
 
         List<PermissionRuleDto> adminVentas = new ArrayList<>(ventas);
         adminVentas.addAll(
