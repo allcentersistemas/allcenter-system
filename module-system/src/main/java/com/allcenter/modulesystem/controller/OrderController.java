@@ -180,12 +180,12 @@ public class OrderController {
     public ResponseEntity<Resource> downloadCotizacion(@PathVariable Long proyectoId) {
         OrderDtos.ProyectoConOrdenesResponse tree = service.getProjectTree(proyectoId);
         String filename = tree.project().cotizacionArchivo();
-        if (filename == null || filename.isBlank()) {
-            return ResponseEntity.notFound().build();
-        }
         Resource resource = storageService.loadCotizacion(proyectoId, filename);
+        String resolved = storageService.resolveCotizacionFilename(proyectoId, filename);
+        String attachmentName =
+                resolved != null ? resolved : ("cotizacion-" + proyectoId);
         return ResponseEntity.ok()
-                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"cotizacion-" + proyectoId + "\"")
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + attachmentName + "\"")
                 .body(resource);
     }
 

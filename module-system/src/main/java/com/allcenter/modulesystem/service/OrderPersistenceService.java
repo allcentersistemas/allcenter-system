@@ -332,11 +332,12 @@ public class OrderPersistenceService {
     @Transactional(readOnly = true)
     public String getCotizacionFilenameForClient(long clientUserId, Long proyectoId) {
         ProyectoOptimizacion proyecto = requireOwnedProject(clientUserId, proyectoId);
-        String filename = proyecto.getCotizacionArchivo();
-        if (filename == null || filename.isBlank()) {
+        String resolved =
+                optimizacionStorage.resolveCotizacionFilename(proyectoId, proyecto.getCotizacionArchivo());
+        if (resolved == null) {
             throw new EntityNotFoundException("Cotización no disponible para este proyecto.");
         }
-        return filename;
+        return resolved;
     }
 
     private OrderDtos.ProyectoConOrdenesResponse saveProjectTreeInternal(
@@ -553,11 +554,7 @@ public class OrderPersistenceService {
     }
 
     private boolean hasCotizacionOnDisk(ProyectoOptimizacion proyecto) {
-        String archivo = proyecto.getCotizacionArchivo();
-        if (archivo == null || archivo.isBlank()) {
-            return false;
-        }
-        return optimizacionStorage.cotizacionExists(proyecto.getId(), archivo);
+        return optimizacionStorage.cotizacionExists(proyecto.getId(), proyecto.getCotizacionArchivo());
     }
 
     private OrderDtos.ProyectoResponse toProyectoResponse(ProyectoOptimizacion proyectoOptimizacion, boolean editable) {

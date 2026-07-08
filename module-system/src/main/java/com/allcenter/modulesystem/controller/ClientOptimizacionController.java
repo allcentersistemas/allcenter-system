@@ -113,7 +113,7 @@ public class ClientOptimizacionController {
                 service.getCotizacionFilenameForClient(principal.getClientUser().getId(), proyectoId);
         Resource resource = storageService.loadCotizacion(proyectoId, filename);
         return ResponseEntity.ok()
-                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"cotizacion-" + proyectoId + "\"")
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
                 .body(resource);
     }
 

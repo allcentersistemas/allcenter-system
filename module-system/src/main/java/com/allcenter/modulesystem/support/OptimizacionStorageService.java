@@ -108,23 +108,37 @@ public class OptimizacionStorageService {
         return findCotizacionFile(proyectoId, filename) != null;
     }
 
+    /** Nombre de archivo listo para descargar (resuelve rutas antiguas o BD vacía). */
+    public String resolveCotizacionFilename(long proyectoId, String storedFilename) {
+        Path found = findCotizacionFile(proyectoId, storedFilename);
+        return found == null ? null : found.getFileName().toString();
+    }
+
     private Path findCotizacionFile(long proyectoId, String storedFilename) {
         String filename = normalizeStoredFilename(storedFilename);
-        if (filename == null) {
-            return null;
-        }
 
-        List<Path> candidates = new ArrayList<>();
-        candidates.add(cotizacionDir(proyectoId).resolve(filename));
-        candidates.add(root.resolve("cotizacion").resolve(filename));
-        candidates.add(root.resolve(filename));
+        if (filename != null) {
+            List<Path> candidates = new ArrayList<>();
+            candidates.add(cotizacionDir(proyectoId).resolve(filename));
+            candidates.add(root.resolve("cotizacion").resolve(filename));
+            candidates.add(root.resolve(filename));
 
-        for (Path candidate : candidates) {
-            if (isReadableFile(candidate)) {
-                return candidate;
+            for (Path candidate : candidates) {
+                if (isReadableFile(candidate)) {
+                    return candidate;
+                }
+            }
+
+            Path fromProjectDir = findInProjectDir(proyectoId, filename);
+            if (fromProjectDir != null) {
+                return fromProjectDir;
             }
         }
 
+        return findLatestCotizacionInProjectDir(proyectoId);
+    }
+
+    private Path findInProjectDir(long proyectoId, String filename) {
         Path projectDir = cotizacionDir(proyectoId);
         if (!Files.isDirectory(projectDir)) {
             return null;
@@ -152,6 +166,51 @@ public class OptimizacionStorageService {
             log.warn("No se pudo listar cotizaciones del proyecto {}: {}", proyectoId, ex.getMessage());
         }
         return null;
+    }
+
+    private Path findLatestCotizacionInProjectDir(long proyectoId) {
+        Path projectDir = cotizacionDir(proyectoId);
+        if (!Files.isDirectory(projectDir)) {
+            return null;
+        }
+
+        try (Stream<Path> stream = Files.list(projectDir)) {
+            List<Path> files = stream.filter(OptimizacionStorageService::isReadableFile).toList();
+            if (files.isEmpty()) {
+                return null;
+            }
+            if (files.size() == 1) {
+                log.info(
+                        "Cotización proyecto {}: usando único archivo en disco ({}) sin nombre en BD",
+                        proyectoId,
+                        files.get(0).getFileName());
+                return files.get(0);
+            }
+            Path latest =
+                    files.stream()
+                            .max(
+                                    (a, b) -> {
+                                        try {
+                                            return Files.getLastModifiedTime(a)
+                                                    .compareTo(Files.getLastModifiedTime(b));
+                                        } catch (IOException ex) {
+                                            return a.getFileName()
+                                                    .toString()
+                                                    .compareToIgnoreCase(b.getFileName().toString());
+                                        }
+                                    })
+                            .orElse(null);
+            if (latest != null) {
+                log.info(
+                        "Cotización proyecto {}: usando archivo más reciente ({}) sin coincidencia exacta en BD",
+                        proyectoId,
+                        latest.getFileName());
+            }
+            return latest;
+        } catch (IOException ex) {
+            log.warn("No se pudo listar cotizaciones del proyecto {}: {}", proyectoId, ex.getMessage());
+            return null;
+        }
     }
 
     private Path cotizacionDir(long proyectoId) {
