@@ -6,6 +6,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public record BackupProperties(
         String storageRoot,
         String pgDumpPath,
+        String psqlPath,
         String biesseUrl,
         String biesseUsername,
         String biessePassword,

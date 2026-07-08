@@ -120,6 +120,7 @@ public class BackupService {
     @Transactional(readOnly = true)
     public List<BackupRunDto> listHistory() {
         return runRepository.findTop50ByOrderByStartedAtDesc().stream()
+                .filter(r -> r.getTriggerType() == null || !r.getTriggerType().startsWith("RESTORE"))
                 .map(run -> BackupRunDto.from(run, this::isFileDownloadable))
                 .toList();
     }
@@ -512,7 +513,7 @@ public class BackupService {
         }
     }
 
-    private Path storageRoot() {
+    Path storageRoot() {
         return Paths.get(backupProperties.storageRoot()).toAbsolutePath().normalize();
     }
 
@@ -548,7 +549,7 @@ public class BackupService {
                 .toList();
     }
 
-    private boolean isFileDownloadable(String filename) {
+    boolean isFileDownloadable(String filename) {
         if (filename == null || !SAFE_FILENAME.matcher(filename).matches()) {
             return false;
         }

@@ -221,8 +221,18 @@ public class AppConfigService {
                     envelopeFrom,
                     hasFiles ? fileAttachments.size() : 0);
         } catch (Exception ex) {
-            throw new BadRequestException("No se pudo enviar el correo: " + ex.getMessage());
+            String hint = friendlyMailError(ex);
+            throw new BadRequestException(hint != null ? hint : "No se pudo enviar el correo: " + ex.getMessage());
         }
+    }
+
+    private static String friendlyMailError(Exception ex) {
+        String msg = ex.getMessage() == null ? "" : ex.getMessage().toLowerCase();
+        if (msg.contains("unknownhostexception") || msg.contains("couldn't connect to host")) {
+            return "SMTP: el contenedor Docker no resuelve el host de correo. "
+                    + "Añada SMTP_HOST_IP en .env (IP del servidor mail) y reinicie con docker compose.";
+        }
+        return null;
     }
 
     void sendHtmlMessage(String to, String subject, String htmlBody) {
