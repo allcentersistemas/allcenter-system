@@ -60,6 +60,10 @@ public class BackupRestoreService {
 
     public BackupRunDto startRestoreFromHistory(Long runId, String filename, String confirmText) {
         requireConfirm(confirmText);
+        if (filename != null && filename.startsWith(MediaBackupService.MEDIA_ZIP_PREFIX)) {
+            throw new BadRequestException(
+                    "Para restaurar archivos use la opción Restaurar solo archivos");
+        }
         if (!restoreRunning.compareAndSet(false, true)) {
             throw new BadRequestException("Ya hay una restauración en ejecución");
         }
@@ -86,6 +90,10 @@ public class BackupRestoreService {
             throw new BadRequestException("Seleccione un archivo .sql.gz o .zip");
         }
         String original = file.getOriginalFilename() == null ? "" : file.getOriginalFilename().trim();
+        if (original.startsWith(MediaBackupService.MEDIA_ZIP_PREFIX)) {
+            throw new BadRequestException(
+                    "Para restaurar archivos use Gestión → Backups → Restaurar solo archivos");
+        }
         if (!SAFE_FILENAME.matcher(original).matches()) {
             throw new BadRequestException("Solo se admiten archivos .sql.gz o .zip");
         }

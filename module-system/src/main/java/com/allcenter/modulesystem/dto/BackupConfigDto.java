@@ -11,9 +11,12 @@ public record BackupConfigDto(
         boolean sendByEmail,
         String emailRecipients,
         boolean includeBiesseDb,
+        boolean includeMediaFiles,
         int retentionCount,
         Instant lastSuccessfulRunAt,
         String storageRoot,
+        String optimizacionMediaRoot,
+        String rmMediaRoot,
         boolean mailAvailable,
         boolean pgDumpAvailable,
         boolean biesseConfigured) {
@@ -21,6 +24,8 @@ public record BackupConfigDto(
     public static BackupConfigDto from(
             BackupConfig config,
             String storageRoot,
+            String optimizacionMediaRoot,
+            String rmMediaRoot,
             boolean mailAvailable,
             boolean pgDumpAvailable,
             boolean biesseConfigured) {
@@ -32,9 +37,12 @@ public record BackupConfigDto(
                 config.isSendByEmail(),
                 config.getEmailRecipients() == null ? "" : config.getEmailRecipients(),
                 config.isIncludeBiesseDb(),
+                config.isIncludeMediaFiles(),
                 config.getRetentionCount(),
                 config.getLastSuccessfulRunAt(),
                 storageRoot,
+                optimizacionMediaRoot,
+                rmMediaRoot,
                 mailAvailable,
                 pgDumpAvailable,
                 biesseConfigured);

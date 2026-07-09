@@ -330,6 +330,19 @@ public class OrderPersistenceService {
     }
 
     @Transactional(readOnly = true)
+    public String getCotizacionStoredFilenameForClient(long clientUserId, Long proyectoId) {
+        ProyectoOptimizacion proyecto = requireOwnedProject(clientUserId, proyectoId);
+        String archivo = proyecto.getCotizacionArchivo();
+        if (archivo == null || archivo.isBlank()) {
+            if (!optimizacionStorage.cotizacionExists(proyectoId, null)) {
+                throw new EntityNotFoundException("Cotización no disponible para este proyecto.");
+            }
+            return null;
+        }
+        return archivo;
+    }
+
+    @Transactional(readOnly = true)
     public String getCotizacionFilenameForClient(long clientUserId, Long proyectoId) {
         ProyectoOptimizacion proyecto = requireOwnedProject(clientUserId, proyectoId);
         String resolved =

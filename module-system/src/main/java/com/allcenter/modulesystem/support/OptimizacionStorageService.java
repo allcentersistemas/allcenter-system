@@ -5,8 +5,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Stream;
 import org.slf4j.Logger;
@@ -27,10 +29,13 @@ public class OptimizacionStorageService {
     private static final Logger log = LoggerFactory.getLogger(OptimizacionStorageService.class);
 
     private final Path root;
+    private final List<Path> searchRoots;
 
     public OptimizacionStorageService(
             @Value("${app.optimizacion.storage-dir:./var/optimizacion-media}") String mediaDir) {
         this.root = Paths.get(mediaDir).toAbsolutePath().normalize();
+        this.searchRoots = buildSearchRoots(this.root);
+        log.info("Almacenamiento de cotizaciones: raíz activa={}", this.root);
         try {
             Files.createDirectories(this.root.resolve("cotizacion"));
         } catch (IOException ex) {
@@ -44,10 +49,11 @@ public class OptimizacionStorageService {
         }
         String ext = safeExtension(file.getOriginalFilename());
         String name = UUID.randomUUID().toString().toLowerCase(Locale.ROOT) + ext;
-        Path dir = cotizacionDir(proyectoId);
+        Path dir = cotizacionDir(root, proyectoId);
         Files.createDirectories(dir);
         Path target = dir.resolve(name);
         file.transferTo(target.toFile());
+        log.info("Cotización guardada proyecto {} en {}", proyectoId, target);
         return name;
     }
 
@@ -56,7 +62,7 @@ public class OptimizacionStorageService {
         if (file == null) {
             throw new ResponseStatusException(
                     NOT_FOUND,
-                    "El archivo de cotización no está en el servidor. Ventas debe volver a subirla.");
+                    buildMissingFileMessage(proyectoId, filename));
         }
         return new FileSystemResource(file);
     }
@@ -66,7 +72,7 @@ public class OptimizacionStorageService {
         if (file == null) {
             throw new ResponseStatusException(
                     NOT_FOUND,
-                    "El archivo de cotización no está en el servidor. Ventas debe volver a subirla.");
+                    buildMissingFileMessage(proyectoId, filename));
         }
         return Files.readAllBytes(file);
     }
@@ -115,13 +121,38 @@ public class OptimizacionStorageService {
     }
 
     private Path findCotizacionFile(long proyectoId, String storedFilename) {
+        for (Path searchRoot : searchRoots) {
+            Path found = findCotizacionFileInRoot(searchRoot, proyectoId, storedFilename);
+            if (found != null) {
+                if (!searchRoot.equals(root)) {
+                    log.warn(
+                            "Cotización proyecto {} leída desde ruta legada {} (raíz activa {})",
+                            proyectoId,
+                            found,
+                            root);
+                }
+                return found;
+            }
+        }
+
+        String filename = normalizeStoredFilename(storedFilename);
+        log.warn(
+                "Cotización no encontrada: proyectoId={} archivo={} raízActiva={} rutasBuscadas={}",
+                proyectoId,
+                filename,
+                root,
+                searchRoots);
+        return null;
+    }
+
+    private Path findCotizacionFileInRoot(Path searchRoot, long proyectoId, String storedFilename) {
         String filename = normalizeStoredFilename(storedFilename);
 
         if (filename != null) {
             List<Path> candidates = new ArrayList<>();
-            candidates.add(cotizacionDir(proyectoId).resolve(filename));
-            candidates.add(root.resolve("cotizacion").resolve(filename));
-            candidates.add(root.resolve(filename));
+            candidates.add(cotizacionDir(searchRoot, proyectoId).resolve(filename));
+            candidates.add(searchRoot.resolve("cotizacion").resolve(filename));
+            candidates.add(searchRoot.resolve(filename));
 
             for (Path candidate : candidates) {
                 if (isReadableFile(candidate)) {
@@ -129,47 +160,42 @@ public class OptimizacionStorageService {
                 }
             }
 
-            Path fromProjectDir = findInProjectDir(proyectoId, filename);
+            Path fromProjectDir = findInProjectDir(searchRoot, proyectoId, filename);
             if (fromProjectDir != null) {
                 return fromProjectDir;
             }
 
-            Path recursive = findCotizacionFileRecursive(filename);
+            Path recursive = findCotizacionFileRecursive(searchRoot, filename);
             if (recursive != null) {
-                log.info(
-                        "Cotización proyecto {}: archivo {} encontrado en ruta {}",
-                        proyectoId,
-                        filename,
-                        recursive);
                 return recursive;
             }
         }
 
-        return findLatestCotizacionInProjectDir(proyectoId);
+        return findLatestCotizacionInProjectDir(searchRoot, proyectoId);
     }
 
-    private Path findCotizacionFileRecursive(String filename) {
+    private Path findCotizacionFileRecursive(Path searchRoot, String filename) {
         if (filename == null) {
             return null;
         }
-        Path cotizacionRoot = root.resolve("cotizacion");
+        Path cotizacionRoot = searchRoot.resolve("cotizacion");
         if (!Files.isDirectory(cotizacionRoot)) {
             return null;
         }
-        try (Stream<Path> stream = Files.walk(cotizacionRoot, 4)) {
+        try (Stream<Path> stream = Files.walk(cotizacionRoot, 6)) {
             return stream
                     .filter(OptimizacionStorageService::isReadableFile)
                     .filter(p -> p.getFileName().toString().equalsIgnoreCase(filename))
                     .findFirst()
                     .orElse(null);
         } catch (IOException ex) {
-            log.warn("No se pudo buscar cotización recursiva {}: {}", filename, ex.getMessage());
+            log.warn("No se pudo buscar cotización recursiva {} en {}: {}", filename, searchRoot, ex.getMessage());
             return null;
         }
     }
 
-    private Path findInProjectDir(long proyectoId, String filename) {
-        Path projectDir = cotizacionDir(proyectoId);
+    private Path findInProjectDir(Path searchRoot, long proyectoId, String filename) {
+        Path projectDir = cotizacionDir(searchRoot, proyectoId);
         if (!Files.isDirectory(projectDir)) {
             return null;
         }
@@ -185,21 +211,16 @@ public class OptimizacionStorageService {
                 return exactIgnoreCase;
             }
             if (files.size() == 1) {
-                log.info(
-                        "Cotización proyecto {}: usando único archivo en disco ({}) aunque BD indique {}",
-                        proyectoId,
-                        files.get(0).getFileName(),
-                        filename);
                 return files.get(0);
             }
         } catch (IOException ex) {
-            log.warn("No se pudo listar cotizaciones del proyecto {}: {}", proyectoId, ex.getMessage());
+            log.warn("No se pudo listar cotizaciones del proyecto {} en {}: {}", proyectoId, searchRoot, ex.getMessage());
         }
         return null;
     }
 
-    private Path findLatestCotizacionInProjectDir(long proyectoId) {
-        Path projectDir = cotizacionDir(proyectoId);
+    private Path findLatestCotizacionInProjectDir(Path searchRoot, long proyectoId) {
+        Path projectDir = cotizacionDir(searchRoot, proyectoId);
         if (!Files.isDirectory(projectDir)) {
             return null;
         }
@@ -210,45 +231,61 @@ public class OptimizacionStorageService {
                 return null;
             }
             if (files.size() == 1) {
-                log.info(
-                        "Cotización proyecto {}: usando único archivo en disco ({}) sin nombre en BD",
-                        proyectoId,
-                        files.get(0).getFileName());
                 return files.get(0);
             }
-            Path latest =
-                    files.stream()
-                            .max(
-                                    (a, b) -> {
-                                        try {
-                                            return Files.getLastModifiedTime(a)
-                                                    .compareTo(Files.getLastModifiedTime(b));
-                                        } catch (IOException ex) {
-                                            return a.getFileName()
-                                                    .toString()
-                                                    .compareToIgnoreCase(b.getFileName().toString());
-                                        }
-                                    })
-                            .orElse(null);
-            if (latest != null) {
-                log.info(
-                        "Cotización proyecto {}: usando archivo más reciente ({}) sin coincidencia exacta en BD",
-                        proyectoId,
-                        latest.getFileName());
-            }
-            return latest;
+            return files.stream()
+                    .max(
+                            (a, b) -> {
+                                try {
+                                    return Files.getLastModifiedTime(a).compareTo(Files.getLastModifiedTime(b));
+                                } catch (IOException ex) {
+                                    return a.getFileName().toString().compareToIgnoreCase(b.getFileName().toString());
+                                }
+                            })
+                    .orElse(null);
         } catch (IOException ex) {
-            log.warn("No se pudo listar cotizaciones del proyecto {}: {}", proyectoId, ex.getMessage());
+            log.warn("No se pudo listar cotizaciones del proyecto {} en {}: {}", proyectoId, searchRoot, ex.getMessage());
             return null;
         }
     }
 
-    private Path cotizacionDir(long proyectoId) {
-        return root.resolve("cotizacion").resolve(Long.toString(proyectoId));
+    private static Path cotizacionDir(Path searchRoot, long proyectoId) {
+        return searchRoot.resolve("cotizacion").resolve(Long.toString(proyectoId));
     }
 
     private static boolean isReadableFile(Path path) {
         return path != null && Files.isRegularFile(path);
+    }
+
+    private String buildMissingFileMessage(long proyectoId, String storedFilename) {
+        String filename = normalizeStoredFilename(storedFilename);
+        String expected =
+                filename == null
+                        ? cotizacionDir(root, proyectoId).toString()
+                        : cotizacionDir(root, proyectoId).resolve(filename).toString();
+        return "El archivo de cotización no está en el servidor (se esperaba en "
+                + expected
+                + "). La base de datos solo guarda el nombre del archivo; ventas debe volver a subir el PDF si falta en disco.";
+    }
+
+    private static List<Path> buildSearchRoots(Path primaryRoot) {
+        Set<Path> roots = new LinkedHashSet<>();
+        roots.add(primaryRoot.toAbsolutePath().normalize());
+        roots.add(Paths.get("/data/optimizacion-media").toAbsolutePath().normalize());
+        addRootIfExists(roots, Paths.get("./var/optimizacion-media"));
+        addRootIfExists(roots, Paths.get("/app/var/optimizacion-media"));
+        addRootIfExists(roots, Paths.get("/opt/allcenter/var/optimizacion-media"));
+        return List.copyOf(roots);
+    }
+
+    private static void addRootIfExists(Set<Path> roots, Path candidate) {
+        if (candidate == null) {
+            return;
+        }
+        Path normalized = candidate.toAbsolutePath().normalize();
+        if (Files.exists(normalized) && !roots.contains(normalized)) {
+            roots.add(normalized);
+        }
     }
 
     /** Acepta solo el nombre de archivo aunque en BD quedó una ruta antigua. */

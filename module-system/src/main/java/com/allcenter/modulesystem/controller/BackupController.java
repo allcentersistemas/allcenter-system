@@ -6,6 +6,7 @@ import com.allcenter.modulesystem.dto.BackupRestoreFromHistoryRequest;
 import com.allcenter.modulesystem.dto.BackupRunDto;
 import com.allcenter.modulesystem.service.BackupRestoreService;
 import com.allcenter.modulesystem.service.BackupService;
+import com.allcenter.modulesystem.service.MediaBackupRestoreService;
 import jakarta.validation.Valid;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -32,6 +33,7 @@ public class BackupController {
 
     private final BackupService backupService;
     private final BackupRestoreService backupRestoreService;
+    private final MediaBackupRestoreService mediaBackupRestoreService;
 
     @GetMapping("/config")
     @PreAuthorize("@portalAuth.isMaster()")
@@ -49,6 +51,12 @@ public class BackupController {
     @PreAuthorize("@portalAuth.isMaster()")
     public ResponseEntity<BackupRunDto> runNow() {
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(backupService.startManualBackup());
+    }
+
+    @PostMapping("/run/files")
+    @PreAuthorize("@portalAuth.isMaster()")
+    public ResponseEntity<BackupRunDto> runFilesNow() {
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(mediaBackupRestoreService.startManualMediaBackup());
     }
 
     @GetMapping("/history/{runId}")
@@ -95,5 +103,22 @@ public class BackupController {
     @PreAuthorize("@portalAuth.isMaster()")
     public ResponseEntity<List<BackupRunDto>> restoreHistory() {
         return ResponseEntity.ok(backupRestoreService.listRestoreHistory());
+    }
+
+    @PostMapping("/restore/files")
+    @PreAuthorize("@portalAuth.isMaster()")
+    public ResponseEntity<BackupRunDto> restoreFilesFromHistory(
+            @Valid @RequestBody BackupRestoreFromHistoryRequest request) {
+        return ResponseEntity.status(HttpStatus.ACCEPTED)
+                .body(mediaBackupRestoreService.startRestoreMediaFromHistory(
+                        request.runId(), request.filename(), request.confirmText()));
+    }
+
+    @PostMapping(value = "/restore/files/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("@portalAuth.isMaster()")
+    public ResponseEntity<BackupRunDto> restoreFilesUpload(
+            @RequestParam String confirmText, @RequestParam("file") MultipartFile file) {
+        return ResponseEntity.status(HttpStatus.ACCEPTED)
+                .body(mediaBackupRestoreService.startRestoreMediaUpload(file, confirmText));
     }
 }

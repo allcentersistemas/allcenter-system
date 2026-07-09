@@ -46,7 +46,9 @@ import org.springframework.util.StringUtils;
 public class BackupService {
 
     private static final long CONFIG_ID = 1L;
-    private static final Pattern SAFE_FILENAME = Pattern.compile("^[a-zA-Z0-9._-]+\\.sql\\.gz$");
+    private static final Pattern SAFE_SQL_FILENAME = Pattern.compile("^[a-zA-Z0-9._-]+\\.sql\\.gz$");
+    private static final Pattern SAFE_MEDIA_FILENAME =
+            Pattern.compile("^media_files_[a-zA-Z0-9._-]+\\.zip$");
     private static final DateTimeFormatter STAMP =
             DateTimeFormatter.ofPattern("yyyy-MM-dd_HHmmss");
 
@@ -55,6 +57,7 @@ public class BackupService {
     private final BackupProperties backupProperties;
     private final MailService mailService;
     private final AppConfigService appConfigService;
+    private final MediaBackupService mediaBackupService;
 
     @Value("${spring.datasource.url}")
     private String systemJdbcUrl;
@@ -80,6 +83,8 @@ public class BackupService {
         return BackupConfigDto.from(
                 config,
                 backupProperties.storageRoot(),
+                mediaBackupService.optimizacionMediaRoot().toString(),
+                mediaBackupService.rmMediaRoot().toString(),
                 mailService.isEnabled(),
                 isPgDumpAvailable(),
                 isBiesseConfigured());
@@ -112,6 +117,7 @@ public class BackupService {
         config.setSendByEmail(Boolean.TRUE.equals(request.sendByEmail()));
         config.setEmailRecipients(normalizeRecipients(request.emailRecipients()));
         config.setIncludeBiesseDb(Boolean.TRUE.equals(request.includeBiesseDb()));
+        config.setIncludeMediaFiles(Boolean.TRUE.equals(request.includeMediaFiles()));
         config.setRetentionCount(request.retentionCount());
         configRepository.save(config);
         return getConfig();
@@ -170,7 +176,7 @@ public class BackupService {
     }
 
     public Resource resolveDownloadFile(Long runId, String filename) {
-        if (filename == null || !SAFE_FILENAME.matcher(filename).matches()) {
+        if (filename == null || !isBackupFileName(filename)) {
             throw new BadRequestException("Nombre de archivo no válido");
         }
         BackupRun run = runRepository
@@ -235,7 +241,16 @@ public class BackupService {
                 createdFiles.add(biesseFile);
                 dumpByFile.put(biesseFile, biesseDump);
                 totalBytes += biesseDump.length;
-                updateProgress(run, 60, "Base obras lista");
+                updateProgress(run, 55, "Base obras lista");
+            }
+
+            if (config.isIncludeMediaFiles() && config.isSaveToFolder()) {
+                updateProgress(run, 60, "Comprimiendo archivos (cotizaciones, RM)…");
+                long mediaSize = mediaBackupService.createMediaArchive(storageRoot(), stamp);
+                String mediaFile = mediaBackupService.mediaZipFileName(stamp);
+                createdFiles.add(mediaFile);
+                totalBytes += mediaSize;
+                updateProgress(run, 63, "Archivos comprimidos");
             }
 
             if (config.isSaveToFolder()) {
@@ -450,6 +465,11 @@ public class BackupService {
     }
 
     private void pruneOldBackups(int retentionCount) throws IOException {
+        pruneFilesBySuffix(retentionCount, ".sql.gz");
+        pruneFilesBySuffix(retentionCount, ".zip", MediaBackupService.MEDIA_ZIP_PREFIX);
+    }
+
+    private void pruneFilesBySuffix(int retentionCount, String suffix, String requiredPrefix) throws IOException {
         Path root = storageRoot();
         if (!Files.isDirectory(root)) {
             return;
@@ -458,7 +478,13 @@ public class BackupService {
         try (Stream<Path> stream = Files.list(root)) {
             files = stream
                     .filter(Files::isRegularFile)
-                    .filter(p -> p.getFileName().toString().endsWith(".sql.gz"))
+                    .filter(p -> {
+                        String name = p.getFileName().toString();
+                        if (!name.endsWith(suffix)) {
+                            return false;
+                        }
+                        return requiredPrefix == null || name.startsWith(requiredPrefix);
+                    })
                     .sorted(Comparator.comparing(p -> {
                         try {
                             return Files.getLastModifiedTime(p);
@@ -471,6 +497,10 @@ public class BackupService {
         for (int i = retentionCount; i < files.size(); i++) {
             Files.deleteIfExists(files.get(i));
         }
+    }
+
+    private void pruneFilesBySuffix(int retentionCount, String suffix) throws IOException {
+        pruneFilesBySuffix(retentionCount, suffix, null);
     }
 
     private boolean isDue(BackupConfig config) {
@@ -513,8 +543,24 @@ public class BackupService {
         }
     }
 
+    void ensureStorageDirectoryPublic() {
+        ensureStorageDirectory();
+    }
+
     Path storageRoot() {
         return Paths.get(backupProperties.storageRoot()).toAbsolutePath().normalize();
+    }
+
+    private boolean isBackupFileName(String filename) {
+        return SAFE_SQL_FILENAME.matcher(filename).matches()
+                || SAFE_MEDIA_FILENAME.matcher(filename).matches();
+    }
+
+    boolean isFileDownloadable(String filename) {
+        if (filename == null || !isBackupFileName(filename)) {
+            return false;
+        }
+        return Files.isRegularFile(storageRoot().resolve(filename));
     }
 
     private boolean isBiesseConfigured() {
@@ -547,13 +593,6 @@ public class BackupService {
                 .filter(s -> !s.isEmpty())
                 .distinct()
                 .toList();
-    }
-
-    boolean isFileDownloadable(String filename) {
-        if (filename == null || !SAFE_FILENAME.matcher(filename).matches()) {
-            return false;
-        }
-        return Files.isRegularFile(storageRoot().resolve(filename));
     }
 
     private static String normalizeRecipients(String raw) {

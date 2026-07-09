@@ -111,11 +111,18 @@ public class ClientOptimizacionController {
     public ResponseEntity<Resource> downloadCotizacion(
             @AuthenticationPrincipal ClientUserDetails principal,
             @PathVariable Long proyectoId) {
-        String filename =
-                service.getCotizacionFilenameForClient(principal.getClientUser().getId(), proyectoId);
-        Resource resource = storageService.loadCotizacion(proyectoId, filename);
-        String contentType = storageService.cotizacionContentType(filename);
-        String safeName = filename.replace("\"", "");
+        String storedFilename =
+                service.getCotizacionStoredFilenameForClient(principal.getClientUser().getId(), proyectoId);
+        Resource resource = storageService.loadCotizacion(proyectoId, storedFilename);
+        String resolved = storageService.resolveCotizacionFilename(proyectoId, storedFilename);
+        String downloadName =
+                resolved != null
+                        ? resolved
+                        : (storedFilename == null || storedFilename.isBlank()
+                                ? "cotizacion-" + proyectoId + ".pdf"
+                                : storedFilename.trim());
+        String contentType = storageService.cotizacionContentType(downloadName);
+        String safeName = downloadName == null ? ("cotizacion-" + proyectoId + ".pdf") : downloadName.replace("\"", "");
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType(contentType))
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + safeName + "\"")

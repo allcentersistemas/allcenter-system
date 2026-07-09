@@ -40,6 +40,10 @@ public class BackupConfig {
     @Column(nullable = false)
     private boolean includeBiesseDb = true;
 
+  /** Incluir cotizaciones (optimizacion-media) y fotos RM en backups automáticos/manuales de BD. */
+    @Column(nullable = false)
+    private boolean includeMediaFiles = false;
+
     @Column(nullable = false)
     private int retentionCount = 7;
 

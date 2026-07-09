@@ -12,4 +12,5 @@ public record BackupConfigUpdateRequest(
         @NotNull Boolean sendByEmail,
         String emailRecipients,
         @NotNull Boolean includeBiesseDb,
+        @NotNull Boolean includeMediaFiles,
         @Min(1) @Max(100) int retentionCount) {}
