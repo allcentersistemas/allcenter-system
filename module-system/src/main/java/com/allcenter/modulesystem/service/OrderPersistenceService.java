@@ -549,12 +549,17 @@ public class OrderPersistenceService {
                 editable,
                 proyecto.getMaquinaId(),
                 maquinaService.resolveParametros(proyecto.getMaquinaId()),
-                hasCotizacionOnDisk(proyecto),
+                hasCotizacion(proyecto),
+                proyecto.getCotizacionArchivo(),
                 toEstadoTiempos(proyecto));
     }
 
-    private boolean hasCotizacionOnDisk(ProyectoOptimizacion proyecto) {
-        return optimizacionStorage.cotizacionExists(proyecto.getId(), proyecto.getCotizacionArchivo());
+    private boolean hasCotizacion(ProyectoOptimizacion proyecto) {
+        String archivo = proyecto.getCotizacionArchivo();
+        if (archivo != null && !archivo.isBlank()) {
+            return true;
+        }
+        return optimizacionStorage.cotizacionExists(proyecto.getId(), archivo);
     }
 
     private OrderDtos.ProyectoResponse toProyectoResponse(ProyectoOptimizacion proyectoOptimizacion, boolean editable) {
@@ -652,7 +657,7 @@ public class OrderPersistenceService {
                     client.getEmail().trim(),
                     "Cotización disponible — " + projectName,
                     html,
-                    List.of(new MailAttachment(attachmentName, bytes, contentType)));
+                    List.of(new MailService.MailAttachment(attachmentName, bytes, contentType)));
         } catch (Exception ex) {
             log.error(
                     "No se pudo enviar la cotización por correo (proyecto {}): {}",

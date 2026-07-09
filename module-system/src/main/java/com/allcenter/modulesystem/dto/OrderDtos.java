@@ -74,6 +74,7 @@ public final class OrderDtos {
             Long maquinaId,
             String maquinaParametros,
             boolean tieneCotizacion,
+            String cotizacionArchivo,
             ProyectoEstadoTiempos estadoTiempos
     ) {
     }

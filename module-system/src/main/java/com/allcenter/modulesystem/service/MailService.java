@@ -17,6 +17,12 @@ import java.util.List;
 @Slf4j
 public class MailService {
 
+    public record MailAttachment(String filename, byte[] content, String contentType) {
+        public MailAttachment(String filename, byte[] content) {
+            this(filename, content, "application/octet-stream");
+        }
+    }
+
     private final AppConfigService appConfigService;
 
     public boolean isEnabled() {
