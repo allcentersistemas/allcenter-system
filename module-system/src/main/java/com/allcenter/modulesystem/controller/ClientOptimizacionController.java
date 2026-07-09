@@ -13,6 +13,7 @@ import java.util.Map;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -25,6 +26,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 @RestController
 @RequestMapping("/api/client/optimizacion")
@@ -112,8 +114,11 @@ public class ClientOptimizacionController {
         String filename =
                 service.getCotizacionFilenameForClient(principal.getClientUser().getId(), proyectoId);
         Resource resource = storageService.loadCotizacion(proyectoId, filename);
+        String contentType = storageService.cotizacionContentType(filename);
+        String safeName = filename.replace("\"", "");
         return ResponseEntity.ok()
-                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
+                .contentType(MediaType.parseMediaType(contentType))
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + safeName + "\"")
                 .body(resource);
     }
 
@@ -121,5 +126,14 @@ public class ClientOptimizacionController {
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public Map<String, String> handleBadRequest(Exception ex) {
         return Map.of("message", ex.getMessage());
+    }
+
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<Map<String, String>> handleStatus(ResponseStatusException ex) {
+        String message =
+                ex.getReason() != null && !ex.getReason().isBlank()
+                        ? ex.getReason()
+                        : "No se pudo obtener la cotización.";
+        return ResponseEntity.status(ex.getStatusCode()).body(Map.of("message", message));
     }
 }

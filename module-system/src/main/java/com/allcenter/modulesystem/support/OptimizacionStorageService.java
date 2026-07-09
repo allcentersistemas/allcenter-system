@@ -133,9 +133,39 @@ public class OptimizacionStorageService {
             if (fromProjectDir != null) {
                 return fromProjectDir;
             }
+
+            Path recursive = findCotizacionFileRecursive(filename);
+            if (recursive != null) {
+                log.info(
+                        "Cotización proyecto {}: archivo {} encontrado en ruta {}",
+                        proyectoId,
+                        filename,
+                        recursive);
+                return recursive;
+            }
         }
 
         return findLatestCotizacionInProjectDir(proyectoId);
+    }
+
+    private Path findCotizacionFileRecursive(String filename) {
+        if (filename == null) {
+            return null;
+        }
+        Path cotizacionRoot = root.resolve("cotizacion");
+        if (!Files.isDirectory(cotizacionRoot)) {
+            return null;
+        }
+        try (Stream<Path> stream = Files.walk(cotizacionRoot, 4)) {
+            return stream
+                    .filter(OptimizacionStorageService::isReadableFile)
+                    .filter(p -> p.getFileName().toString().equalsIgnoreCase(filename))
+                    .findFirst()
+                    .orElse(null);
+        } catch (IOException ex) {
+            log.warn("No se pudo buscar cotización recursiva {}: {}", filename, ex.getMessage());
+            return null;
+        }
     }
 
     private Path findInProjectDir(long proyectoId, String filename) {

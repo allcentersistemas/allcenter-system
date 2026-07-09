@@ -335,6 +335,11 @@ public class OrderPersistenceService {
         String resolved =
                 optimizacionStorage.resolveCotizacionFilename(proyectoId, proyecto.getCotizacionArchivo());
         if (resolved == null) {
+            String archivo = proyecto.getCotizacionArchivo();
+            if (archivo != null && !archivo.isBlank()) {
+                throw new EntityNotFoundException(
+                        "El archivo de cotización no está en el servidor. Ventas debe volver a subirla.");
+            }
             throw new EntityNotFoundException("Cotización no disponible para este proyecto.");
         }
         return resolved;
