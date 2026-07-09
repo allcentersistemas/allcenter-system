@@ -263,9 +263,7 @@ public class OptimizacionStorageService {
                 filename == null
                         ? cotizacionDir(root, proyectoId).toString()
                         : cotizacionDir(root, proyectoId).resolve(filename).toString();
-        return "El archivo de cotización no está en el servidor (se esperaba en "
-                + expected
-                + "). La base de datos solo guarda el nombre del archivo; ventas debe volver a subir el PDF si falta en disco.";
+        return "No se Encontro Archivo en Servidor";
     }
 
     private static List<Path> buildSearchRoots(Path primaryRoot) {
