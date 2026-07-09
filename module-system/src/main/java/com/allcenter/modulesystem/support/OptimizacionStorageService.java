@@ -1,9 +1,13 @@
 package com.allcenter.modulesystem.support;
 
 import java.io.IOException;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -11,6 +15,7 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Stream;
+import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -36,10 +41,94 @@ public class OptimizacionStorageService {
         this.root = Paths.get(mediaDir).toAbsolutePath().normalize();
         this.searchRoots = buildSearchRoots(this.root);
         log.info("Almacenamiento de cotizaciones: raíz activa={}", this.root);
+    }
+
+    @PostConstruct
+    void initialize() {
         try {
-            Files.createDirectories(this.root.resolve("cotizacion"));
+            ensureReady();
+            migrateLegacyMedia();
         } catch (IOException ex) {
-            log.warn("No se pudo crear directorio de cotizaciones en {}: {}", this.root, ex.getMessage());
+            log.warn("No se pudo preparar almacenamiento de cotizaciones en {}: {}", root, ex.getMessage());
+        }
+    }
+
+    /** Crea el árbol bajo la raíz persistente (igual que RM en /data/rm-media). */
+    public void ensureReady() throws IOException {
+        Files.createDirectories(root.resolve("cotizacion"));
+    }
+
+    /**
+     * Copia cotizaciones desde rutas efímeras del contenedor (/app/var/…) al volumen persistente
+     * configurado, para que no se pierdan al redeployar.
+     */
+    private void migrateLegacyMedia() throws IOException {
+        int migrated = 0;
+        for (Path legacyRoot : legacyMigrationRoots()) {
+            if (!Files.isDirectory(legacyRoot)) {
+                continue;
+            }
+            migrated += migrateTree(legacyRoot, root);
+        }
+        if (migrated > 0) {
+            log.info("Migradas {} cotización(es) a {}", migrated, root);
+        }
+    }
+
+    private int migrateTree(Path sourceRoot, Path targetRoot) throws IOException {
+        if (sourceRoot.equals(targetRoot)) {
+            return 0;
+        }
+        List<Path> files = new ArrayList<>();
+        Files.walkFileTree(
+                sourceRoot,
+                new SimpleFileVisitor<>() {
+                    @Override
+                    public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                        files.add(file);
+                        return FileVisitResult.CONTINUE;
+                    }
+                });
+        int copied = 0;
+        for (Path source : files) {
+            String relative = sourceRoot.relativize(source).toString().replace('\\', '/');
+            if (relative.contains("..")) {
+                continue;
+            }
+            Path target = targetRoot.resolve(relative).normalize();
+            if (!target.startsWith(targetRoot)) {
+                continue;
+            }
+            if (Files.isRegularFile(target)) {
+                continue;
+            }
+            Files.createDirectories(target.getParent());
+            Files.copy(source, target, StandardCopyOption.COPY_ATTRIBUTES);
+            copied++;
+            log.info("Cotización migrada: {} → {}", source, target);
+        }
+        return copied;
+    }
+
+    private List<Path> legacyMigrationRoots() {
+        List<Path> roots = new ArrayList<>();
+        addDistinctRoot(roots, Paths.get("/app/var/optimizacion-media"));
+        addDistinctRoot(roots, Paths.get("./var/optimizacion-media"));
+        addDistinctRoot(roots, Paths.get("/opt/allcenter/var/optimizacion-media"));
+        for (Path searchRoot : searchRoots) {
+            addDistinctRoot(roots, searchRoot);
+        }
+        roots.remove(root);
+        return roots;
+    }
+
+    private static void addDistinctRoot(List<Path> roots, Path candidate) {
+        if (candidate == null) {
+            return;
+        }
+        Path normalized = candidate.toAbsolutePath().normalize();
+        if (!roots.contains(normalized)) {
+            roots.add(normalized);
         }
     }
 
@@ -47,6 +136,7 @@ public class OptimizacionStorageService {
         if (file == null || file.isEmpty()) {
             throw new ResponseStatusException(BAD_REQUEST, "Archivo vacío");
         }
+        ensureReady();
         String ext = safeExtension(file.getOriginalFilename());
         String name = UUID.randomUUID().toString().toLowerCase(Locale.ROOT) + ext;
         Path dir = cotizacionDir(root, proyectoId);

@@ -129,6 +129,12 @@ public class OrderPersistenceService {
     @Transactional
     public OrderDtos.ProyectoResponse captureProject(long employeeId, Long proyectoId) {
         ProyectoOptimizacion proyecto = requireProject(proyectoId);
+        if (proyecto.getEstado() == ProyectoEstado.CANCELADO) {
+            throw new IllegalArgumentException("No se puede capturar un proyecto cancelado.");
+        }
+        if (proyecto.getEstado() == ProyectoEstado.VENDIDO) {
+            throw new IllegalArgumentException("No se puede capturar un proyecto vendido.");
+        }
         if (proyecto.getVendedorId() != null && !proyecto.getVendedorId().equals(employeeId)) {
             throw new IllegalArgumentException("El proyecto ya fue capturado por otro vendedor.");
         }
