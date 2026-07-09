@@ -39,10 +39,12 @@ import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
+import org.springframework.context.annotation.DependsOn;
 
 @Service
 @RequiredArgsConstructor
 @Slf4j
+@DependsOn("backupConfigSchemaAligner")
 public class BackupService {
 
     private static final long CONFIG_ID = 1L;
