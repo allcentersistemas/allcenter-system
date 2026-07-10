@@ -246,7 +246,7 @@ public class BackupService {
                 updateProgress(run, 55, "Base obras lista");
             }
 
-            if (config.isIncludeMediaFiles() && config.isSaveToFolder()) {
+            if (config.isIncludeMediaFiles()) {
                 updateProgress(run, 60, "Comprimiendo archivos (cotizaciones, RM)…");
                 long mediaSize = mediaBackupService.createMediaArchive(storageRoot(), stamp);
                 String mediaFile = mediaBackupService.mediaZipFileName(stamp);
@@ -337,15 +337,21 @@ public class BackupService {
         String stamp = STAMP.format(LocalDateTime.ofInstant(startedAt, ZoneId.systemDefault()));
         String subject = "Backup AllCenter — " + stamp;
 
-        String plain = "Se generó un backup de la base de datos AllCenter.\n"
+        String plain = "Se generó un backup de AllCenter (base de datos"
+                + (config.isIncludeMediaFiles() ? " y archivos: cotizaciones + fotos RM" : "")
+                + ").\n"
                 + "Fecha: " + stamp + "\n"
-                + "Archivos: " + String.join(", ", dumpByFile.keySet()) + "\n";
+                + "Archivos: " + String.join(", ", createdFiles) + "\n";
         StringBuilder html = new StringBuilder();
-        html.append("<p>Se generó un backup de la base de datos AllCenter.</p>");
+        html.append("<p>Se generó un backup de AllCenter (base de datos");
+        if (config.isIncludeMediaFiles()) {
+            html.append(" y archivos: cotizaciones + fotos RM");
+        }
+        html.append(").</p>");
         html.append("<p><strong>Fecha:</strong> ").append(stamp).append("</p>");
-        if (!dumpByFile.isEmpty()) {
+        if (!createdFiles.isEmpty()) {
             html.append("<p><strong>Archivos:</strong> ")
-                    .append(String.join(", ", dumpByFile.keySet()))
+                    .append(String.join(", ", createdFiles))
                     .append("</p>");
         }
 

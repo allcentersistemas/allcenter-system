@@ -42,7 +42,7 @@ public class BackupConfig {
 
   /** Incluir cotizaciones (optimizacion-media) y fotos RM en backups automáticos/manuales de BD. */
     @Column(nullable = false)
-    private boolean includeMediaFiles = false;
+    private boolean includeMediaFiles = true;
 
     @Column(nullable = false)
     private int retentionCount = 7;

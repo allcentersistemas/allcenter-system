@@ -23,7 +23,7 @@ public class BackupConfigSchemaAligner {
         if (!tableExists("backup_config")) {
             return;
         }
-        addColumnIfMissing("backup_config", "include_media_files", "BOOLEAN NOT NULL DEFAULT false");
+        addColumnIfMissing("backup_config", "include_media_files", "BOOLEAN NOT NULL DEFAULT true");
     }
 
     private void addColumnIfMissing(String table, String column, String sqlType) {
