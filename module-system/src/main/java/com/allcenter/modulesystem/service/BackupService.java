@@ -333,18 +333,28 @@ public class BackupService {
 
         String recipientList = String.join(", ", recipients);
         long maxBytes = (long) backupProperties.maxAttachmentMb() * 1024L * 1024L;
-        boolean attach = totalBytes <= maxBytes && !createdFiles.isEmpty();
         String stamp = STAMP.format(LocalDateTime.ofInstant(startedAt, ZoneId.systemDefault()));
         String subject = "Backup AllCenter — " + stamp;
 
-        String plain = "Se generó un backup de AllCenter (base de datos"
-                + (config.isIncludeMediaFiles() ? " y archivos: cotizaciones + fotos RM" : "")
-                + ").\n"
-                + "Fecha: " + stamp + "\n"
-                + "Archivos: " + String.join(", ", createdFiles) + "\n";
+        List<String> sqlFiles =
+                createdFiles.stream().filter(n -> n.endsWith(".sql.gz")).toList();
+        List<String> mediaFiles =
+                createdFiles.stream()
+                        .filter(n -> n.startsWith(MediaBackupService.MEDIA_ZIP_PREFIX) && n.endsWith(".zip"))
+                        .toList();
+
+        StringBuilder plain = new StringBuilder();
+        plain.append("Se generó un backup de AllCenter (base de datos");
+        if (!mediaFiles.isEmpty()) {
+            plain.append(" y archivos: cotizaciones + fotos RM");
+        }
+        plain.append(").\nFecha: ").append(stamp).append("\n");
+        plain.append("Archivos: ").append(String.join(", ", createdFiles)).append("\n");
+        plain.append("Tamaño total generado: ").append(formatSize(totalBytes)).append("\n");
+
         StringBuilder html = new StringBuilder();
         html.append("<p>Se generó un backup de AllCenter (base de datos");
-        if (config.isIncludeMediaFiles()) {
+        if (!mediaFiles.isEmpty()) {
             html.append(" y archivos: cotizaciones + fotos RM");
         }
         html.append(").</p>");
@@ -354,37 +364,104 @@ public class BackupService {
                     .append(String.join(", ", createdFiles))
                     .append("</p>");
         }
+        html.append("<p><strong>Tamaño total:</strong> ").append(formatSize(totalBytes)).append("</p>");
 
-        Path zipPath = null;
-        List<MailFileAttachment> fileAttachments = List.of();
-        if (attach) {
-            zipPath = createZipBundle(stamp, createdFiles, dumpByFile);
-            long zipSize = Files.size(zipPath);
-            String zipName = zipPath.getFileName().toString();
-            plain += "Adjunto: " + zipName + " (" + formatSize(zipSize) + ")\n";
-            html.append("<p>Adjunto: <strong>").append(zipName).append("</strong> (")
-                    .append(formatSize(zipSize))
-                    .append(").</p>");
-            fileAttachments = List.of(new MailFileAttachment(zipName, zipPath, "application/zip"));
-        } else {
-            plain += "Los archivos superan el límite de adjunto ("
-                    + backupProperties.maxAttachmentMb()
-                    + " MB). Descárguelos desde Gestión → Backups.\n";
-            html.append("<p>Los archivos superan el límite de adjunto (")
-                    .append(backupProperties.maxAttachmentMb())
-                    .append(" MB). Descárguelos desde Gestión → Backups en el portal.</p>");
+        List<MailFileAttachment> fileAttachments = new ArrayList<>();
+        List<Path> tempZips = new ArrayList<>();
+        long attachedBytes = 0L;
+        List<String> skipped = new ArrayList<>();
+
+        // Bases de datos: adjunto propio (no depender de que el ZIP “completo” quepa)
+        if (!sqlFiles.isEmpty()) {
+            long sqlBytes = 0L;
+            for (String name : sqlFiles) {
+                Path onDisk = storageRoot().resolve(name);
+                if (Files.isRegularFile(onDisk)) {
+                    sqlBytes += Files.size(onDisk);
+                } else if (dumpByFile.containsKey(name)) {
+                    sqlBytes += dumpByFile.get(name).length;
+                }
+            }
+            if (sqlBytes > 0 && sqlBytes <= maxBytes) {
+                Path dbZip = createZipBundle("db_" + stamp, sqlFiles, dumpByFile);
+                tempZips.add(dbZip);
+                long zipSize = Files.size(dbZip);
+                fileAttachments.add(
+                        new MailFileAttachment(dbZip.getFileName().toString(), dbZip, "application/zip"));
+                attachedBytes += zipSize;
+                plain.append("Adjunto BD: ")
+                        .append(dbZip.getFileName())
+                        .append(" (")
+                        .append(formatSize(zipSize))
+                        .append(")\n");
+                html.append("<p>Adjunto BD: <strong>")
+                        .append(dbZip.getFileName())
+                        .append("</strong> (")
+                        .append(formatSize(zipSize))
+                        .append(").</p>");
+            } else if (sqlBytes > maxBytes) {
+                skipped.add("bases de datos (" + formatSize(sqlBytes) + ")");
+            }
         }
-        plain += "\nSi no ve este correo, revise la carpeta de spam.";
+
+        // Cotizaciones + fotos RM: adjunto separado (media_files_*.zip)
+        for (String mediaName : mediaFiles) {
+            Path mediaPath = storageRoot().resolve(mediaName);
+            if (!Files.isRegularFile(mediaPath)) {
+                skipped.add(mediaName + " (no encontrado en disco)");
+                log.warn("Backup email: media no encontrado en {}", mediaPath);
+                continue;
+            }
+            long mediaSize = Files.size(mediaPath);
+            if (mediaSize <= 0) {
+                skipped.add(mediaName + " (vacío)");
+                continue;
+            }
+            if (attachedBytes + mediaSize <= maxBytes) {
+                // No borrar este path: es el backup persistente en /data/backups
+                fileAttachments.add(new MailFileAttachment(mediaName, mediaPath, "application/zip"));
+                attachedBytes += mediaSize;
+                plain.append("Adjunto archivos: ")
+                        .append(mediaName)
+                        .append(" (")
+                        .append(formatSize(mediaSize))
+                        .append(")\n");
+                html.append("<p>Adjunto archivos (cotizaciones + fotos RM): <strong>")
+                        .append(mediaName)
+                        .append("</strong> (")
+                        .append(formatSize(mediaSize))
+                        .append(").</p>");
+            } else {
+                skipped.add(mediaName + " (" + formatSize(mediaSize) + ")");
+            }
+        }
+
+        if (!skipped.isEmpty()) {
+            String skipMsg =
+                    "No adjuntado por tamaño o ausencia (límite "
+                            + backupProperties.maxAttachmentMb()
+                            + " MB): "
+                            + String.join(", ", skipped)
+                            + ". Descárguelo en Gestión → Backups.";
+            plain.append(skipMsg).append("\n");
+            html.append("<p>").append(skipMsg).append("</p>");
+        }
+        if (fileAttachments.isEmpty()) {
+            plain.append("No se adjuntó ningún archivo. Descárguelos desde Gestión → Backups.\n");
+            html.append(
+                    "<p>No se adjuntó ningún archivo. Descárguelos desde Gestión → Backups en el portal.</p>");
+        }
+        plain.append("\nSi no ve este correo, revise la carpeta de spam.");
 
         try {
             for (String recipient : recipients) {
                 appConfigService.sendBackupNotification(
-                        recipient, subject, plain, html.toString(), fileAttachments);
+                        recipient, subject, plain.toString(), html.toString(), fileAttachments);
             }
             return new BackupEmailResult(true, recipientList, "Enviado a " + recipientList);
         } finally {
-            if (zipPath != null) {
-                Files.deleteIfExists(zipPath);
+            for (Path temp : tempZips) {
+                Files.deleteIfExists(temp);
             }
         }
     }
@@ -396,11 +473,17 @@ public class BackupService {
         try (ZipOutputStream zos = new ZipOutputStream(Files.newOutputStream(zipPath))) {
             for (String fileName : fileNames) {
                 Path source = storageRoot().resolve(fileName);
+                boolean fromDisk = Files.isRegularFile(source);
+                boolean fromMemory = dumpByFile.containsKey(fileName);
+                if (!fromDisk && !fromMemory) {
+                    log.warn("Omitiendo {} en ZIP de correo: no está en disco ni en memoria", fileName);
+                    continue;
+                }
                 ZipEntry entry = new ZipEntry(fileName);
                 zos.putNextEntry(entry);
-                if (Files.isRegularFile(source)) {
+                if (fromDisk) {
                     Files.copy(source, zos);
-                } else if (dumpByFile.containsKey(fileName)) {
+                } else {
                     zos.write(dumpByFile.get(fileName));
                 }
                 zos.closeEntry();

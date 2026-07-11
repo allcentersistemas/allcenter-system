@@ -71,7 +71,7 @@ public class BackupController {
         return ResponseEntity.ok(backupService.listHistory());
     }
 
-    @GetMapping("/history/{runId}/files/{filename}")
+    @GetMapping("/history/{runId}/files/{filename:.+}")
     @PreAuthorize("@portalAuth.isMaster()")
     public ResponseEntity<Resource> download(
             @PathVariable Long runId, @PathVariable String filename) {
