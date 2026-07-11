@@ -53,9 +53,92 @@ public class OptimizacionStorageService {
         }
     }
 
+    private static final String PLANTILLA_DIR = "plantillas";
+    private static final String PLANTILLA_FILE = "listado_piezas.xlsx";
+    private static final String PLANTILLA_META = "listado_piezas.meta.txt";
+
     /** Crea el árbol bajo la raíz persistente (igual que RM en /data/rm-media). */
     public void ensureReady() throws IOException {
         Files.createDirectories(root.resolve("cotizacion"));
+        Files.createDirectories(root.resolve(PLANTILLA_DIR));
+    }
+
+    public record PlantillaInfo(boolean available, String filename, long sizeBytes, String uploadedAt) {}
+
+    public PlantillaInfo getPlantillaInfo() {
+        Path file = plantillaPath();
+        if (!Files.isRegularFile(file)) {
+            return new PlantillaInfo(false, null, 0L, null);
+        }
+        try {
+            long size = Files.size(file);
+            String uploadedAt = Files.getLastModifiedTime(file).toInstant().toString();
+            return new PlantillaInfo(true, readPlantillaOriginalName(), size, uploadedAt);
+        } catch (IOException ex) {
+            log.warn("No se pudo leer info de plantilla: {}", ex.getMessage());
+            return new PlantillaInfo(false, null, 0L, null);
+        }
+    }
+
+    public String savePlantilla(MultipartFile file) throws IOException {
+        if (file == null || file.isEmpty()) {
+            throw new ResponseStatusException(BAD_REQUEST, "Archivo vacío");
+        }
+        String original = file.getOriginalFilename() == null ? "" : file.getOriginalFilename().trim();
+        String lower = original.toLowerCase(Locale.ROOT);
+        if (!lower.endsWith(".xlsx") && !lower.endsWith(".xls")) {
+            throw new ResponseStatusException(BAD_REQUEST, "Solo se admiten archivos Excel (.xlsx o .xls)");
+        }
+        ensureReady();
+        Path target = plantillaPath();
+        file.transferTo(target.toFile());
+        String safeName =
+                original.isBlank()
+                        ? "plantilla_listado_piezas.xlsx"
+                        : Paths.get(original.replace('\\', '/')).getFileName().toString();
+        Files.writeString(plantillaMetaPath(), safeName);
+        log.info("Plantilla de planilla guardada en {} (nombre={})", target, safeName);
+        return safeName;
+    }
+
+    public Resource loadPlantilla() {
+        Path file = plantillaPath();
+        if (!Files.isRegularFile(file)) {
+            throw new ResponseStatusException(NOT_FOUND, "No hay plantilla cargada en el servidor");
+        }
+        return new FileSystemResource(file);
+    }
+
+    public String plantillaDownloadName() {
+        return readPlantillaOriginalName();
+    }
+
+    public void deletePlantilla() throws IOException {
+        Files.deleteIfExists(plantillaPath());
+        Files.deleteIfExists(plantillaMetaPath());
+    }
+
+    private Path plantillaPath() {
+        return root.resolve(PLANTILLA_DIR).resolve(PLANTILLA_FILE);
+    }
+
+    private Path plantillaMetaPath() {
+        return root.resolve(PLANTILLA_DIR).resolve(PLANTILLA_META);
+    }
+
+    private String readPlantillaOriginalName() {
+        try {
+            Path meta = plantillaMetaPath();
+            if (Files.isRegularFile(meta)) {
+                String name = Files.readString(meta).trim();
+                if (!name.isBlank() && !name.contains("..") && !name.contains("/") && !name.contains("\\")) {
+                    return name;
+                }
+            }
+        } catch (IOException ex) {
+            log.warn("No se pudo leer meta de plantilla: {}", ex.getMessage());
+        }
+        return "plantilla_listado_piezas.xlsx";
     }
 
     /**

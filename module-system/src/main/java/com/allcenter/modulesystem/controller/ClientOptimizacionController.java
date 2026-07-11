@@ -129,6 +129,18 @@ public class ClientOptimizacionController {
                 .body(resource);
     }
 
+    @GetMapping("/plantilla")
+    public ResponseEntity<Resource> downloadPlantilla(@AuthenticationPrincipal ClientUserDetails principal) {
+        Resource resource = storageService.loadPlantilla();
+        String name = storageService.plantillaDownloadName().replace("\"", "");
+        return ResponseEntity.ok()
+                .contentType(
+                        MediaType.parseMediaType(
+                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + name + "\"")
+                .body(resource);
+    }
+
     @ExceptionHandler({IllegalArgumentException.class, EntityNotFoundException.class})
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public Map<String, String> handleBadRequest(Exception ex) {
