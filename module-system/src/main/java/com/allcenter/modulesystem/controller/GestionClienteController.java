@@ -3,7 +3,9 @@ package com.allcenter.modulesystem.controller;
 import com.allcenter.modulesystem.dto.AdminResetPasswordRequest;
 import com.allcenter.modulesystem.dto.ClientAdminUpdateRequest;
 import com.allcenter.modulesystem.dto.ClientCreateRequest;
+import com.allcenter.modulesystem.dto.ClientLoginHistoryResponse;
 import com.allcenter.modulesystem.dto.ClientResponse;
+import com.allcenter.modulesystem.service.ClientAuthService;
 import com.allcenter.modulesystem.service.ClientService;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -18,6 +20,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -26,6 +29,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class GestionClienteController {
 
     private final ClientService clientService;
+    private final ClientAuthService clientAuthService;
 
     @GetMapping
     @PreAuthorize("@portalAuth.canGestionOrVentasGestion()")
@@ -37,6 +41,16 @@ public class GestionClienteController {
     @PreAuthorize("@portalAuth.canRead()")
     public ResponseEntity<ClientResponse> getById(@PathVariable long id) {
         return ResponseEntity.ok(clientService.getById(id));
+    }
+
+    @GetMapping("/{id}/login-history")
+    @PreAuthorize("@portalAuth.canGestionOrVentasGestion()")
+    public ResponseEntity<ClientLoginHistoryResponse> loginHistory(
+            @PathVariable long id,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        clientService.getById(id);
+        return ResponseEntity.ok(clientAuthService.getLoginHistory(id, page, size));
     }
 
     @PostMapping
