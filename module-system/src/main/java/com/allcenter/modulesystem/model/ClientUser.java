@@ -70,4 +70,13 @@ public class ClientUser {
 
     @Column(nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
+
+    @Column(name = "last_login_at")
+    private Instant lastLoginAt;
+
+    @Column(name = "last_login_ip", length = 128)
+    private String lastLoginIp;
+
+    @Column(name = "login_count", nullable = false)
+    private int loginCount = 0;
 }

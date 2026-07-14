@@ -20,7 +20,10 @@ public record ClientResponse(
         String ruc,
         String nombre,
         boolean active,
-        Instant createdAt) {
+        Instant createdAt,
+        Instant lastLoginAt,
+        String lastLoginIp,
+        int loginCount) {
 
     public static ClientResponse from(ClientUser client) {
         return new ClientResponse(
@@ -40,6 +43,9 @@ public record ClientResponse(
                 client.getRuc(),
                 client.getNombre(),
                 client.isActive(),
-                client.getCreatedAt());
+                client.getCreatedAt(),
+                client.getLastLoginAt(),
+                client.getLastLoginIp(),
+                client.getLoginCount());
     }
 }

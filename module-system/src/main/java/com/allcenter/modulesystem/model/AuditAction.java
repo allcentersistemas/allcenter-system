@@ -5,5 +5,7 @@ public enum AuditAction {
     UPDATE,
     DELETE,
     LOGIN_SUCCESS,
-    LOGIN_FAILURE
+    LOGIN_FAILURE,
+    PASSWORD_CHANGED,
+    LOGOUT_ALL
 }

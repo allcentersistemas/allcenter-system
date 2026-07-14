@@ -46,6 +46,9 @@ public class AuditEntry {
     @Column(name = "actor_employee_id")
     private Long actorEmployeeId;
 
+    @Column(name = "actor_client_user_id")
+    private Long actorClientUserId;
+
     @Column(name = "actor_email", length = 255)
     private String actorEmail;
 

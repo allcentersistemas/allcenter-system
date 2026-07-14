@@ -5,8 +5,11 @@ import com.allcenter.modulesystem.model.AuditEntry;
 import com.allcenter.modulesystem.repository.AuditEntryRepository;
 import com.allcenter.modulesystem.security.EmployeeUserDetails;
 import jakarta.servlet.http.HttpServletRequest;
+import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
@@ -50,6 +53,73 @@ public class AuditService {
         row.setActorEmail(attemptedEmail);
         applyRequestMetadata(row);
         auditEntryRepository.save(row);
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void recordClientLoginSuccess(Long clientUserId, String email) {
+        AuditEntry row =
+                baseRow(AuditAction.LOGIN_SUCCESS, "CLIENT_AUTH", String.valueOf(clientUserId), null);
+        row.setActorClientUserId(clientUserId);
+        row.setActorEmail(email);
+        applyRequestMetadata(row);
+        auditEntryRepository.save(row);
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void recordClientLoginFailure(String attemptedLogin, String reason) {
+        AuditEntry row = baseRow(AuditAction.LOGIN_FAILURE, "CLIENT_AUTH", null, reason);
+        row.setActorEmail(attemptedLogin);
+        applyRequestMetadata(row);
+        auditEntryRepository.save(row);
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void recordClientAccountCreated(Long clientUserId, String email) {
+        AuditEntry row =
+                baseRow(AuditAction.CREATE, "CLIENT_USER", String.valueOf(clientUserId), "Cuenta creada");
+        row.setActorClientUserId(clientUserId);
+        row.setActorEmail(email);
+        applyRequestMetadata(row);
+        auditEntryRepository.save(row);
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void recordClientPasswordChanged(Long clientUserId, String email) {
+        AuditEntry row =
+                baseRow(
+                        AuditAction.PASSWORD_CHANGED,
+                        "CLIENT_AUTH",
+                        String.valueOf(clientUserId),
+                        "Contraseña actualizada");
+        row.setActorClientUserId(clientUserId);
+        row.setActorEmail(email);
+        applyRequestMetadata(row);
+        auditEntryRepository.save(row);
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void recordClientLogoutAll(Long clientUserId, String email) {
+        AuditEntry row =
+                baseRow(
+                        AuditAction.LOGOUT_ALL,
+                        "CLIENT_AUTH",
+                        String.valueOf(clientUserId),
+                        "Sesiones cerradas en todos los dispositivos");
+        row.setActorClientUserId(clientUserId);
+        row.setActorEmail(email);
+        applyRequestMetadata(row);
+        auditEntryRepository.save(row);
+    }
+
+    public static String resolveClientPublicIp() {
+        return currentRequest()
+                .map(req -> ClientRequestAuditMetadata.from(req).clientIpPublic())
+                .orElse(null);
+    }
+
+    public Page<AuditEntry> findClientAuthHistory(
+            Long clientUserId, List<AuditAction> actions, Pageable pageable) {
+        return auditEntryRepository.findClientAuthHistory(clientUserId, actions, pageable);
     }
 
     private static AuditEntry baseRow(

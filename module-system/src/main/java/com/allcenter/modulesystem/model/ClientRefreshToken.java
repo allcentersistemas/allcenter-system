@@ -40,4 +40,7 @@ public class ClientRefreshToken {
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt = Instant.now();
+
+    @Column(name = "client_ip", length = 128)
+    private String clientIp;
 }

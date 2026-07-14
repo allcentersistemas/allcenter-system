@@ -9,6 +9,7 @@ import com.allcenter.modulesystem.repository.ClientRefreshTokenRepository;
 import com.allcenter.modulesystem.security.ClientUserDetails;
 import com.allcenter.modulesystem.security.JwtProperties;
 import com.allcenter.modulesystem.security.TokenHasher;
+import com.allcenter.modulesystem.support.ClientRequestInfo;
 import java.time.Instant;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -24,6 +25,11 @@ public class ClientRefreshTokenService {
 
     @Transactional
     public String issue(Long clientUserId) {
+        return issue(clientUserId, ClientRequestInfo.from(null));
+    }
+
+    @Transactional
+    public String issue(Long clientUserId, ClientRequestInfo connection) {
         String raw = TokenHasher.newOpaqueRefreshToken();
         String hash = TokenHasher.sha256Hex(raw);
         ClientRefreshToken rt = new ClientRefreshToken();
@@ -31,6 +37,9 @@ public class ClientRefreshTokenService {
         rt.setTokenHash(hash);
         rt.setExpiresAt(Instant.now().plusMillis(jwtProperties.refreshExpirationMs()));
         rt.setRevoked(false);
+        if (connection != null) {
+            rt.setClientIp(connection.clientIp());
+        }
         refreshTokenRepository.save(rt);
         return raw;
     }

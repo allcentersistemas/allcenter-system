@@ -20,4 +20,16 @@ public interface AuditEntryRepository extends JpaRepository<AuditEntry, Long> {
             @Param("entityId") String entityId,
             @Param("entityTypes") List<String> entityTypes,
             Pageable pageable);
+
+    @Query(
+            """
+            SELECT a FROM AuditEntry a
+            WHERE a.actorClientUserId = :clientUserId
+              AND a.action IN :actions
+            ORDER BY a.occurredAt DESC
+            """)
+    Page<AuditEntry> findClientAuthHistory(
+            @Param("clientUserId") Long clientUserId,
+            @Param("actions") List<com.allcenter.modulesystem.model.AuditAction> actions,
+            Pageable pageable);
 }
