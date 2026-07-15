@@ -711,7 +711,7 @@ public class BiesseScanRepository {
                 args.add(orderId);
             }
             if (hasState) {
-                args.add(state);
+                args.add(normalizeOrderScanState(state));
             }
             if (hasQuery) {
                 String like = "%" + query.trim() + "%";
@@ -731,6 +731,17 @@ public class BiesseScanRepository {
         }
         sql.append(" ORDER BY o.fechacreacion DESC LIMIT ? OFFSET ? ");
         return jdbcTemplate.queryForList(sql.toString(), limit, offset);
+    }
+
+    private static String normalizeOrderScanState(String state) {
+        if (state == null) {
+            return "";
+        }
+        String normalized = state.trim().toUpperCase();
+        if ("COMPLETADO".equals(normalized)) {
+            return "COMPLETADA";
+        }
+        return normalized;
     }
 
     public int updateOrderObservaciones(Long orderId, String observaciones) {

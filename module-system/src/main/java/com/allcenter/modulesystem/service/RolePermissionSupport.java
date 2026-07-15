@@ -3,7 +3,6 @@ package com.allcenter.modulesystem.service;
 import com.allcenter.modulesystem.dto.PermissionRuleDto;
 import com.allcenter.modulesystem.model.Role;
 import com.allcenter.modulesystem.model.RolePermission;
-import com.allcenter.modulesystem.repository.RolePermissionRepository;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -13,13 +12,9 @@ final class RolePermissionSupport {
 
     private RolePermissionSupport() {}
 
-    static void replacePermissions(
-            Role role, List<PermissionRuleDto> rules, RolePermissionRepository permissionRepository) {
+    static void replacePermissions(Role role, List<PermissionRuleDto> rules) {
         if (rules == null) {
             return;
-        }
-        if (role.getId() != null) {
-            permissionRepository.deleteByRoleId(role.getId());
         }
         role.getPermissions().clear();
         Set<String> seen = new LinkedHashSet<>();

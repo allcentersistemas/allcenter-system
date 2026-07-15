@@ -1,8 +1,10 @@
 package com.allcenter.modulesystem.security;
 
+import com.allcenter.modulesystem.service.EmployeePermissionService;
 import java.util.Collection;
 import java.util.Set;
 import java.util.stream.Collectors;
+import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -15,10 +17,14 @@ import org.springframework.stereotype.Component;
  *   <li>Administrador: crear, leer, editar, cancelar, imprimir (sin eliminar)</li>
  *   <li>Gerencia: igual operación que admin (sin menú gestión en UI)</li>
  *   <li>Roles operativos: solo crear y leer</li>
+ *   <li>Permisos granulares en BD (action + subject) vía {@link EmployeePermissionService}</li>
  * </ul>
  */
 @Component("portalAuth")
+@RequiredArgsConstructor
 public class PortalRoleAuthorization {
+
+    private final EmployeePermissionService permissionService;
 
     public boolean canRead() {
         return isAuthenticated();
@@ -45,6 +51,11 @@ public class PortalRoleAuthorization {
         return isSystem();
     }
 
+    /** Eliminar proyectos de optimización desde Gestión (permiso {@code delete:gestion.proyectos}). */
+    public boolean canDeleteGestionProyecto() {
+        return isSystem() || permissionService.currentEmployeeHas("delete", "gestion.proyectos");
+    }
+
     public boolean canAudit() {
         return isSystem() || isAdminOps();
     }
@@ -68,7 +79,7 @@ public class PortalRoleAuthorization {
     }
 
     public boolean canPrint() {
-        return isSystem() || isAdminOps();
+        return isSystem() || isAdminOps() || permissionService.currentEmployeeHasAction("print");
     }
 
     public boolean isSystem() {

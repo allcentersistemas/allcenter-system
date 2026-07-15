@@ -120,7 +120,7 @@ public class OrderController {
 
     @DeleteMapping({"/proyectos/{proyectoId}", "/projects/{proyectoId}"})
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @PreAuthorize("@portalAuth.canDelete()")
+    @PreAuthorize("@portalAuth.canDeleteGestionProyecto()")
     public void deleteProyecto(@PathVariable Long proyectoId) {
         service.deleteProject(proyectoId);
     }
