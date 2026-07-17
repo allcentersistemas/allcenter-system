@@ -269,7 +269,7 @@ public class PaleService {
     }
 
     @Transactional
-    public void deletePale(Long id) {
+    public void deletePale(String authorization, Long id) {
         Pale pale =
                 paleRepository
                         .findById(id)
@@ -279,6 +279,13 @@ public class PaleService {
                     BAD_REQUEST, "No se puede eliminar un pale que está en una guía de despacho");
         }
         List<PaleDetalle> detalles = detalleRepository.findByPale_IdOrderByFechaAgregadoDesc(id);
+        for (PaleDetalle detail : detalles) {
+            unscanPieceInBiesse(
+                    authorization,
+                    detail.getPiezaId(),
+                    pale.getCodigo(),
+                    "Eliminación de pale " + pale.getCodigo());
+        }
         if (!detalles.isEmpty()) {
             detalleRepository.deleteAll(detalles);
         }
@@ -287,14 +294,30 @@ public class PaleService {
     }
 
     @Transactional
-    public PaleDetailResponse removeDetail(Long paleId, Long detailId) {
+    public PaleDetailResponse removeDetail(String authorization, Long paleId, Long detailId) {
         Pale pale = paleRepository.findById(paleId)
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Pale no encontrado"));
+        if (!"ABIERTO".equalsIgnoreCase(pale.getEstado())) {
+            throw new ResponseStatusException(
+                    BAD_REQUEST, "Solo se pueden quitar piezas de un pale abierto");
+        }
+        if (Boolean.TRUE.equals(pale.getEnGuia())) {
+            throw new ResponseStatusException(
+                    BAD_REQUEST, "No se puede modificar un pale que está en una guía de despacho");
+        }
         PaleDetalle detail = detalleRepository.findById(detailId)
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Detalle no encontrado"));
         if (!detail.getPale().getId().equals(paleId)) {
             throw new ResponseStatusException(BAD_REQUEST, "El detalle no pertenece al pale indicado");
         }
+        Long piezaId = detail.getPiezaId();
+        Long partId = detail.getPartId();
+        // Liberar escaneo en Biesse antes de quitar la línea, para que la orden vuelva a pendiente.
+        unscanPieceInBiesse(
+                authorization,
+                piezaId,
+                pale.getCodigo(),
+                "Quitada del pale " + pale.getCodigo());
         detalleRepository.delete(detail);
         refreshPaleSummary(pale);
         recordAudit(
@@ -302,7 +325,7 @@ public class PaleService {
                 "PaleDetalle",
                 String.valueOf(detailId),
                 pale,
-                "Detalle eliminado. piezaId=" + detail.getPiezaId() + ", partId=" + detail.getPartId());
+                "Detalle eliminado y pieza liberada. piezaId=" + piezaId + ", partId=" + partId);
         Pale fresh = paleRepository.findById(paleId)
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Pale no encontrado"));
         return toDetailResponse(fresh);
@@ -428,7 +451,11 @@ public class PaleService {
         }
         List<PaleDetalle> detalles = detalleRepository.findByPale_IdOrderByFechaAgregadoDesc(paleId);
         for (PaleDetalle detail : detalles) {
-            unscanPieceInBiesse(authorization, detail.getPiezaId(), pale.getCodigo());
+            unscanPieceInBiesse(
+                    authorization,
+                    detail.getPiezaId(),
+                    pale.getCodigo(),
+                    "Cancelación de pale " + pale.getCodigo());
         }
         pale.setEstado(ESTADO_CANCELADO);
         pale.setEstadoEnvio(ESTADO_ENVIO_ESCANEADO);
@@ -478,13 +505,18 @@ public class PaleService {
         return null;
     }
 
-    private void unscanPieceInBiesse(String authorization, Long pieceId, String paleCode) {
+    private void unscanPieceInBiesse(
+            String authorization, Long pieceId, String paleCode, String observations) {
         HttpHeaders headers = new HttpHeaders();
         headers.set(HttpHeaders.AUTHORIZATION, authorization);
         headers.setContentType(MediaType.APPLICATION_JSON);
         Map<String, Object> body = new HashMap<>();
         body.put("pieceId", pieceId);
-        body.put("observations", "Cancelación de pale " + paleCode);
+        body.put(
+                "observations",
+                observations != null && !observations.isBlank()
+                        ? observations
+                        : "Liberada de pale " + paleCode);
         body.put("equipment", "PALLET");
         HttpEntity<Map<String, Object>> entity = new HttpEntity<>(body, headers);
         try {
@@ -498,9 +530,26 @@ public class PaleService {
                         resp.get("message") != null ? resp.get("message").toString() : "No se pudo liberar pieza");
             }
         } catch (org.springframework.web.client.HttpStatusCodeException ex) {
-            throw new ResponseStatusException(
-                    ex.getStatusCode(),
-                    "No se pudo liberar pieza en module-biesse (piezaId=" + pieceId + ")");
+            // Idempotente: si ya estaba libre, no bloquear quitar/cancelar el pale.
+            if (ex.getStatusCode().value() == 400) {
+                String msg = extractBiesseErrorMessage(ex);
+                if (msg != null) {
+                    String lower = msg.toLowerCase();
+                    if (lower.contains("not scanned") || lower.contains("not found")
+                            || lower.contains("no escanead") || lower.contains("no encontrada")) {
+                        log.info(
+                                "Pieza {} ya estaba libre en Biesse al liberar pale {}; se continúa",
+                                pieceId,
+                                paleCode);
+                        return;
+                    }
+                }
+            }
+            String msg = extractBiesseErrorMessage(ex);
+            if (msg == null || msg.isBlank()) {
+                msg = "No se pudo liberar pieza en module-biesse (piezaId=" + pieceId + ")";
+            }
+            throw new ResponseStatusException(ex.getStatusCode(), msg);
         } catch (ResponseStatusException ex) {
             throw ex;
         } catch (Exception ex) {

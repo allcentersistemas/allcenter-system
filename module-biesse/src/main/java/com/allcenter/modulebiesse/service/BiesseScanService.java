@@ -115,6 +115,10 @@ public class BiesseScanService {
     public ScanResultResponse unscanPiece(Long employeeId, ScanPieceRequest req) {
         boolean ok = repository.unscanPiece(employeeId, req.pieceId(), req.observations(), req.equipment());
         if (!ok) {
+            // Idempotente para pale: si ya estaba libre, el pale puede quitar la línea igual.
+            if (req.equipment() != null && "PALLET".equalsIgnoreCase(req.equipment().trim())) {
+                return new ScanResultResponse(true, "Pieza ya estaba libre para escaneo");
+            }
             throw new ResponseStatusException(BAD_REQUEST, "Piece not found or not scanned");
         }
         return new ScanResultResponse(true, "Piece unscan successful");

@@ -65,7 +65,13 @@ public class BiesseScanController {
     public ResponseEntity<ScanResultResponse> unscanPiece(
             @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
             @Valid @RequestBody ScanPieceRequest request) {
-        portalAuth.requireAdminOps(authorization);
+        // Liberar pieza de pale usa el mismo nivel que escanearla al pale (create).
+        // Otras operaciones de unscan (manual) siguen requiriendo admin-ops.
+        if (request.equipment() != null && "PALLET".equalsIgnoreCase(request.equipment().trim())) {
+            portalAuth.requireCreate(authorization);
+        } else {
+            portalAuth.requireAdminOps(authorization);
+        }
         Long employeeId = authGatewayService.resolveEmployeeId(authorization);
         return ResponseEntity.ok(scanService.unscanPiece(employeeId, request));
     }

@@ -105,14 +105,18 @@ public class PaleEnvioController {
 
     @DeleteMapping("/{id}/details/{detailId}")
     @PreAuthorize("@portalAuth.canDelete()")
-    public ResponseEntity<PaleDetailResponse> deleteDetail(@PathVariable Long id, @PathVariable Long detailId) {
-        return ResponseEntity.ok(paleService.removeDetail(id, detailId));
+    public ResponseEntity<PaleDetailResponse> deleteDetail(
+            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
+            @PathVariable Long id,
+            @PathVariable Long detailId) {
+        return ResponseEntity.ok(paleService.removeDetail(authorization, id, detailId));
     }
 
     @DeleteMapping("/{id}")
     @PreAuthorize("@portalAuth.canDelete()")
-    public ResponseEntity<ApiMessage> deletePale(@PathVariable Long id) {
-        paleService.deletePale(id);
+    public ResponseEntity<ApiMessage> deletePale(
+            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization, @PathVariable Long id) {
+        paleService.deletePale(authorization, id);
         return ResponseEntity.ok(new ApiMessage(true, "Pale eliminado"));
     }
 
