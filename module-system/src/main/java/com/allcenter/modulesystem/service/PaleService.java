@@ -49,7 +49,9 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -73,12 +75,17 @@ public class PaleService {
     private final InventoryApplicationService inventoryApplicationService;
     private final GuiadetalleRepository guiadetalleRepository;
     private final JdbcTemplate jdbcTemplate;
+    private final PlatformTransactionManager transactionManager;
     private final RestTemplate restTemplate = new RestTemplate();
 
     @Value("${app.biesse.base-url:http://localhost:8086}")
     private String biesseBaseUrl;
 
-
+    /**
+     * En producción system ({@code app_db}) y Biesse ({@code obras}) son BDs distintas: las tablas
+     * {@code piezas}/{@code partes} no existen aquí. Cacheamos para no lanzar SQL que aborte la TX.
+     */
+    private volatile Boolean piezasPartesAvailableOnSystemDb;
 
     public List<PaleOrderLinkDto> findPalesByOrderId(long orderId) {
         return detalleRepository.findDistinctPaleIdsByOrderId(orderId).stream()
@@ -279,22 +286,42 @@ public class PaleService {
                     BAD_REQUEST, "No se puede eliminar un pale que está en una guía de despacho");
         }
         List<PaleDetalle> detalles = detalleRepository.findByPale_IdOrderByFechaAgregadoDesc(id);
-        for (PaleDetalle detail : detalles) {
-            unscanPieceInBiesse(
-                    authorization,
-                    detail.getPiezaId(),
-                    pale.getCodigo(),
-                    "Eliminación de pale " + pale.getCodigo());
-        }
+        List<Long> piezaIds = detalles.stream().map(PaleDetalle::getPiezaId).toList();
+        String paleCodigo = pale.getCodigo();
         if (!detalles.isEmpty()) {
             detalleRepository.deleteAll(detalles);
+            detalleRepository.flush();
         }
         recordAudit("DELETE", "Pale", String.valueOf(pale.getId()), pale, "Pale eliminado");
         paleRepository.delete(pale);
+        // Liberar escaneos después del borrado local (misma TX aún abierta; unscan es externo).
+        for (Long piezaId : piezaIds) {
+            unscanPieceInBiesse(
+                    authorization, piezaId, paleCodigo, "Eliminación de pale " + paleCodigo);
+        }
     }
 
-    @Transactional
+    /**
+     * Quita la línea del pale y libera el escaneo en Biesse. El borrado local se confirma primero;
+     * el unscan va después para no dejar la pieza libre en orden si el DELETE falla.
+     */
     public PaleDetailResponse removeDetail(String authorization, Long paleId, Long detailId) {
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        RemovedPaleLine removed =
+                tx.execute(status -> removeDetailLocal(paleId, detailId));
+        if (removed == null) {
+            throw new ResponseStatusException(NOT_FOUND, "Detalle no encontrado");
+        }
+        unscanPieceInBiesse(
+                authorization,
+                removed.piezaId(),
+                removed.paleCodigo(),
+                "Quitada del pale " + removed.paleCodigo());
+        // Lectura fuera de la TX de escritura: evita que consultas opcionales aborten el commit.
+        return getById(paleId);
+    }
+
+    private RemovedPaleLine removeDetailLocal(Long paleId, Long detailId) {
         Pale pale = paleRepository.findById(paleId)
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Pale no encontrado"));
         if (!"ABIERTO".equalsIgnoreCase(pale.getEstado())) {
@@ -312,13 +339,9 @@ public class PaleService {
         }
         Long piezaId = detail.getPiezaId();
         Long partId = detail.getPartId();
-        // Liberar escaneo en Biesse antes de quitar la línea, para que la orden vuelva a pendiente.
-        unscanPieceInBiesse(
-                authorization,
-                piezaId,
-                pale.getCodigo(),
-                "Quitada del pale " + pale.getCodigo());
+        String paleCodigo = pale.getCodigo();
         detalleRepository.delete(detail);
+        detalleRepository.flush();
         refreshPaleSummary(pale);
         recordAudit(
                 "DELETE_DETAIL",
@@ -326,10 +349,10 @@ public class PaleService {
                 String.valueOf(detailId),
                 pale,
                 "Detalle eliminado y pieza liberada. piezaId=" + piezaId + ", partId=" + partId);
-        Pale fresh = paleRepository.findById(paleId)
-                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Pale no encontrado"));
-        return toDetailResponse(fresh);
+        return new RemovedPaleLine(piezaId, partId, paleCodigo);
     }
+
+    private record RemovedPaleLine(Long piezaId, Long partId, String paleCodigo) {}
 
     @Transactional
     public ApiMessage scanPiece(String authorization, Long paleId, ScanPieceToPaleRequest req) {
@@ -662,9 +685,12 @@ public class PaleService {
     /**
      * Descripciones de parte ({@code partes.descripcion}, {@code partes.descripcion1}) y cantidad programada,
      * alineado con {@code proyecto_final/servicio_sincronizacion/database/database_schema.py}.
+     * <p>Solo corre si {@code piezas}/{@code partes} existen en esta BD. Si no (despliegue split
+     * app_db/obras), no consulta: un SQL fallido dentro de una TX de escritura aborta todo el commit
+     * en PostgreSQL aunque se capture la excepción en Java.
      */
     private Map<Long, LineaPiezaEnrichment> loadPiezaParteEnrichment(Set<Long> piezaIds) {
-        if (piezaIds.isEmpty()) {
+        if (piezaIds.isEmpty() || !piezasPartesExistOnSystemDb()) {
             return Map.of();
         }
         String placeholders = piezaIds.stream().map(id -> "?").collect(Collectors.joining(","));
@@ -703,9 +729,37 @@ public class PaleService {
             }
             return out;
         } catch (Exception ex) {
+            // Ante fallo real, marcar no disponible para no envenenar transacciones siguientes.
+            piezasPartesAvailableOnSystemDb = false;
             log.warn("Enriquecimiento pale (partes.descripcion / cantidad) no disponible: {}", ex.getMessage());
             return Map.of();
         }
+    }
+
+    private boolean piezasPartesExistOnSystemDb() {
+        Boolean cached = piezasPartesAvailableOnSystemDb;
+        if (cached != null) {
+            return cached;
+        }
+        try {
+            Integer n =
+                    jdbcTemplate.queryForObject(
+                            """
+                            SELECT COUNT(*)::int
+                            FROM information_schema.tables
+                            WHERE table_schema = 'public'
+                              AND table_name IN ('piezas', 'partes')
+                            """,
+                            Integer.class);
+            cached = n != null && n >= 2;
+        } catch (Exception ex) {
+            cached = false;
+        }
+        piezasPartesAvailableOnSystemDb = cached;
+        if (!cached) {
+            log.debug("Tablas piezas/partes no están en la BD de module-system; se omite enriquecimiento");
+        }
+        return cached;
     }
 
     private PaleHeaderDto toHeader(Pale p) {
@@ -864,7 +918,7 @@ public class PaleService {
      * {@code partes.longitud}/{@code ancho}.
      */
     private String tryLoadMedidaFromPartes(Long partId) {
-        if (partId == null) {
+        if (partId == null || !piezasPartesExistOnSystemDb()) {
             return null;
         }
         try {
@@ -890,6 +944,7 @@ public class PaleService {
             }
             return formatMedidaPair(toDoubleObj(lon), toDoubleObj(ancho));
         } catch (Exception ex) {
+            piezasPartesAvailableOnSystemDb = false;
             log.debug("Medida desde partes local no disponible (partid={}): {}", partId, ex.getMessage());
             return null;
         }
