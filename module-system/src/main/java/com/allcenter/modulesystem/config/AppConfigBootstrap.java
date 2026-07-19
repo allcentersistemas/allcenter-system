@@ -6,10 +6,12 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
 /** Garantiza fila singleton de configuración al arrancar. */
 @Component
+@Order(100)
 @RequiredArgsConstructor
 public class AppConfigBootstrap implements ApplicationRunner {
 
@@ -64,6 +66,10 @@ public class AppConfigBootstrap implements ApplicationRunner {
         config.setSmtpAuth(auth);
         config.setSmtpStarttls(
                 envSmtpStarttls == null || Boolean.parseBoolean(envSmtpStarttls.trim()));
+        config.setAiVisionEnabled(false);
+        config.setAiProvider("claude");
+        config.setAiModel("");
+        config.setAiApiKey("");
         configRepository.save(config);
     }
 }

@@ -48,16 +48,16 @@ public class AppConfig {
     private boolean smtpStarttls = true;
 
     /** Importar medidas desde foto (planilla cliente) con visión IA. */
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "boolean default false")
     private boolean aiVisionEnabled = false;
 
     /** Proveedor: claude | openai */
-    @Column(length = 32)
+    @Column(length = 32, columnDefinition = "varchar(32) default 'claude'")
     private String aiProvider = "claude";
 
-    @Column(length = 80)
+    @Column(length = 80, columnDefinition = "varchar(80) default ''")
     private String aiModel = "";
 
-    @Column(length = 512)
+    @Column(length = 512, columnDefinition = "varchar(512) default ''")
     private String aiApiKey = "";
 }
