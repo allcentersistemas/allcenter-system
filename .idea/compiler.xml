@@ -30,7 +30,7 @@
         </processorPath>
         <module name="module-biesse" />
       </profile>
-      <profile name="Annotation profile for module-valos" enabled="true">
+      <profile name="Annotation profile for module-project-manager" enabled="true">
         <sourceOutputDir name="target/generated-sources/annotations" />
         <sourceTestOutputDir name="target/generated-test-sources/test-annotations" />
         <outputRelativeToContentRoot value="true" />
@@ -38,6 +38,7 @@
           <entry name="$MAVEN_REPOSITORY$/org/projectlombok/lombok/1.18.46/lombok-1.18.46.jar" />
         </processorPath>
         <module name="module-valos" />
+        <module name="module-project-manager" />
       </profile>
     </annotationProcessing>
     <bytecodeTargetLevel target="25">
@@ -56,6 +57,7 @@
   <component name="JavacSettings">
     <option name="ADDITIONAL_OPTIONS_OVERRIDE">
       <module name="module-biesse" options="-parameters" />
+      <module name="module-project-manager" options="-parameters" />
       <module name="module-system" options="-parameters" />
       <module name="module-valos" options="-parameters" />
     </option>

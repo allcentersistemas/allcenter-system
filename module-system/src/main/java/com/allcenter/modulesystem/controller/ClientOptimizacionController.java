@@ -1,11 +1,15 @@
 package com.allcenter.modulesystem.controller;
 
-import com.allcenter.modulesystem.dto.OrderDtos;
-import com.allcenter.modulesystem.security.ClientUserDetails;
 import com.allcenter.modulesystem.dto.InventoryDtos;
+import com.allcenter.modulesystem.dto.OrderDtos;
+import com.allcenter.modulesystem.dto.PlanillaAiExtractDtos;
+import com.allcenter.modulesystem.exception.BadRequestException;
+import com.allcenter.modulesystem.security.ClientUserDetails;
+import com.allcenter.modulesystem.service.AppConfigService;
 import com.allcenter.modulesystem.service.ClientOptimizacionCatalogService;
 import com.allcenter.modulesystem.service.MaquinaOptimizacionService;
 import com.allcenter.modulesystem.service.OrderPersistenceService;
+import com.allcenter.modulesystem.service.PlanillaAiVisionService;
 import com.allcenter.modulesystem.support.OptimizacionStorageService;
 import jakarta.persistence.EntityNotFoundException;
 import java.util.List;
@@ -24,8 +28,10 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
 @RestController
@@ -36,16 +42,34 @@ public class ClientOptimizacionController {
     private final ClientOptimizacionCatalogService catalogService;
     private final MaquinaOptimizacionService maquinaService;
     private final OptimizacionStorageService storageService;
+    private final AppConfigService appConfigService;
+    private final PlanillaAiVisionService planillaAiVisionService;
 
     public ClientOptimizacionController(
             OrderPersistenceService service,
             ClientOptimizacionCatalogService catalogService,
             MaquinaOptimizacionService maquinaService,
-            OptimizacionStorageService storageService) {
+            OptimizacionStorageService storageService,
+            AppConfigService appConfigService,
+            PlanillaAiVisionService planillaAiVisionService) {
         this.service = service;
         this.catalogService = catalogService;
         this.maquinaService = maquinaService;
         this.storageService = storageService;
+        this.appConfigService = appConfigService;
+        this.planillaAiVisionService = planillaAiVisionService;
+    }
+
+    @GetMapping("/features")
+    public PlanillaAiExtractDtos.FeaturesResponse features(
+            @AuthenticationPrincipal ClientUserDetails principal) {
+        return new PlanillaAiExtractDtos.FeaturesResponse(appConfigService.isAiVisionEnabled());
+    }
+
+    @PostMapping(value = "/extract-medidas", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public PlanillaAiExtractDtos.ExtractResponse extractMedidas(
+            @AuthenticationPrincipal ClientUserDetails principal, @RequestPart("file") MultipartFile file) {
+        return planillaAiVisionService.extractFromImage(file);
     }
 
     @GetMapping("/catalogos/kardex")
@@ -141,7 +165,7 @@ public class ClientOptimizacionController {
                 .body(resource);
     }
 
-    @ExceptionHandler({IllegalArgumentException.class, EntityNotFoundException.class})
+    @ExceptionHandler({IllegalArgumentException.class, EntityNotFoundException.class, BadRequestException.class})
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public Map<String, String> handleBadRequest(Exception ex) {
         return Map.of("message", ex.getMessage());

@@ -72,6 +72,25 @@ public class AppConfigService {
     }
 
     @Transactional(readOnly = true)
+    public boolean isAiVisionEnabled() {
+        return ensureConfigRow().isAiVisionEnabled();
+    }
+
+    @Transactional(readOnly = true)
+    public AppConfig requireAiVisionConfig() {
+        AppConfig config = ensureConfigRow();
+        if (!config.isAiVisionEnabled()) {
+            throw new BadRequestException(
+                    "La importación por foto con IA está desactivada en Configuración.");
+        }
+        if (!StringUtils.hasText(config.getAiApiKey())) {
+            throw new BadRequestException(
+                    "Configure la API key de IA en Gestión → Configuración antes de usar esta función.");
+        }
+        return config;
+    }
+
+    @Transactional(readOnly = true)
     public String effectiveMailFrom() {
         AppConfig config = ensureConfigRow();
         if (StringUtils.hasText(config.getMailFrom())) {
@@ -130,6 +149,22 @@ public class AppConfigService {
         }
         if (request.smtpStarttls() != null) {
             config.setSmtpStarttls(request.smtpStarttls());
+        }
+        if (request.aiVisionEnabled() != null) {
+            config.setAiVisionEnabled(request.aiVisionEnabled());
+        }
+        if (request.aiProvider() != null && !request.aiProvider().isBlank()) {
+            String provider = request.aiProvider().trim().toLowerCase();
+            if (!provider.equals("claude") && !provider.equals("openai")) {
+                throw new BadRequestException("Proveedor de IA no soportado. Use claude u openai.");
+            }
+            config.setAiProvider(provider);
+        }
+        if (request.aiModel() != null) {
+            config.setAiModel(trimMax(request.aiModel(), 80));
+        }
+        if (request.aiApiKey() != null && !request.aiApiKey().isBlank()) {
+            config.setAiApiKey(request.aiApiKey().trim());
         }
         configRepository.save(config);
         return AppConfigDto.from(config);
@@ -328,6 +363,10 @@ public class AppConfigService {
         config.setSmtpAuth(auth);
         config.setSmtpStarttls(
                 envSmtpStarttls == null || Boolean.parseBoolean(envSmtpStarttls.trim()));
+        config.setAiVisionEnabled(false);
+        config.setAiProvider("claude");
+        config.setAiModel("");
+        config.setAiApiKey("");
         return configRepository.save(config);
     }
 

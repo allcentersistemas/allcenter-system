@@ -12,7 +12,11 @@ public record AppConfigDto(
         String smtpUsername,
         boolean smtpPasswordConfigured,
         boolean smtpAuth,
-        boolean smtpStarttls) {
+        boolean smtpStarttls,
+        boolean aiVisionEnabled,
+        String aiProvider,
+        String aiModel,
+        boolean aiApiKeyConfigured) {
 
     public static AppConfigDto from(AppConfig config) {
         return new AppConfigDto(
@@ -25,7 +29,13 @@ public record AppConfigDto(
                 blankToNull(config.getSmtpUsername()),
                 config.getSmtpPassword() != null && !config.getSmtpPassword().isBlank(),
                 config.isSmtpAuth(),
-                config.isSmtpStarttls());
+                config.isSmtpStarttls(),
+                config.isAiVisionEnabled(),
+                blankToNull(config.getAiProvider()) != null
+                        ? config.getAiProvider().trim().toLowerCase()
+                        : "claude",
+                blankToNull(config.getAiModel()),
+                config.getAiApiKey() != null && !config.getAiApiKey().isBlank());
     }
 
     private static String blankToNull(String raw) {
