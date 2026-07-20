@@ -102,10 +102,40 @@ public class PlanillaAiVisionService {
     }
 
     private static String resolveModel(String provider, String configured) {
-        if (StringUtils.hasText(configured)) {
-            return configured.trim();
+        if ("openai".equals(provider)) {
+            return resolveOpenAiModel(configured);
         }
-        return "openai".equals(provider) ? "gpt-4o" : "claude-sonnet-4-20250514";
+        return resolveClaudeModel(configured);
+    }
+
+    private static String resolveClaudeModel(String configured) {
+        if (!StringUtils.hasText(configured)) {
+            return "claude-sonnet-5";
+        }
+        String raw = configured.trim();
+        String key = raw.toLowerCase(Locale.ROOT).replace('_', '-').replaceAll("\\s+", " ").trim();
+        return switch (key) {
+            case "sonnet", "sonnet 5", "sonnet5", "claude sonnet 5", "claude-sonnet-5" -> "claude-sonnet-5";
+            case "sonnet 4.6", "sonnet4.6", "claude sonnet 4.6", "claude-sonnet-4-6", "claude-sonnet-4.6" ->
+                    "claude-sonnet-4-6";
+            case "sonnet 4.5", "sonnet4.5", "claude sonnet 4.5", "claude-sonnet-4-5", "claude-sonnet-4.5" ->
+                    "claude-sonnet-4-5";
+            case "haiku", "haiku 4.5", "claude haiku 4.5", "claude-haiku-4-5" -> "claude-haiku-4-5";
+            case "opus", "opus 4.8", "claude opus 4.8", "claude-opus-4-8" -> "claude-opus-4-8";
+            default -> raw.contains(" ") ? raw.toLowerCase(Locale.ROOT).replace(' ', '-') : raw;
+        };
+    }
+
+    private static String resolveOpenAiModel(String configured) {
+        if (!StringUtils.hasText(configured)) {
+            return "gpt-4o";
+        }
+        String key = configured.trim().toLowerCase(Locale.ROOT);
+        return switch (key) {
+            case "gpt4o", "gpt 4o", "4o" -> "gpt-4o";
+            case "gpt4o mini", "gpt-4o-mini", "4o mini" -> "gpt-4o-mini";
+            default -> configured.trim();
+        };
     }
 
     private static String resolveMediaType(MultipartFile file) {
