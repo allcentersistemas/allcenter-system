@@ -5,7 +5,7 @@ Backend AllCenter en **monolito modular** (`module-system`) más integración **
 ## Módulos Maven
 
 | Módulo | Puerto | Descripción |
-|--------|--------|-------------|
+|--------|-------|-------------|
 | `module-system` | 8080 | API principal: empleados, auth, pales, transporte, órdenes, ubicaciones, inventario, RM, portal clientes |
 | `module-biesse` | 8086 | Escaneo OSI / piezas (BD `obras`) |
 | `com.allcenter.security` (en `module-system` y `module-biesse`) | — | CORS, cabeceras HTTP, validación JWT en APIs |
