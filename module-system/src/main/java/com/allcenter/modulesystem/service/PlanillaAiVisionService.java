@@ -30,29 +30,58 @@ public class PlanillaAiVisionService {
     private static final long MAX_BYTES = 8 * 1024 * 1024;
     private static final String EXTRACTION_PROMPT =
             """
-            Puedes sacarme la información que tiene la hoja.
+            Eres un extractor de hojas de medidas de corte de tableros (melamina/MDF).
 
-            Extrae SOLO estos campos de cada fila/pieza visible (medidas a mano o impresas):
-            - Servicio de corte: Cantidad (Cant.), Largo en mm, Ancho en mm
-            - Canto: L1, L2, A1, A2 (material de canto; vacío o NA si no hay)
-            - Ranuras: distancia (ranuraDist), profundidad (ranuraProf), espesor/especial (ranuraEs), lado (ranuraLado: NA, L1, L2, A1 o A2)
+            UNA HOJA VÁLIDA muestra filas de piezas con al menos:
+            - Cantidad (Cant.), Largo en mm y Ancho en mm
+            - Opcionalmente cantos L1, L2, A1, A2 y ranuras (distancia, profundidad, espesor, lado)
 
-            No inventes filas. Si un valor no se lee, déjalo vacío.
-            Responde ÚNICAMENTE con JSON válido (sin markdown) con esta forma:
-            {"filas":[{"cantidad":"1","largo":"600","ancho":"400","l1":"","l2":"","a1":"","a2":"","ranuraDist":"","ranuraProf":"","ranuraEs":"","ranuraLado":"","descripcion":""}]}
+            NO ES VÁLIDA: selfie, persona, factura, ticket, captura de Excel sin medidas de corte,
+            menú de app, foto borrosa ilegible, documento sin Cant./Largo/Ancho, paisaje, etc.
+
+            Responde ÚNICAMENTE con JSON válido (sin markdown):
+            - Si la imagen ES una hoja de medidas legible:
+              {"valido":true,"filas":[{"cantidad":"1","largo":"600","ancho":"400","l1":"","l2":"","a1":"","a2":"","ranuraDist":"","ranuraProf":"","ranuraEs":"","ranuraLado":"","descripcion":""}]}
+            - Si NO es válida o no se pueden leer medidas:
+              {"valido":false,"motivo":"explicación breve en español","filas":[]}
+
+            Reglas: no inventes filas. Si un valor no se lee, déjalo vacío. Cantos vacíos o NA → "".
             """;
 
     private final AppConfigService appConfigService;
+    private final PlanillaAiUsageService usageService;
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient =
             HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(30)).build();
 
-    public PlanillaAiExtractDtos.ExtractResponse extractFromImage(MultipartFile file) {
+    public PlanillaAiExtractDtos.ExtractResponse extractFromImage(Long clientUserId, MultipartFile file) {
         AppConfig config = appConfigService.requireAiVisionConfig();
         validateImage(file);
 
         String provider = normalizeProvider(config.getAiProvider());
         String model = resolveModel(provider, config.getAiModel());
+        String filename = file.getOriginalFilename();
+        long bytes = file.getSize();
+
+        if (clientUserId != null) {
+            try {
+                usageService.assertWithinDailyLimit(clientUserId);
+            } catch (BadRequestException ex) {
+                usageService.logUsage(
+                        clientUserId,
+                        provider,
+                        model,
+                        false,
+                        0,
+                        null,
+                        null,
+                        ex.getMessage(),
+                        filename,
+                        bytes);
+                throw ex;
+            }
+        }
+
         String mediaType = resolveMediaType(file);
         String base64;
         try {
@@ -61,18 +90,83 @@ public class PlanillaAiVisionService {
             throw new BadRequestException("No se pudo leer la imagen: " + ex.getMessage());
         }
 
-        String rawJson =
-                switch (provider) {
-                    case "openai" -> callOpenAi(config.getAiApiKey().trim(), model, mediaType, base64);
-                    default -> callClaude(config.getAiApiKey().trim(), model, mediaType, base64);
-                };
-
-        List<PlanillaAiExtractDtos.DetalleRow> filas = parseFilas(rawJson);
-        if (filas.isEmpty()) {
-            throw new BadRequestException(
-                    "La IA no encontró filas de corte (Cant./Largo/Ancho) en la imagen. Pruebe con otra foto más nítida.");
+        ProviderResult providerResult;
+        try {
+            providerResult =
+                    switch (provider) {
+                        case "openai" ->
+                                callOpenAi(config.getAiApiKey().trim(), model, mediaType, base64);
+                        default -> callClaude(config.getAiApiKey().trim(), model, mediaType, base64);
+                    };
+        } catch (BadRequestException ex) {
+            usageService.logUsage(
+                    clientUserId,
+                    provider,
+                    model,
+                    false,
+                    0,
+                    null,
+                    null,
+                    ex.getMessage(),
+                    filename,
+                    bytes);
+            throw ex;
         }
-        return new PlanillaAiExtractDtos.ExtractResponse(filas, provider, model);
+
+        ParsedExtraction parsed;
+        try {
+            parsed = parseExtraction(providerResult.text());
+        } catch (BadRequestException ex) {
+            usageService.logUsage(
+                    clientUserId,
+                    provider,
+                    model,
+                    false,
+                    0,
+                    providerResult.inputTokens(),
+                    providerResult.outputTokens(),
+                    ex.getMessage(),
+                    filename,
+                    bytes);
+            throw ex;
+        }
+
+        if (!parsed.valido() || parsed.filas().isEmpty()) {
+            String motivo =
+                    StringUtils.hasText(parsed.motivo())
+                            ? parsed.motivo()
+                            : "La imagen no parece una hoja de medidas válida o no se leyeron Cant./Largo/Ancho.";
+            usageService.logUsage(
+                    clientUserId,
+                    provider,
+                    model,
+                    false,
+                    0,
+                    providerResult.inputTokens(),
+                    providerResult.outputTokens(),
+                    motivo,
+                    filename,
+                    bytes);
+            throw new BadRequestException(motivo);
+        }
+
+        usageService.logUsage(
+                clientUserId,
+                provider,
+                model,
+                true,
+                parsed.filas().size(),
+                providerResult.inputTokens(),
+                providerResult.outputTokens(),
+                null,
+                filename,
+                bytes);
+        return new PlanillaAiExtractDtos.ExtractResponse(parsed.filas(), provider, model);
+    }
+
+    /** Compatibilidad: sin cliente no aplica rate limit ni registro de uso. */
+    public PlanillaAiExtractDtos.ExtractResponse extractFromImage(MultipartFile file) {
+        return extractFromImage(null, file);
     }
 
     private void validateImage(MultipartFile file) {
@@ -156,7 +250,7 @@ public class PlanillaAiVisionService {
         return "image/jpeg";
     }
 
-    private String callClaude(String apiKey, String model, String mediaType, String base64) {
+    private ProviderResult callClaude(String apiKey, String model, String mediaType, String base64) {
         Map<String, Object> imageSource = new LinkedHashMap<>();
         imageSource.put("type", "base64");
         imageSource.put("media_type", mediaType);
@@ -189,10 +283,10 @@ public class PlanillaAiVisionService {
                         "2023-06-01",
                         "content-type",
                         "application/json"));
-        return extractClaudeText(response);
+        return extractClaudeResult(response);
     }
 
-    private String callOpenAi(String apiKey, String model, String mediaType, String base64) {
+    private ProviderResult callOpenAi(String apiKey, String model, String mediaType, String base64) {
         Map<String, Object> imageUrl = new LinkedHashMap<>();
         imageUrl.put("url", "data:" + mediaType + ";base64," + base64);
 
@@ -221,7 +315,7 @@ public class PlanillaAiVisionService {
                         "Bearer " + apiKey,
                         "content-type",
                         "application/json"));
-        return extractOpenAiText(response);
+        return extractOpenAiResult(response);
     }
 
     private String httpPostJson(String url, Map<String, Object> body, Map<String, String> headers) {
@@ -263,8 +357,7 @@ public class PlanillaAiVisionService {
         return provider + " respondió error " + status + (snippet.isBlank() ? "" : ": " + snippet);
     }
 
-    @SuppressWarnings("unchecked")
-    private String extractClaudeText(String responseBody) {
+    private ProviderResult extractClaudeResult(String responseBody) {
         try {
             Map<String, Object> root = objectMapper.readValue(responseBody, new TypeReference<>() {});
             Object content = root.get("content");
@@ -283,7 +376,8 @@ public class PlanillaAiVisionService {
             if (sb.isEmpty()) {
                 throw new BadRequestException("Claude no devolvió texto usable.");
             }
-            return sb.toString();
+            TokenUsage usage = parseClaudeUsage(root.get("usage"));
+            return new ProviderResult(sb.toString(), usage.inputTokens(), usage.outputTokens());
         } catch (BadRequestException ex) {
             throw ex;
         } catch (Exception ex) {
@@ -291,8 +385,7 @@ public class PlanillaAiVisionService {
         }
     }
 
-    @SuppressWarnings("unchecked")
-    private String extractOpenAiText(String responseBody) {
+    private ProviderResult extractOpenAiResult(String responseBody) {
         try {
             Map<String, Object> root = objectMapper.readValue(responseBody, new TypeReference<>() {});
             Object choices = root.get("choices");
@@ -311,7 +404,8 @@ public class PlanillaAiVisionService {
             if (content == null || String.valueOf(content).isBlank()) {
                 throw new BadRequestException("OpenAI no devolvió texto usable.");
             }
-            return String.valueOf(content);
+            TokenUsage usage = parseOpenAiUsage(root.get("usage"));
+            return new ProviderResult(String.valueOf(content), usage.inputTokens(), usage.outputTokens());
         } catch (BadRequestException ex) {
             throw ex;
         } catch (Exception ex) {
@@ -319,25 +413,63 @@ public class PlanillaAiVisionService {
         }
     }
 
-    private List<PlanillaAiExtractDtos.DetalleRow> parseFilas(String rawText) {
+    private static TokenUsage parseClaudeUsage(Object usageObj) {
+        if (!(usageObj instanceof Map<?, ?> usage)) {
+            return TokenUsage.empty();
+        }
+        return new TokenUsage(asInteger(usage.get("input_tokens")), asInteger(usage.get("output_tokens")));
+    }
+
+    private static TokenUsage parseOpenAiUsage(Object usageObj) {
+        if (!(usageObj instanceof Map<?, ?> usage)) {
+            return TokenUsage.empty();
+        }
+        return new TokenUsage(asInteger(usage.get("prompt_tokens")), asInteger(usage.get("completion_tokens")));
+    }
+
+    private static Integer asInteger(Object v) {
+        if (v == null) {
+            return null;
+        }
+        if (v instanceof Number n) {
+            return n.intValue();
+        }
+        try {
+            return Integer.parseInt(String.valueOf(v).trim());
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
+    private ParsedExtraction parseExtraction(String rawText) {
         String json = unwrapJson(rawText);
         try {
             Map<String, Object> root = objectMapper.readValue(json, new TypeReference<>() {});
+            boolean valido = parseValido(root.get("valido"));
+            String motivo = str(root, "motivo", "reason", "mensaje");
             Object filasRaw = root.get("filas");
-            if (!(filasRaw instanceof List<?> list)) {
+            List<PlanillaAiExtractDtos.DetalleRow> out = new ArrayList<>();
+            if (filasRaw instanceof List<?> list) {
+                for (Object item : list) {
+                    if (!(item instanceof Map<?, ?> map)) {
+                        continue;
+                    }
+                    PlanillaAiExtractDtos.DetalleRow row = toRow(map);
+                    if (hasMeasure(row)) {
+                        out.add(row);
+                    }
+                }
+            } else if (valido) {
                 throw new BadRequestException("La IA no devolvió el JSON esperado (falta «filas»).");
             }
-            List<PlanillaAiExtractDtos.DetalleRow> out = new ArrayList<>();
-            for (Object item : list) {
-                if (!(item instanceof Map<?, ?> map)) {
-                    continue;
-                }
-                PlanillaAiExtractDtos.DetalleRow row = toRow(map);
-                if (hasMeasure(row)) {
-                    out.add(row);
+            if (valido && out.isEmpty()) {
+                valido = false;
+                if (!StringUtils.hasText(motivo)) {
+                    motivo =
+                            "La IA no encontró filas de corte (Cant./Largo/Ancho) en la imagen. Pruebe con otra foto más nítida.";
                 }
             }
-            return out;
+            return new ParsedExtraction(valido, motivo, out);
         } catch (BadRequestException ex) {
             throw ex;
         } catch (Exception ex) {
@@ -345,6 +477,23 @@ public class PlanillaAiVisionService {
             throw new BadRequestException(
                     "No se pudo interpretar el JSON de la IA. Pruebe otra foto o revise el modelo configurado.");
         }
+    }
+
+    private static boolean parseValido(Object raw) {
+        if (raw == null) {
+            return true; // legacy responses without valido → treat as attempt to extract
+        }
+        if (raw instanceof Boolean b) {
+            return b;
+        }
+        String s = String.valueOf(raw).trim().toLowerCase(Locale.ROOT);
+        if ("false".equals(s) || "0".equals(s) || "no".equals(s)) {
+            return false;
+        }
+        if ("true".equals(s) || "1".equals(s) || "si".equals(s) || "sí".equals(s)) {
+            return true;
+        }
+        return true;
     }
 
     private static PlanillaAiExtractDtos.DetalleRow toRow(Map<?, ?> map) {
@@ -416,4 +565,14 @@ public class PlanillaAiVisionService {
         }
         return s.length() <= max ? s : s.substring(0, max) + "…";
     }
+
+    private record ProviderResult(String text, Integer inputTokens, Integer outputTokens) {}
+
+    private record TokenUsage(Integer inputTokens, Integer outputTokens) {
+        static TokenUsage empty() {
+            return new TokenUsage(null, null);
+        }
+    }
+
+    private record ParsedExtraction(boolean valido, String motivo, List<PlanillaAiExtractDtos.DetalleRow> filas) {}
 }

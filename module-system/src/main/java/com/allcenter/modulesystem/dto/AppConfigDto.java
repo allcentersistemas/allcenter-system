@@ -16,7 +16,8 @@ public record AppConfigDto(
         boolean aiVisionEnabled,
         String aiProvider,
         String aiModel,
-        boolean aiApiKeyConfigured) {
+        boolean aiApiKeyConfigured,
+        int aiDailyLimitPerClient) {
 
     public static AppConfigDto from(AppConfig config) {
         return new AppConfigDto(
@@ -35,7 +36,8 @@ public record AppConfigDto(
                         ? config.getAiProvider().trim().toLowerCase()
                         : "claude",
                 blankToNull(config.getAiModel()),
-                config.getAiApiKey() != null && !config.getAiApiKey().isBlank());
+                config.getAiApiKey() != null && !config.getAiApiKey().isBlank(),
+                Math.max(0, config.getAiDailyLimitPerClient()));
     }
 
     private static String blankToNull(String raw) {

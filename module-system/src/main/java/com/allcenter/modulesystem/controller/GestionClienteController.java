@@ -5,8 +5,10 @@ import com.allcenter.modulesystem.dto.ClientAdminUpdateRequest;
 import com.allcenter.modulesystem.dto.ClientCreateRequest;
 import com.allcenter.modulesystem.dto.ClientLoginHistoryResponse;
 import com.allcenter.modulesystem.dto.ClientResponse;
+import com.allcenter.modulesystem.dto.PlanillaAiUsageDtos;
 import com.allcenter.modulesystem.service.ClientAuthService;
 import com.allcenter.modulesystem.service.ClientService;
+import com.allcenter.modulesystem.service.PlanillaAiUsageService;
 import jakarta.validation.Valid;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -30,6 +32,7 @@ public class GestionClienteController {
 
     private final ClientService clientService;
     private final ClientAuthService clientAuthService;
+    private final PlanillaAiUsageService planillaAiUsageService;
 
     @GetMapping
     @PreAuthorize("@portalAuth.canGestionOrVentasGestion()")
@@ -51,6 +54,16 @@ public class GestionClienteController {
             @RequestParam(defaultValue = "20") int size) {
         clientService.getById(id);
         return ResponseEntity.ok(clientAuthService.getLoginHistory(id, page, size));
+    }
+
+    @GetMapping("/{id}/ai-usage")
+    @PreAuthorize("@portalAuth.canGestionOrVentasGestion()")
+    public ResponseEntity<PlanillaAiUsageDtos.ClientUsageResponse> aiUsage(
+            @PathVariable long id,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        clientService.getById(id);
+        return ResponseEntity.ok(planillaAiUsageService.getClientUsage(id, page, size));
     }
 
     @PostMapping

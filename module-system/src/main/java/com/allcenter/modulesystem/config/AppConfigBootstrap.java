@@ -70,6 +70,7 @@ public class AppConfigBootstrap implements ApplicationRunner {
         config.setAiProvider("claude");
         config.setAiModel("");
         config.setAiApiKey("");
+        config.setAiDailyLimitPerClient(20);
         configRepository.save(config);
     }
 }

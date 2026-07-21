@@ -69,7 +69,7 @@ public class ClientOptimizacionController {
     @PostMapping(value = "/extract-medidas", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public PlanillaAiExtractDtos.ExtractResponse extractMedidas(
             @AuthenticationPrincipal ClientUserDetails principal, @RequestPart("file") MultipartFile file) {
-        return planillaAiVisionService.extractFromImage(file);
+        return planillaAiVisionService.extractFromImage(principal.getClientUser().getId(), file);
     }
 
     @GetMapping("/catalogos/kardex")

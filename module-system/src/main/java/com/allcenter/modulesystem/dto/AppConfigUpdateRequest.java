@@ -19,4 +19,6 @@ public record AppConfigUpdateRequest(
         String aiProvider,
         String aiModel,
         /** Vacío o null = no cambiar API key almacenada. */
-        String aiApiKey) {}
+        String aiApiKey,
+        /** Límite diario por cliente; 0 = ilimitado. Null = no cambiar. */
+        @Min(0) @Max(10_000) Integer aiDailyLimitPerClient) {}

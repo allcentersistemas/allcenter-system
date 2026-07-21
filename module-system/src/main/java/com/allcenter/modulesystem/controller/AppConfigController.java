@@ -4,7 +4,9 @@ import com.allcenter.modulesystem.dto.AppConfigDto;
 import com.allcenter.modulesystem.dto.AppConfigUpdateRequest;
 import com.allcenter.modulesystem.dto.KardexResetResult;
 import com.allcenter.modulesystem.dto.MailTestRequest;
+import com.allcenter.modulesystem.dto.PlanillaAiUsageDtos;
 import com.allcenter.modulesystem.service.AppConfigService;
+import com.allcenter.modulesystem.service.PlanillaAiUsageService;
 import com.allcenter.modulesystem.support.OptimizacionStorageService;
 import jakarta.validation.Valid;
 import java.io.IOException;
@@ -33,11 +35,18 @@ public class AppConfigController {
 
     private final AppConfigService appConfigService;
     private final OptimizacionStorageService optimizacionStorageService;
+    private final PlanillaAiUsageService planillaAiUsageService;
 
     @GetMapping
     @PreAuthorize("@portalAuth.canGestion()")
     public ResponseEntity<AppConfigDto> getConfig() {
         return ResponseEntity.ok(appConfigService.getConfig());
+    }
+
+    @GetMapping("/ai-usage/summary")
+    @PreAuthorize("@portalAuth.canGestion()")
+    public ResponseEntity<PlanillaAiUsageDtos.GlobalSummary> aiUsageSummary() {
+        return ResponseEntity.ok(planillaAiUsageService.getGlobalSummary());
     }
 
     @PutMapping

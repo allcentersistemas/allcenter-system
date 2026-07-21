@@ -38,6 +38,7 @@ public class AppConfigSchemaAligner implements ApplicationRunner {
         addColumnIfMissing("ai_provider", "VARCHAR(32) DEFAULT 'claude'");
         addColumnIfMissing("ai_model", "VARCHAR(80) DEFAULT ''");
         addColumnIfMissing("ai_api_key", "VARCHAR(512) DEFAULT ''");
+        addColumnIfMissing("ai_daily_limit_per_client", "INTEGER NOT NULL DEFAULT 20");
         backfillNulls();
     }
 
@@ -49,7 +50,8 @@ public class AppConfigSchemaAligner implements ApplicationRunner {
                       ai_vision_enabled = COALESCE(ai_vision_enabled, false),
                       ai_provider = COALESCE(NULLIF(TRIM(ai_provider), ''), 'claude'),
                       ai_model = COALESCE(ai_model, ''),
-                      ai_api_key = COALESCE(ai_api_key, '')
+                      ai_api_key = COALESCE(ai_api_key, ''),
+                      ai_daily_limit_per_client = COALESCE(ai_daily_limit_per_client, 20)
                     WHERE id = 1
                     """);
         } catch (Exception ex) {

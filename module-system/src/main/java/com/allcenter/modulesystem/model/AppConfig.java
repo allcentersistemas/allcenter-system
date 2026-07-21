@@ -60,4 +60,10 @@ public class AppConfig {
 
     @Column(length = 512, columnDefinition = "varchar(512) default ''")
     private String aiApiKey = "";
+
+    /**
+     * Límite diario de importaciones por foto por cliente. {@code 0} = ilimitado. Default 20.
+     */
+    @Column(nullable = false, columnDefinition = "integer default 20")
+    private int aiDailyLimitPerClient = 20;
 }

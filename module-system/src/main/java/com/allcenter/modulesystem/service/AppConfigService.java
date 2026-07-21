@@ -77,6 +77,11 @@ public class AppConfigService {
     }
 
     @Transactional(readOnly = true)
+    public int getAiDailyLimitPerClient() {
+        return Math.max(0, ensureConfigRow().getAiDailyLimitPerClient());
+    }
+
+    @Transactional(readOnly = true)
     public AppConfig requireAiVisionConfig() {
         AppConfig config = ensureConfigRow();
         if (!config.isAiVisionEnabled()) {
@@ -165,6 +170,9 @@ public class AppConfigService {
         }
         if (request.aiApiKey() != null && !request.aiApiKey().isBlank()) {
             config.setAiApiKey(request.aiApiKey().trim());
+        }
+        if (request.aiDailyLimitPerClient() != null) {
+            config.setAiDailyLimitPerClient(Math.max(0, request.aiDailyLimitPerClient()));
         }
         configRepository.save(config);
         return AppConfigDto.from(config);
@@ -367,6 +375,7 @@ public class AppConfigService {
         config.setAiProvider("claude");
         config.setAiModel("");
         config.setAiApiKey("");
+        config.setAiDailyLimitPerClient(20);
         return configRepository.save(config);
     }
 
