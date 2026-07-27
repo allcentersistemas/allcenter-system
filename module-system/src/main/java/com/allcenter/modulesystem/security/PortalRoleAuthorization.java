@@ -42,6 +42,14 @@ public class PortalRoleAuthorization {
         return isSystem() || isAdminOps();
     }
 
+    /**
+     * Cancelar palé abierto (liberar piezas escaneadas): mismos roles que crear/cerrar.
+     * No reutiliza {@link #canCancel()} para no abrir cancelación de órdenes/RM a operativos.
+     */
+    public boolean canCancelPale() {
+        return canCreate();
+    }
+
     /** Cerrar palé: finaliza el flujo de creación/escaneo (roles operativos incluidos). */
     public boolean canClose() {
         return canCreate();

@@ -149,7 +149,7 @@ public class PaleEnvioController {
     }
 
     @PostMapping("/{id}/cancel")
-    @PreAuthorize("@portalAuth.canCancel()")
+    @PreAuthorize("@portalAuth.canCancelPale()")
     public ResponseEntity<ApiMessage> cancel(
             @PathVariable Long id,
             @RequestBody(required = false) CancelPaleRequest request,
