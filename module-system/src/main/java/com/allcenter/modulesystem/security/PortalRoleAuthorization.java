@@ -81,6 +81,18 @@ public class PortalRoleAuthorization {
         return canGestion() || canVentasGestion();
     }
 
+    /** SSE / badge de proyectos de optimización (ventas y roles con project.list o gestion.proyectos). */
+    public boolean canViewProyectoOptimizacionNotifications() {
+        if (!isAuthenticated()) {
+            return false;
+        }
+        if (isSystem() || canVentasGestion()) {
+            return true;
+        }
+        return permissionService.currentEmployeeHas("view", "project.list")
+                || permissionService.currentEmployeeHas("view", "gestion.proyectos");
+    }
+
     /** Solo rol MASTER (no SISTEMAS ni otros admin). */
     public boolean isMaster() {
         return hasAnyRole(Set.of(PortalRoleNames.MASTER));

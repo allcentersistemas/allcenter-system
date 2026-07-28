@@ -40,6 +40,18 @@ public class EmployeePermissionService {
                 .orElse(false);
     }
 
+    /** Empleados que deben recibir avisos de nuevas cotizaciones de optimización. */
+    public boolean canReceiveProyectoOptimizacionNotifications(Employee employee) {
+        if (employee == null || !employee.isActive()) {
+            return false;
+        }
+        if (employeeHasManageAll(employee)) {
+            return true;
+        }
+        return employeeHas(employee, "view", "project.list")
+                || employeeHas(employee, "view", "gestion.proyectos");
+    }
+
     private static boolean employeeHas(Employee employee, String action, String subject) {
         String normalizedAction = normalize(action);
         String normalizedSubject = normalize(subject);
@@ -63,6 +75,24 @@ public class EmployeePermissionService {
                 }
                 if (normalizedAction.equals(normalize(perm.getAction()))
                         && normalizedSubject.equals(normalize(perm.getSubject()))) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static boolean employeeHasManageAll(Employee employee) {
+        Set<Role> roles = employee.getRoles();
+        if (roles == null || roles.isEmpty()) {
+            return false;
+        }
+        for (Role role : roles) {
+            if (role == null || role.getPermissions() == null) {
+                continue;
+            }
+            for (RolePermission perm : role.getPermissions()) {
+                if (perm != null && isManageAll(perm)) {
                     return true;
                 }
             }

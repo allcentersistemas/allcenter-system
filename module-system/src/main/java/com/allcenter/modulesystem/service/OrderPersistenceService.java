@@ -1,5 +1,6 @@
 package com.allcenter.modulesystem.service;
 
+import com.allcenter.modulesystem.event.ProyectoQuoteSubmittedEvent;
 import com.allcenter.modulesystem.model.ClientUser;
 import com.allcenter.modulesystem.model.Employee;
 import com.allcenter.modulesystem.model.Orden;
@@ -19,6 +20,7 @@ import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -44,6 +46,7 @@ public class OrderPersistenceService {
     private final com.allcenter.modulesystem.support.OptimizacionStorageService optimizacionStorage;
     private final MailService mailService;
     private final AuditService auditService;
+    private final ApplicationEventPublisher eventPublisher;
 
     public OrderPersistenceService(
             ProyectoRepository proyectoRepository,
@@ -55,7 +58,8 @@ public class OrderPersistenceService {
             MaquinaOptimizacionService maquinaService,
             com.allcenter.modulesystem.support.OptimizacionStorageService optimizacionStorage,
             MailService mailService,
-            AuditService auditService
+            AuditService auditService,
+            ApplicationEventPublisher eventPublisher
     ) {
         this.proyectoRepository = proyectoRepository;
         this.ordenRepository = ordenRepository;
@@ -67,6 +71,7 @@ public class OrderPersistenceService {
         this.optimizacionStorage = optimizacionStorage;
         this.mailService = mailService;
         this.auditService = auditService;
+        this.eventPublisher = eventPublisher;
     }
 
     @Transactional
@@ -488,6 +493,14 @@ public class OrderPersistenceService {
                 AuditAction.CREATE,
                 saved,
                 "Proyecto creado: " + saved.getNombre() + " (estado ENVIADO)");
+        if (clientUserId != null && saved.getEstado() == ProyectoEstado.ENVIADO) {
+            eventPublisher.publishEvent(
+                    new ProyectoQuoteSubmittedEvent(
+                            saved.getId(),
+                            saved.getNombre(),
+                            saved.getCliente(),
+                            clientUserId));
+        }
         return toProyectoResponse(saved, clientUserId == null);
     }
 
