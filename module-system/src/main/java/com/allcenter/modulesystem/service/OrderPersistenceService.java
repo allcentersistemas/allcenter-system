@@ -23,8 +23,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -496,40 +494,23 @@ public class OrderPersistenceService {
                 saved,
                 "Proyecto creado: " + saved.getNombre() + " (estado ENVIADO)");
         if (clientUserId != null && saved.getEstado() == ProyectoEstado.ENVIADO) {
-            scheduleProyectoQuoteNotification(
-                    saved.getId(), saved.getNombre(), saved.getCliente(), clientUserId);
+            // Misma transacción que el proyecto: si afterCommit/event fallan en runtime, no se pierde el aviso.
+            try {
+                employeeNotificationService.onProyectoQuoteSubmitted(
+                        new ProyectoQuoteSubmittedEvent(
+                                saved.getId(),
+                                saved.getNombre(),
+                                saved.getCliente(),
+                                clientUserId));
+            } catch (Exception ex) {
+                log.error(
+                        "Error al notificar cotización del proyecto {}: {}",
+                        saved.getId(),
+                        ex.getMessage(),
+                        ex);
+            }
         }
         return toProyectoResponse(saved, clientUserId == null);
-    }
-
-    /** Notifica a ventas/admin después del commit (evita perder el aviso si falla el event bus). */
-    private void scheduleProyectoQuoteNotification(
-            Long proyectoId, String nombre, String cliente, Long clientUserId) {
-        ProyectoQuoteSubmittedEvent event =
-                new ProyectoQuoteSubmittedEvent(proyectoId, nombre, cliente, clientUserId);
-        Runnable notify =
-                () -> {
-                    try {
-                        employeeNotificationService.onProyectoQuoteSubmitted(event);
-                    } catch (Exception ex) {
-                        log.error(
-                                "Error al notificar cotización del proyecto {}: {}",
-                                proyectoId,
-                                ex.getMessage(),
-                                ex);
-                    }
-                };
-        if (TransactionSynchronizationManager.isSynchronizationActive()) {
-            TransactionSynchronizationManager.registerSynchronization(
-                    new TransactionSynchronization() {
-                        @Override
-                        public void afterCommit() {
-                            notify.run();
-                        }
-                    });
-        } else {
-            notify.run();
-        }
     }
 
     @Transactional
