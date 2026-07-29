@@ -7,6 +7,7 @@ import com.allcenter.modulesystem.model.EmployeeNotification;
 import com.allcenter.modulesystem.model.EmployeeNotificationType;
 import com.allcenter.modulesystem.repository.EmployeeNotificationRepository;
 import com.allcenter.modulesystem.repository.EmployeeRepository;
+import com.allcenter.modulesystem.security.PortalRoleNames;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.LinkedHashMap;
@@ -92,13 +93,16 @@ public class EmployeeNotificationService {
             payloadJson = null;
         }
 
-        List<Employee> recipients =
-                employeeRepository.findAllWithRolesActiveOnly(true).stream()
-                        .filter(Employee::isActive)
-                        .filter(permissionService::canReceiveProyectoOptimizacionNotifications)
-                        .toList();
+        List<Employee> recipients = resolveQuoteNotificationRecipients();
+        if (recipients.isEmpty()) {
+            log.warn(
+                    "Cotización proyecto {}: no hay empleados destinatarios (roles ventas/admin o permisos project.list)",
+                    event.proyectoId());
+            return;
+        }
 
         LocalDateTime now = LocalDateTime.now(LIMA);
+        int sent = 0;
         for (Employee employee : recipients) {
             if (employee.getId() == null) {
                 continue;
@@ -123,11 +127,44 @@ public class EmployeeNotificationService {
                                     event.proyectoId(), nombre, cliente),
                             unread);
             streamService.pushToEmployee(employee.getId(), live);
+            sent++;
         }
         log.info(
                 "Notificación cotización proyecto {} enviada a {} empleados",
                 event.proyectoId(),
-                recipients.size());
+                sent);
+    }
+
+    /**
+     * Destinatarios por nombre de rol (fiable) y por permisos BD (roles custom con project.list).
+     */
+    private List<Employee> resolveQuoteNotificationRecipients() {
+        Map<Long, Employee> byId = new LinkedHashMap<>();
+        for (String roleName : PortalRoleNames.PROYECTO_QUOTE_NOTIFICATIONS) {
+            for (Employee employee : employeeRepository.findAllActiveByRoleName(roleName)) {
+                if (employee != null && employee.getId() != null && employee.isActive()) {
+                    byId.putIfAbsent(employee.getId(), employee);
+                }
+            }
+        }
+        try {
+            for (Employee employee : employeeRepository.findAllWithRolesActiveOnly(true)) {
+                if (employee == null || employee.getId() == null || !employee.isActive()) {
+                    continue;
+                }
+                if (byId.containsKey(employee.getId())) {
+                    continue;
+                }
+                if (permissionService.canReceiveProyectoOptimizacionNotifications(employee)) {
+                    byId.put(employee.getId(), employee);
+                }
+            }
+        } catch (Exception ex) {
+            log.warn(
+                    "No se pudo ampliar destinatarios por permisos BD: {}",
+                    ex.getMessage());
+        }
+        return List.copyOf(byId.values());
     }
 
     private EmployeeNotificationDtos.NotificationItemResponse toItem(EmployeeNotification n) {

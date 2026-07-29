@@ -20,9 +20,11 @@ import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -46,7 +48,7 @@ public class OrderPersistenceService {
     private final com.allcenter.modulesystem.support.OptimizacionStorageService optimizacionStorage;
     private final MailService mailService;
     private final AuditService auditService;
-    private final ApplicationEventPublisher eventPublisher;
+    private final EmployeeNotificationService employeeNotificationService;
 
     public OrderPersistenceService(
             ProyectoRepository proyectoRepository,
@@ -59,7 +61,7 @@ public class OrderPersistenceService {
             com.allcenter.modulesystem.support.OptimizacionStorageService optimizacionStorage,
             MailService mailService,
             AuditService auditService,
-            ApplicationEventPublisher eventPublisher
+            @Lazy EmployeeNotificationService employeeNotificationService
     ) {
         this.proyectoRepository = proyectoRepository;
         this.ordenRepository = ordenRepository;
@@ -71,7 +73,7 @@ public class OrderPersistenceService {
         this.optimizacionStorage = optimizacionStorage;
         this.mailService = mailService;
         this.auditService = auditService;
-        this.eventPublisher = eventPublisher;
+        this.employeeNotificationService = employeeNotificationService;
     }
 
     @Transactional
@@ -494,14 +496,40 @@ public class OrderPersistenceService {
                 saved,
                 "Proyecto creado: " + saved.getNombre() + " (estado ENVIADO)");
         if (clientUserId != null && saved.getEstado() == ProyectoEstado.ENVIADO) {
-            eventPublisher.publishEvent(
-                    new ProyectoQuoteSubmittedEvent(
-                            saved.getId(),
-                            saved.getNombre(),
-                            saved.getCliente(),
-                            clientUserId));
+            scheduleProyectoQuoteNotification(
+                    saved.getId(), saved.getNombre(), saved.getCliente(), clientUserId);
         }
         return toProyectoResponse(saved, clientUserId == null);
+    }
+
+    /** Notifica a ventas/admin después del commit (evita perder el aviso si falla el event bus). */
+    private void scheduleProyectoQuoteNotification(
+            Long proyectoId, String nombre, String cliente, Long clientUserId) {
+        ProyectoQuoteSubmittedEvent event =
+                new ProyectoQuoteSubmittedEvent(proyectoId, nombre, cliente, clientUserId);
+        Runnable notify =
+                () -> {
+                    try {
+                        employeeNotificationService.onProyectoQuoteSubmitted(event);
+                    } catch (Exception ex) {
+                        log.error(
+                                "Error al notificar cotización del proyecto {}: {}",
+                                proyectoId,
+                                ex.getMessage(),
+                                ex);
+                    }
+                };
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(
+                    new TransactionSynchronization() {
+                        @Override
+                        public void afterCommit() {
+                            notify.run();
+                        }
+                    });
+        } else {
+            notify.run();
+        }
     }
 
     @Transactional
