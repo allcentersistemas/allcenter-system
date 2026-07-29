@@ -77,7 +77,10 @@ public class EmployeeNotificationService {
         String nombre = event.nombre() != null ? event.nombre().trim() : ("Proyecto #" + event.proyectoId());
         String cliente = event.cliente() != null ? event.cliente().trim() : "";
         String title = "Nueva solicitud de cotización";
-        String body = "Nueva solicitud de cotización: " + nombre;
+        String body =
+                cliente.isBlank()
+                        ? "Proyecto «" + nombre + "»"
+                        : "Proyecto «" + nombre + "» · Cliente: " + cliente;
         Map<String, Object> payloadMap = new LinkedHashMap<>();
         payloadMap.put("proyectoId", event.proyectoId());
         payloadMap.put("proyectoNombre", nombre);

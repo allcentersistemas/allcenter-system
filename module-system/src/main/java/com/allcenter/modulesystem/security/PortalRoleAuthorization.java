@@ -81,12 +81,12 @@ public class PortalRoleAuthorization {
         return canGestion() || canVentasGestion();
     }
 
-    /** SSE / badge de proyectos de optimización (ventas y roles con project.list o gestion.proyectos). */
+    /** SSE / badge de proyectos de optimización (ventas, gestión y roles con project.list). */
     public boolean canViewProyectoOptimizacionNotifications() {
         if (!isAuthenticated()) {
             return false;
         }
-        if (isSystem() || canVentasGestion()) {
+        if (hasAnyRole(PortalRoleNames.PROYECTO_QUOTE_NOTIFICATIONS)) {
             return true;
         }
         return permissionService.currentEmployeeHas("view", "project.list")
@@ -151,7 +151,7 @@ public class PortalRoleAuthorization {
                 .collect(Collectors.toSet());
     }
 
-    static String normalizeRole(String authority) {
+    public static String normalizeRole(String authority) {
         if (authority == null) {
             return "";
         }

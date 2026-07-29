@@ -47,4 +47,19 @@ public final class PortalRoleNames {
                     USER,
                     HR,
                     CHOFER);
+
+    /**
+     * Roles que reciben avisos de nuevas cotizaciones de optimización (además de permisos
+     * granulares {@code view:project.list} / {@code view:gestion.proyectos}).
+     */
+    public static final Set<String> PROYECTO_QUOTE_NOTIFICATIONS =
+            Set.of(
+                    MASTER,
+                    SISTEMAS,
+                    ADMIN,
+                    ADMINISTRADOR,
+                    GERENCIA,
+                    ADMIN_PRODUCCION,
+                    VENTAS,
+                    ADMIN_VENTAS);
 }

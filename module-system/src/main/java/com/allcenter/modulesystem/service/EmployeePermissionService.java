@@ -5,6 +5,8 @@ import com.allcenter.modulesystem.model.Role;
 import com.allcenter.modulesystem.model.RolePermission;
 import com.allcenter.modulesystem.repository.EmployeeRepository;
 import com.allcenter.modulesystem.security.EmployeeUserDetails;
+import com.allcenter.modulesystem.security.PortalRoleAuthorization;
+import com.allcenter.modulesystem.security.PortalRoleNames;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
@@ -48,8 +50,28 @@ public class EmployeePermissionService {
         if (employeeHasManageAll(employee)) {
             return true;
         }
+        if (employeeHasAnyRoleName(employee, PortalRoleNames.PROYECTO_QUOTE_NOTIFICATIONS)) {
+            return true;
+        }
         return employeeHas(employee, "view", "project.list")
                 || employeeHas(employee, "view", "gestion.proyectos");
+    }
+
+    private static boolean employeeHasAnyRoleName(Employee employee, Set<String> allowed) {
+        Set<Role> roles = employee.getRoles();
+        if (roles == null || roles.isEmpty() || allowed == null || allowed.isEmpty()) {
+            return false;
+        }
+        for (Role role : roles) {
+            if (role == null || role.getName() == null) {
+                continue;
+            }
+            String normalized = PortalRoleAuthorization.normalizeRole(role.getName());
+            if (allowed.contains(normalized)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static boolean employeeHas(Employee employee, String action, String subject) {

@@ -1,6 +1,7 @@
 package com.allcenter.modulesystem.dto;
 
 import com.allcenter.modulesystem.model.EmployeeNotificationType;
+import com.fasterxml.jackson.annotation.JsonFormat;
 import java.time.LocalDateTime;
 
 public final class EmployeeNotificationDtos {
@@ -16,7 +17,7 @@ public final class EmployeeNotificationDtos {
             String body,
             ProyectoCotizacionPayload payload,
             boolean read,
-            LocalDateTime createdAt) {}
+            @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss") LocalDateTime createdAt) {}
 
     public record ProyectoCotizacionPayload(Long proyectoId, String proyectoNombre, String cliente) {}
 
