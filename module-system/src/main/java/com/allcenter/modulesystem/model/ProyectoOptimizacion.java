@@ -57,6 +57,9 @@ public class ProyectoOptimizacion {
     @Column(name = "cotizacion_archivo", length = 512)
     private String cotizacionArchivo;
 
+    @Column(name = "plano_archivo", length = 512)
+    private String planoArchivo;
+
     @Column(name = "fecha_estado_enviado")
     private LocalDateTime fechaEstadoEnviado;
 

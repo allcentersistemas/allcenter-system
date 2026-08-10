@@ -75,6 +75,8 @@ public final class OrderDtos {
             String maquinaParametros,
             boolean tieneCotizacion,
             String cotizacionArchivo,
+            boolean tienePlano,
+            String planoArchivo,
             ProyectoEstadoTiempos estadoTiempos
     ) {
     }
@@ -95,6 +97,7 @@ public final class OrderDtos {
             Long maquinaId,
             String maquinaParametros,
             String cotizacionArchivo,
+            String planoArchivo,
             ProyectoEstadoTiempos estadoTiempos
     ) {
     }

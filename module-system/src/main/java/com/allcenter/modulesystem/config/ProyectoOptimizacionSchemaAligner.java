@@ -30,6 +30,7 @@ public class ProyectoOptimizacionSchemaAligner implements ApplicationRunner {
         addColumnIfMissing("proyecto_optimizacion", "vendedor_id", "BIGINT");
         addColumnIfMissing("proyecto_optimizacion", "maquina_id", "BIGINT");
         addColumnIfMissing("proyecto_optimizacion", "cotizacion_archivo", "VARCHAR(512)");
+        addColumnIfMissing("proyecto_optimizacion", "plano_archivo", "VARCHAR(512)");
         addColumnIfMissing("proyecto_optimizacion", "fecha_estado_enviado", "TIMESTAMP");
         addColumnIfMissing("proyecto_optimizacion", "fecha_estado_en_atencion", "TIMESTAMP");
         addColumnIfMissing("proyecto_optimizacion", "fecha_estado_cotizado", "TIMESTAMP");

@@ -153,6 +153,21 @@ public class ClientOptimizacionController {
                 .body(resource);
     }
 
+    /** Vista inline de planos (PDF). Sin descarga para el cliente. */
+    @GetMapping("/proyectos/{proyectoId}/planos/view")
+    public ResponseEntity<Resource> viewPlanos(
+            @AuthenticationPrincipal ClientUserDetails principal,
+            @PathVariable Long proyectoId) {
+        String storedFilename =
+                service.getPlanoStoredFilenameForClient(principal.getClientUser().getId(), proyectoId);
+        Resource resource = storageService.loadPlano(proyectoId, storedFilename);
+        return ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_PDF)
+                .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"planos.pdf\"")
+                .header(HttpHeaders.CACHE_CONTROL, "private, no-store")
+                .body(resource);
+    }
+
     @GetMapping("/plantilla")
     public ResponseEntity<Resource> downloadPlantilla(@AuthenticationPrincipal ClientUserDetails principal) {
         Resource resource = storageService.loadPlantilla();

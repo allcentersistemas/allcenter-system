@@ -60,6 +60,7 @@ public class OptimizacionStorageService {
     /** Crea el árbol bajo la raíz persistente (igual que RM en /data/rm-media). */
     public void ensureReady() throws IOException {
         Files.createDirectories(root.resolve("cotizacion"));
+        Files.createDirectories(root.resolve("planos"));
         Files.createDirectories(root.resolve(PLANTILLA_DIR));
     }
 
@@ -424,6 +425,115 @@ public class OptimizacionStorageService {
 
     private static Path cotizacionDir(Path searchRoot, long proyectoId) {
         return searchRoot.resolve("cotizacion").resolve(Long.toString(proyectoId));
+    }
+
+    public String savePlano(long proyectoId, MultipartFile file) throws IOException {
+        if (file == null || file.isEmpty()) {
+            throw new ResponseStatusException(BAD_REQUEST, "Archivo vacío");
+        }
+        String original = file.getOriginalFilename();
+        String lower = original == null ? "" : original.toLowerCase(Locale.ROOT);
+        String contentType = file.getContentType() == null ? "" : file.getContentType().toLowerCase(Locale.ROOT);
+        if (!lower.endsWith(".pdf") && !contentType.contains("pdf")) {
+            throw new ResponseStatusException(BAD_REQUEST, "Los planos deben ser un archivo PDF.");
+        }
+        ensureReady();
+        String name = UUID.randomUUID().toString().toLowerCase(Locale.ROOT) + ".pdf";
+        Path dir = planoDir(root, proyectoId);
+        Files.createDirectories(dir);
+        // Un solo PDF por proyecto: limpia archivos previos en la carpeta.
+        try (Stream<Path> stream = Files.list(dir)) {
+            stream.filter(OptimizacionStorageService::isReadableFile).forEach(p -> {
+                try {
+                    Files.deleteIfExists(p);
+                } catch (IOException ignored) {
+                    // best effort
+                }
+            });
+        } catch (IOException ignored) {
+            // best effort
+        }
+        Path target = dir.resolve(name);
+        file.transferTo(target.toFile());
+        log.info("Plano guardado proyecto {} en {}", proyectoId, target);
+        return name;
+    }
+
+    public Resource loadPlano(long proyectoId, String filename) {
+        Path file = findPlanoFile(proyectoId, filename);
+        if (file == null) {
+            throw new ResponseStatusException(NOT_FOUND, "No se encontró el archivo de planos en el servidor");
+        }
+        return new FileSystemResource(file);
+    }
+
+    public boolean planoExists(long proyectoId, String filename) {
+        return findPlanoFile(proyectoId, filename) != null;
+    }
+
+    public String resolvePlanoFilename(long proyectoId, String storedFilename) {
+        Path found = findPlanoFile(proyectoId, storedFilename);
+        return found == null ? null : found.getFileName().toString();
+    }
+
+    public String planoDownloadName(long proyectoId, String storedFilename, String proyectoNombre) {
+        String base =
+                proyectoNombre == null || proyectoNombre.isBlank()
+                        ? "planos-proyecto-" + proyectoId
+                        : proyectoNombre.trim().replaceAll("[^\\w\\-. ]+", "_");
+        return "Planos-" + base + ".pdf";
+    }
+
+    private Path findPlanoFile(long proyectoId, String storedFilename) {
+        String filename = normalizeStoredFilename(storedFilename);
+        for (Path searchRoot : searchRoots) {
+            Path dir = planoDir(searchRoot, proyectoId);
+            if (filename != null) {
+                Path candidate = dir.resolve(filename);
+                if (isReadableFile(candidate)) {
+                    return candidate;
+                }
+            }
+            if (Files.isDirectory(dir)) {
+                try (Stream<Path> stream = Files.list(dir)) {
+                    List<Path> pdfs =
+                            stream.filter(OptimizacionStorageService::isReadableFile)
+                                    .filter(p -> p.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".pdf"))
+                                    .toList();
+                    if (pdfs.size() == 1) {
+                        return pdfs.get(0);
+                    }
+                    if (!pdfs.isEmpty() && filename != null) {
+                        Path match =
+                                pdfs.stream()
+                                        .filter(p -> p.getFileName().toString().equalsIgnoreCase(filename))
+                                        .findFirst()
+                                        .orElse(null);
+                        if (match != null) {
+                            return match;
+                        }
+                    }
+                    if (pdfs.size() > 1) {
+                        return pdfs.stream()
+                                .max((a, b) -> {
+                                    try {
+                                        return Files.getLastModifiedTime(a).compareTo(Files.getLastModifiedTime(b));
+                                    } catch (IOException ex) {
+                                        return 0;
+                                    }
+                                })
+                                .orElse(null);
+                    }
+                } catch (IOException ex) {
+                    log.warn("No se pudo listar planos del proyecto {} en {}: {}", proyectoId, searchRoot, ex.getMessage());
+                }
+            }
+        }
+        return null;
+    }
+
+    private static Path planoDir(Path searchRoot, long proyectoId) {
+        return searchRoot.resolve("planos").resolve(Long.toString(proyectoId));
     }
 
     private static boolean isReadableFile(Path path) {

@@ -189,6 +189,30 @@ public class OrderController {
                 .body(resource);
     }
 
+    @PostMapping(value = "/proyectos/{proyectoId}/planos", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public OrderDtos.ProyectoResponse uploadPlanos(
+            @AuthenticationPrincipal EmployeeUserDetails principal,
+            @PathVariable Long proyectoId,
+            @RequestParam("file") MultipartFile file) {
+        return service.uploadPlano(principal.getEmployee().getId(), proyectoId, file);
+    }
+
+    @GetMapping("/proyectos/{proyectoId}/planos")
+    public ResponseEntity<Resource> downloadPlanos(@PathVariable Long proyectoId) {
+        OrderDtos.ProyectoConOrdenesResponse tree = service.getProjectTree(proyectoId);
+        String filename = tree.project().planoArchivo();
+        Resource resource = storageService.loadPlano(proyectoId, filename);
+        String resolved = storageService.resolvePlanoFilename(proyectoId, filename);
+        String attachmentName =
+                resolved != null
+                        ? resolved
+                        : storageService.planoDownloadName(proyectoId, filename, tree.project().nombre());
+        return ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_PDF)
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + attachmentName.replace("\"", "") + "\"")
+                .body(resource);
+    }
+
     @ExceptionHandler({IllegalArgumentException.class, EntityNotFoundException.class})
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public Map<String, String> handleBadRequest(Exception ex) {

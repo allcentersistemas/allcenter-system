@@ -283,6 +283,28 @@ public class OrderPersistenceService {
     }
 
     @Transactional
+    public OrderDtos.ProyectoResponse uploadPlano(long employeeId, Long proyectoId, org.springframework.web.multipart.MultipartFile file) {
+        ProyectoOptimizacion proyecto = requireProject(proyectoId);
+        if (proyecto.getVendedorId() != null && !proyecto.getVendedorId().equals(employeeId)) {
+            throw new IllegalArgumentException("Solo el vendedor asignado puede subir los planos.");
+        }
+        try {
+            String filename = optimizacionStorage.savePlano(proyectoId, file);
+            proyecto.setPlanoArchivo(filename);
+            if (proyecto.getVendedorId() == null) {
+                proyecto.setVendedorId(employeeId);
+            }
+            ProyectoOptimizacion saved = proyectoRepository.save(proyecto);
+            recordProyectoAudit(AuditAction.UPDATE, saved, "Planos PDF subidos");
+            return toProyectoResponse(saved, true);
+        } catch (org.springframework.web.server.ResponseStatusException ex) {
+            throw new IllegalArgumentException(ex.getReason() != null ? ex.getReason() : "No se pudo guardar los planos.");
+        } catch (java.io.IOException ex) {
+            throw new IllegalArgumentException("No se pudo guardar los planos.");
+        }
+    }
+
+    @Transactional
     public OrderDtos.ProyectoConOrdenesResponse saveProjectTreeForEmployee(OrderDtos.ProyectoCompuestoPayload payload) {
         if (payload == null || payload.project() == null) {
             throw new IllegalArgumentException("La información del proyecto es obligatoria");
@@ -367,6 +389,19 @@ public class OrderPersistenceService {
             throw new EntityNotFoundException("Cotización no disponible para este proyecto.");
         }
         return resolved;
+    }
+
+    @Transactional(readOnly = true)
+    public String getPlanoStoredFilenameForClient(long clientUserId, Long proyectoId) {
+        ProyectoOptimizacion proyecto = requireOwnedProject(clientUserId, proyectoId);
+        String archivo = proyecto.getPlanoArchivo();
+        if (archivo == null || archivo.isBlank()) {
+            if (!optimizacionStorage.planoExists(proyectoId, null)) {
+                throw new EntityNotFoundException("Planos no disponibles para este proyecto.");
+            }
+            return null;
+        }
+        return archivo;
     }
 
     private OrderDtos.ProyectoConOrdenesResponse saveProjectTreeInternal(
@@ -597,6 +632,8 @@ public class OrderPersistenceService {
                 maquinaService.resolveParametros(proyecto.getMaquinaId()),
                 hasCotizacion(proyecto),
                 proyecto.getCotizacionArchivo(),
+                hasPlano(proyecto),
+                proyecto.getPlanoArchivo(),
                 toEstadoTiempos(proyecto));
     }
 
@@ -606,6 +643,14 @@ public class OrderPersistenceService {
             return true;
         }
         return optimizacionStorage.cotizacionExists(proyecto.getId(), archivo);
+    }
+
+    private boolean hasPlano(ProyectoOptimizacion proyecto) {
+        String archivo = proyecto.getPlanoArchivo();
+        if (archivo != null && !archivo.isBlank()) {
+            return true;
+        }
+        return optimizacionStorage.planoExists(proyecto.getId(), archivo);
     }
 
     private OrderDtos.ProyectoResponse toProyectoResponse(ProyectoOptimizacion proyectoOptimizacion, boolean editable) {
@@ -625,6 +670,7 @@ public class OrderPersistenceService {
                 proyectoOptimizacion.getMaquinaId(),
                 maquinaService.resolveParametros(proyectoOptimizacion.getMaquinaId()),
                 proyectoOptimizacion.getCotizacionArchivo(),
+                proyectoOptimizacion.getPlanoArchivo(),
                 toEstadoTiempos(proyectoOptimizacion));
     }
 
