@@ -17,10 +17,11 @@ public class OrdenDetalle {
     @Column(name = "orderdetalleid")
     private Long id;
 
-    @Column(name = "material")
+    @Column(name = "material", length = 512)
     private String material;
 
-    @Column(name = "parametros")
+    /** JSON de cantos, ranuras, etc. Puede superar 255 fácilmente. */
+    @Column(name = "parametros", columnDefinition = "TEXT")
     private String parametros;
 
     @Column(name = "cantidad")
@@ -32,13 +33,13 @@ public class OrdenDetalle {
     @Column(name = "ancho")
     private Integer ancho;
 
-    @Column(name = "veta")
+    @Column(name = "veta", length = 64)
     private String veta;
 
-    @Column(name =  "descripcion")
+    @Column(name = "descripcion", columnDefinition = "TEXT")
     private String descripcion;
 
-    @Column(name = "descripcion1")
+    @Column(name = "descripcion1", length = 64)
     private String descripcion1;
 
 
