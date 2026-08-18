@@ -35,6 +35,10 @@ public class ProyectoOptimizacionSchemaAligner implements ApplicationRunner {
         addColumnIfMissing("proyecto_optimizacion", "fecha_estado_en_atencion", "TIMESTAMP");
         addColumnIfMissing("proyecto_optimizacion", "fecha_estado_cotizado", "TIMESTAMP");
         addColumnIfMissing("proyecto_optimizacion", "fecha_estado_vendido", "TIMESTAMP");
+        addColumnIfMissing("proyecto_optimizacion", "fecha_estado_produccion", "TIMESTAMP");
+        addColumnIfMissing("proyecto_optimizacion", "fecha_estado_despacho", "TIMESTAMP");
+        addColumnIfMissing("proyecto_optimizacion", "fecha_estado_listo_entregar", "TIMESTAMP");
+        addColumnIfMissing("proyecto_optimizacion", "fecha_estado_entregado", "TIMESTAMP");
         addColumnIfMissing("proyecto_optimizacion", "fecha_estado_cancelado", "TIMESTAMP");
         jdbc.update(
                 """
@@ -70,9 +74,12 @@ public class ProyectoOptimizacionSchemaAligner implements ApplicationRunner {
                     """
                     ALTER TABLE proyecto_optimizacion
                     ADD CONSTRAINT proyecto_optimizacion_estado_check
-                    CHECK (estado IN ('ENVIADO', 'EN_ATENCION', 'COTIZADO', 'VENDIDO', 'CANCELADO'))
+                    CHECK (estado IN (
+                        'ENVIADO', 'EN_ATENCION', 'COTIZADO', 'VENDIDO',
+                        'PRODUCCION', 'DESPACHO', 'LISTO_PARA_ENTREGAR', 'ENTREGADO', 'CANCELADO'
+                    ))
                     """);
-            log.info("proyecto_optimizacion.estado CHECK actualizado (VENDIDO, CANCELADO)");
+            log.info("proyecto_optimizacion.estado CHECK actualizado (producción/despacho/entrega)");
         } catch (Exception ex) {
             log.warn("No se pudo actualizar CHECK de estado en proyecto_optimizacion: {}", ex.getMessage());
         }

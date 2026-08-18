@@ -49,4 +49,17 @@ public interface PlanillaAiUsageRepository extends JpaRepository<PlanillaAiUsage
             FROM PlanillaAiUsage u
             """)
     List<Object[]> summarizeAll();
+
+    @Query(
+            """
+            SELECT u.clientUserId,
+                   COALESCE(SUM(COALESCE(u.inputTokens, 0) + COALESCE(u.outputTokens, 0)), 0),
+                   COALESCE(SUM(COALESCE(u.inputTokens, 0)), 0),
+                   COALESCE(SUM(COALESCE(u.outputTokens, 0)), 0),
+                   COUNT(u)
+            FROM PlanillaAiUsage u
+            GROUP BY u.clientUserId
+            ORDER BY COALESCE(SUM(COALESCE(u.inputTokens, 0) + COALESCE(u.outputTokens, 0)), 0) DESC
+            """)
+    List<Object[]> topConsumersByTokens(Pageable pageable);
 }

@@ -56,4 +56,18 @@ public final class PlanillaAiUsageDtos {
 
     public record GlobalSummary(
             Summary today, Summary last30Days, Summary allTime, int dailyLimitPerClient) {}
+
+    public record TokenConsumer(
+            Long clientUserId,
+            String cliente,
+            String email,
+            long totalTokens,
+            long inputTokens,
+            long outputTokens,
+            long uploads) {}
+
+    public record RankingResponse(
+            List<TokenConsumer> topTokenConsumers, List<VendidoCliente> topVendidoClientes) {}
+
+    public record VendidoCliente(Long clientUserId, String cliente, long ordenes) {}
 }

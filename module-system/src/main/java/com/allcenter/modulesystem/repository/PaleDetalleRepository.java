@@ -16,4 +16,14 @@ public interface PaleDetalleRepository extends JpaRepository<PaleDetalle, Long> 
             "SELECT DISTINCT d.pale.id FROM PaleDetalle d WHERE d.orderId = :orderId")
     java.util.List<Long> findDistinctPaleIdsByOrderId(
             @org.springframework.data.repository.query.Param("orderId") Long orderId);
+
+    @org.springframework.data.jpa.repository.Query(
+            """
+            SELECT COUNT(d) FROM PaleDetalle d
+            JOIN d.pale p
+            WHERE LOWER(TRIM(COALESCE(d.orderName, ''))) IN :names
+              AND UPPER(COALESCE(p.estado, '')) <> 'CANCELADO'
+            """)
+    long countScannedByOrderNames(
+            @org.springframework.data.repository.query.Param("names") java.util.Collection<String> names);
 }

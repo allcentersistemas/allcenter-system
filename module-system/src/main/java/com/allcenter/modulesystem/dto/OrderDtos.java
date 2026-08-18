@@ -165,6 +165,10 @@ public final class OrderDtos {
             LocalDateTime enAtencion,
             LocalDateTime cotizado,
             LocalDateTime vendido,
+            LocalDateTime produccion,
+            LocalDateTime despacho,
+            LocalDateTime listoParaEntregar,
+            LocalDateTime entregado,
             LocalDateTime cancelado
     ) {
     }
@@ -192,6 +196,26 @@ public final class OrderDtos {
     public record ProyectoConOrdenesResponse(
             ProyectoResponse project,
             List<OrdenConDetallesResponse> orders
+    ) {
+    }
+
+    public record AndroidScanProgressPayload(
+            String orderName,
+            String bookingCode,
+            Boolean orderComplete
+    ) {
+    }
+
+    public record AndroidOrderRefPayload(
+            String orderName,
+            String bookingCode
+    ) {
+    }
+
+    public record FulfillmentActionResponse(
+            boolean success,
+            String message,
+            Long proyectoId
     ) {
     }
 }

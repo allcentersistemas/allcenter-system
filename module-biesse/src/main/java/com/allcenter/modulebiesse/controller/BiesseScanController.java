@@ -8,6 +8,7 @@ import com.allcenter.modulebiesse.dto.UpdateOrderRequest;
 import com.allcenter.modulebiesse.dto.UserScanStatsResponse;
 import com.allcenter.modulebiesse.service.AuthGatewayService;
 import com.allcenter.modulebiesse.service.BiesseScanService;
+import com.allcenter.modulebiesse.service.SystemFulfillmentClient;
 import com.allcenter.security.BiessePortalRoleAuthorization;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -34,6 +35,7 @@ public class BiesseScanController {
     private final BiesseScanService scanService;
     private final AuthGatewayService authGatewayService;
     private final BiessePortalRoleAuthorization portalAuth;
+    private final SystemFulfillmentClient fulfillmentClient;
 
     @GetMapping("/parts/pending")
     public ResponseEntity<List<PendingPartResponse>> getPendingParts(
@@ -49,7 +51,11 @@ public class BiesseScanController {
             @Valid @RequestBody ScanPartRequest request) {
         portalAuth.requireCreate(authorization);
         Long employeeId = authGatewayService.resolveEmployeeId(authorization);
-        return ResponseEntity.ok(scanService.scanPart(employeeId, request));
+        ScanResultResponse result = scanService.scanPart(employeeId, request);
+        if (request.equipment() == null || !"PALLET".equalsIgnoreCase(request.equipment().trim())) {
+            fulfillmentClient.notifyAndroidScan(authorization, scanService.progressForPart(request.partId()));
+        }
+        return ResponseEntity.ok(result);
     }
 
     @PostMapping("/pieces/scan")
@@ -58,7 +64,11 @@ public class BiesseScanController {
             @Valid @RequestBody ScanPieceRequest request) {
         portalAuth.requireCreate(authorization);
         Long employeeId = authGatewayService.resolveEmployeeId(authorization);
-        return ResponseEntity.ok(scanService.scanPiece(employeeId, request));
+        ScanResultResponse result = scanService.scanPiece(employeeId, request);
+        if (request.equipment() == null || !"PALLET".equalsIgnoreCase(request.equipment().trim())) {
+            fulfillmentClient.notifyAndroidScan(authorization, scanService.progressForPiece(request.pieceId()));
+        }
+        return ResponseEntity.ok(result);
     }
 
     @PostMapping("/pieces/unscan")
@@ -157,7 +167,9 @@ public class BiesseScanController {
             @RequestParam(defaultValue = "MANUAL") String method) {
         portalAuth.requireAdminOps(authorization);
         Long employeeId = authGatewayService.resolveEmployeeId(authorization);
-        return ResponseEntity.ok(scanService.completeOrder(employeeId, orderId, method));
+        ScanResultResponse result = scanService.completeOrder(employeeId, orderId, method);
+        fulfillmentClient.notifyAndroidScan(authorization, scanService.progressForOrder(orderId));
+        return ResponseEntity.ok(result);
     }
 
     @GetMapping("/stats/general")

@@ -4,6 +4,7 @@ import com.allcenter.modulesystem.dto.ClientResponse;
 import com.allcenter.modulesystem.dto.OrderDtos;
 import com.allcenter.modulesystem.security.EmployeeUserDetails;
 import com.allcenter.modulesystem.service.OrderPersistenceService;
+import com.allcenter.modulesystem.service.FulfillmentService;
 import com.allcenter.modulesystem.support.OptimizacionStorageService;
 import jakarta.persistence.EntityNotFoundException;
 import java.time.LocalDate;
@@ -36,10 +37,15 @@ import org.springframework.web.multipart.MultipartFile;
 public class OrderController {
 
     private final OrderPersistenceService service;
+    private final FulfillmentService fulfillmentService;
     private final OptimizacionStorageService storageService;
 
-    public OrderController(OrderPersistenceService service, OptimizacionStorageService storageService) {
+    public OrderController(
+            OrderPersistenceService service,
+            FulfillmentService fulfillmentService,
+            OptimizacionStorageService storageService) {
         this.service = service;
+        this.fulfillmentService = fulfillmentService;
         this.storageService = storageService;
     }
 
@@ -107,6 +113,11 @@ public class OrderController {
         return service.replaceDetalles(ordenId, payload);
     }
 
+    @GetMapping("/proyectos/seguimiento")
+    public java.util.List<OrderDtos.ProyectoResumenResponse> listSeguimiento() {
+        return service.listSeguimiento();
+    }
+
     @GetMapping({"/proyectos/{proyectoId}", "/projects/{proyectoId}"})
     public OrderDtos.ProyectoConOrdenesResponse getProyecto(@PathVariable Long proyectoId) {
         return service.getProjectTree(proyectoId);
@@ -153,6 +164,32 @@ public class OrderController {
             @AuthenticationPrincipal EmployeeUserDetails principal,
             @PathVariable Long proyectoId) {
         return service.markVendido(principal.getEmployee().getId(), proyectoId);
+    }
+
+    @PostMapping("/proyectos/{proyectoId}/entregado")
+    public OrderDtos.ProyectoResponse markEntregado(@PathVariable Long proyectoId) {
+        return service.advanceFulfillment(
+                proyectoId, com.allcenter.modulesystem.model.ProyectoEstado.ENTREGADO, "Marcado entregado manualmente");
+    }
+
+    @PostMapping("/fulfillment/android-scan")
+    public void androidScanProgress(@RequestBody OrderDtos.AndroidScanProgressPayload payload) {
+        if (payload == null) {
+            return;
+        }
+        fulfillmentService.onAndroidScan(
+                payload.orderName(),
+                payload.bookingCode(),
+                Boolean.TRUE.equals(payload.orderComplete()));
+    }
+
+    @PostMapping("/fulfillment/android-entregado")
+    public OrderDtos.FulfillmentActionResponse markEntregadoFromAndroid(
+            @RequestBody OrderDtos.AndroidOrderRefPayload payload) {
+        if (payload == null) {
+            payload = new OrderDtos.AndroidOrderRefPayload(null, null);
+        }
+        return fulfillmentService.markEntregadoByOrder(payload.orderName(), payload.bookingCode());
     }
 
     @PostMapping("/proyectos/{proyectoId}/cancelar")

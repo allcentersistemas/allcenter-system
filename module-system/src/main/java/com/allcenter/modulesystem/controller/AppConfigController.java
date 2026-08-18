@@ -49,6 +49,12 @@ public class AppConfigController {
         return ResponseEntity.ok(planillaAiUsageService.getGlobalSummary());
     }
 
+    @GetMapping("/ai-usage/rankings")
+    @PreAuthorize("@portalAuth.canRead()")
+    public ResponseEntity<PlanillaAiUsageDtos.RankingResponse> aiUsageRankings() {
+        return ResponseEntity.ok(planillaAiUsageService.getRankings());
+    }
+
     @PutMapping
     @PreAuthorize("@portalAuth.canGestion()")
     public ResponseEntity<AppConfigDto> updateConfig(@Valid @RequestBody AppConfigUpdateRequest request) {

@@ -528,6 +528,51 @@ public class BiesseScanRepository {
         }
     }
 
+    /**
+     * Completa si todas las piezas están escaneadas; si no hay filas de piezas, usa partes.
+     */
+    public boolean isOrderScanComplete(Long orderId) {
+        if (orderId == null) {
+            return false;
+        }
+        try {
+            Integer totalPiezas =
+                    jdbcTemplate.queryForObject(
+                            """
+                            SELECT COUNT(*)
+                            FROM piezas z
+                            JOIN partes p ON p.partid = z.partid
+                            WHERE p.orderid = ?
+                            """,
+                            Integer.class,
+                            orderId);
+            if (totalPiezas != null && totalPiezas > 0) {
+                Integer donePiezas =
+                        jdbcTemplate.queryForObject(
+                                """
+                                SELECT COUNT(*)
+                                FROM piezas z
+                                JOIN partes p ON p.partid = z.partid
+                                WHERE p.orderid = ? AND z.escaneado = TRUE
+                                """,
+                                Integer.class,
+                                orderId);
+                return donePiezas != null && donePiezas.equals(totalPiezas);
+            }
+        } catch (Exception ignored) {
+            // Esquema sin piezas
+        }
+        Integer total =
+                jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM partes WHERE orderid = ?", Integer.class, orderId);
+        Integer done =
+                jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM partes WHERE orderid = ? AND escaneado = TRUE",
+                        Integer.class,
+                        orderId);
+        return total != null && total > 0 && done != null && done.equals(total);
+    }
+
     public List<Map<String, Object>> findScannedPartsByUser(
             Long employeeId, String fromDate, String toDate, int limit) {
         try {

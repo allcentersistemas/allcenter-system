@@ -172,6 +172,53 @@ public class OrderPersistenceService {
         return toProyectoResponse(saved, true);
     }
 
+    /**
+     * Avanza el flujo operativo (producción → entrega) sin retroceder.
+     * No cambia estados comerciales anteriores a VENDIDO.
+     */
+    @Transactional
+    public OrderDtos.ProyectoResponse advanceFulfillment(Long proyectoId, ProyectoEstado target, String reason) {
+        ProyectoOptimizacion proyecto = requireProject(proyectoId);
+        advanceFulfillmentInternal(proyecto, target, reason);
+        return toProyectoResponse(proyecto, true);
+    }
+
+    @Transactional
+    public boolean advanceFulfillmentInternal(ProyectoOptimizacion proyecto, ProyectoEstado target, String reason) {
+        if (proyecto == null || target == null) {
+            return false;
+        }
+        ProyectoEstado current = proyecto.getEstado();
+        if (current == null || !current.isPostVenta()) {
+            return false;
+        }
+        if (!current.canAdvanceTo(target)) {
+            return false;
+        }
+        applyEstadoChange(proyecto, target);
+        proyectoRepository.save(proyecto);
+        recordProyectoAudit(
+                AuditAction.UPDATE,
+                proyecto,
+                (reason == null || reason.isBlank() ? "Seguimiento" : reason) + "; estado " + target.name());
+        return true;
+    }
+
+    @Transactional(readOnly = true)
+    public List<OrderDtos.ProyectoResumenResponse> listSeguimiento() {
+        return proyectoRepository
+                .findByEstadoInOrderByFechacreacionDesc(
+                        List.of(
+                                ProyectoEstado.VENDIDO,
+                                ProyectoEstado.PRODUCCION,
+                                ProyectoEstado.DESPACHO,
+                                ProyectoEstado.LISTO_PARA_ENTREGAR,
+                                ProyectoEstado.ENTREGADO))
+                .stream()
+                .map(p -> toResumenResponse(p, false))
+                .toList();
+    }
+
     @Transactional
     public OrderDtos.ProyectoResponse cancelProjectForEmployee(Long proyectoId) {
         ProyectoOptimizacion proyecto = requireProject(proyectoId);
@@ -197,7 +244,7 @@ public class OrderPersistenceService {
         }
         ProyectoOptimizacion proyecto = requireProject(proyectoId);
         if (proyecto.getEstado() != null && proyecto.getEstado().isTerminal()) {
-            throw new IllegalArgumentException("No se puede editar un proyecto vendido o cancelado.");
+            throw new IllegalArgumentException("No se puede editar un proyecto vendido, en seguimiento o cancelado.");
         }
         if (payload.nombre() != null && !payload.nombre().isBlank()) {
             proyecto.setNombre(payload.nombre().trim());
@@ -680,6 +727,10 @@ public class OrderPersistenceService {
                 proyecto.getFechaEstadoEnAtencion(),
                 proyecto.getFechaEstadoCotizado(),
                 proyecto.getFechaEstadoVendido(),
+                proyecto.getFechaEstadoProduccion(),
+                proyecto.getFechaEstadoDespacho(),
+                proyecto.getFechaEstadoListoEntregar(),
+                proyecto.getFechaEstadoEntregado(),
                 proyecto.getFechaEstadoCancelado());
     }
 
@@ -691,6 +742,10 @@ public class OrderPersistenceService {
             case EN_ATENCION -> proyecto.setFechaEstadoEnAtencion(now);
             case COTIZADO -> proyecto.setFechaEstadoCotizado(now);
             case VENDIDO -> proyecto.setFechaEstadoVendido(now);
+            case PRODUCCION -> proyecto.setFechaEstadoProduccion(now);
+            case DESPACHO -> proyecto.setFechaEstadoDespacho(now);
+            case LISTO_PARA_ENTREGAR -> proyecto.setFechaEstadoListoEntregar(now);
+            case ENTREGADO -> proyecto.setFechaEstadoEntregado(now);
             case CANCELADO -> proyecto.setFechaEstadoCancelado(now);
         }
     }
@@ -786,8 +841,8 @@ public class OrderPersistenceService {
 
     private void cancelProjectInternal(ProyectoOptimizacion proyecto) {
         ProyectoEstado estado = proyecto.getEstado();
-        if (estado == ProyectoEstado.VENDIDO) {
-            throw new IllegalArgumentException("No se puede cancelar un proyecto vendido.");
+        if (estado != null && estado.isPostVenta()) {
+            throw new IllegalArgumentException("No se puede cancelar un proyecto vendido o en seguimiento.");
         }
         if (estado == ProyectoEstado.CANCELADO) {
             throw new IllegalArgumentException("El proyecto ya está cancelado.");

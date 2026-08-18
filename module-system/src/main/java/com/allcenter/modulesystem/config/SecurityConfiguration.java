@@ -124,6 +124,8 @@ public class SecurityConfiguration {
                                         .permitAll()
                                         .requestMatchers(HttpMethod.GET, "/api/auth/first-setup/status")
                                         .permitAll()
+                                        .requestMatchers(HttpMethod.POST, "/webhook/odoo-orden-compra", "/webhook/odoo-pago")
+                                        .permitAll()
                                         .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**")
                                         .permitAll()
                                         .requestMatchers(HttpMethod.GET, "/actuator/info")

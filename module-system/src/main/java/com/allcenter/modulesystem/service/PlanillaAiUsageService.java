@@ -1,12 +1,17 @@
 package com.allcenter.modulesystem.service;
 
 import com.allcenter.modulesystem.dto.PlanillaAiUsageDtos;
+import com.allcenter.modulesystem.model.ClientUser;
 import com.allcenter.modulesystem.model.PlanillaAiUsage;
+import com.allcenter.modulesystem.model.ProyectoEstado;
+import com.allcenter.modulesystem.repository.ClientUserRepository;
 import com.allcenter.modulesystem.repository.PlanillaAiUsageRepository;
+import com.allcenter.modulesystem.repository.ProyectoRepository;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -23,6 +28,8 @@ public class PlanillaAiUsageService {
 
     private final PlanillaAiUsageRepository repository;
     private final AppConfigService appConfigService;
+    private final ClientUserRepository clientUserRepository;
+    private final ProyectoRepository proyectoRepository;
 
     @Transactional
     public void logUsage(
@@ -101,6 +108,62 @@ public class PlanillaAiUsageService {
                 toSummary(firstRow(repository.summarizeSince(last30))),
                 toSummary(firstRow(repository.summarizeAll())),
                 appConfigService.getAiDailyLimitPerClient());
+    }
+
+    @Transactional(readOnly = true)
+    public PlanillaAiUsageDtos.RankingResponse getRankings() {
+        List<Object[]> tokenRows = repository.topConsumersByTokens(PageRequest.of(0, 10));
+        List<PlanillaAiUsageDtos.TokenConsumer> tokens = new ArrayList<>();
+        if (tokenRows != null) {
+            for (Object[] row : tokenRows) {
+                if (row == null || row.length < 5) {
+                    continue;
+                }
+                Long clientId = row[0] instanceof Number n ? n.longValue() : null;
+                ClientUser client = clientId == null ? null : clientUserRepository.findById(clientId).orElse(null);
+                String label =
+                        client == null
+                                ? "Cliente #" + clientId
+                                : firstNonBlank(client.getRazonSocial(), client.getNombre(), client.getDisplayName(), client.getEmail());
+                String email = client == null ? "" : client.getEmail();
+                tokens.add(
+                        new PlanillaAiUsageDtos.TokenConsumer(
+                                clientId,
+                                label,
+                                email,
+                                toLong(row[1]),
+                                toLong(row[2]),
+                                toLong(row[3]),
+                                toLong(row[4])));
+            }
+        }
+        List<Object[]> vendidoRows = proyectoRepository.countOrdenesByClienteAndEstado(ProyectoEstado.VENDIDO);
+        List<PlanillaAiUsageDtos.VendidoCliente> vendidos = new ArrayList<>();
+        if (vendidoRows != null) {
+            int i = 0;
+            for (Object[] row : vendidoRows) {
+                if (row == null || row.length < 3 || i >= 10) {
+                    break;
+                }
+                Long clientId = row[0] instanceof Number n ? n.longValue() : null;
+                String cliente = row[1] == null ? "Sin cliente" : String.valueOf(row[1]);
+                vendidos.add(new PlanillaAiUsageDtos.VendidoCliente(clientId, cliente, toLong(row[2])));
+                i++;
+            }
+        }
+        return new PlanillaAiUsageDtos.RankingResponse(tokens, vendidos);
+    }
+
+    private static String firstNonBlank(String... values) {
+        if (values == null) {
+            return "";
+        }
+        for (String v : values) {
+            if (v != null && !v.isBlank()) {
+                return v.trim();
+            }
+        }
+        return "";
     }
 
     private static Object[] firstRow(List<Object[]> rows) {

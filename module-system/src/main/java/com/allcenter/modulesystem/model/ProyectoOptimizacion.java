@@ -72,6 +72,18 @@ public class ProyectoOptimizacion {
     @Column(name = "fecha_estado_vendido")
     private LocalDateTime fechaEstadoVendido;
 
+    @Column(name = "fecha_estado_produccion")
+    private LocalDateTime fechaEstadoProduccion;
+
+    @Column(name = "fecha_estado_despacho")
+    private LocalDateTime fechaEstadoDespacho;
+
+    @Column(name = "fecha_estado_listo_entregar")
+    private LocalDateTime fechaEstadoListoEntregar;
+
+    @Column(name = "fecha_estado_entregado")
+    private LocalDateTime fechaEstadoEntregado;
+
     @Column(name = "fecha_estado_cancelado")
     private LocalDateTime fechaEstadoCancelado;
 }

@@ -111,6 +111,43 @@ public class BiesseScanService {
         return new ScanResultResponse(true, "Pieza escaneada correctamente");
     }
 
+    public record AndroidScanNotify(String orderName, String bookingCode, boolean complete) {}
+
+    public AndroidScanNotify progressForPiece(Long pieceId) {
+        Map<String, Object> piece = repository.findPieceById(pieceId);
+        if (piece == null || piece.get("orderid") == null) {
+            return null;
+        }
+        return progressForOrder(((Number) piece.get("orderid")).longValue());
+    }
+
+    public AndroidScanNotify progressForPart(Long partId) {
+        Map<String, Object> part = repository.findPartById(partId);
+        if (part == null || part.get("orderid") == null) {
+            return null;
+        }
+        return progressForOrder(((Number) part.get("orderid")).longValue());
+    }
+
+    public AndroidScanNotify progressForOrder(Long orderId) {
+        Map<String, Object> order = repository.findOrderById(orderId);
+        if (order == null) {
+            return null;
+        }
+        return new AndroidScanNotify(
+                stringify(order.get("ordername")),
+                stringify(order.get("bookingcode")),
+                repository.isOrderScanComplete(orderId));
+    }
+
+    private static String stringify(Object v) {
+        if (v == null) {
+            return null;
+        }
+        String t = String.valueOf(v).trim();
+        return t.isEmpty() || "null".equalsIgnoreCase(t) ? null : t;
+    }
+
     @Transactional
     public ScanResultResponse unscanPiece(Long employeeId, ScanPieceRequest req) {
         boolean ok = repository.unscanPiece(employeeId, req.pieceId(), req.observations(), req.equipment());
