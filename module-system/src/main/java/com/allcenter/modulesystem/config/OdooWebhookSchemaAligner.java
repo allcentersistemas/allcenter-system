@@ -37,8 +37,45 @@ public class OdooWebhookSchemaAligner implements ApplicationRunner {
                     """);
             jdbc.execute(
                     "CREATE INDEX IF NOT EXISTS idx_odoo_webhook_received ON odoo_webhook_event (received_at DESC)");
+            addColumnIfMissing("odoo_record_id", "BIGINT");
+            addColumnIfMissing("odoo_model", "VARCHAR(80)");
+            addColumnIfMissing("odoo_name", "VARCHAR(120)");
+            addColumnIfMissing("odoo_display_name", "VARCHAR(255)");
+            addColumnIfMissing("partner_id", "BIGINT");
+            addColumnIfMissing("partner_name", "VARCHAR(255)");
+            addColumnIfMissing("date_order", "VARCHAR(40)");
+            addColumnIfMissing("amount_total", "VARCHAR(40)");
+            addColumnIfMissing("odoo_state", "VARCHAR(40)");
         } catch (Exception ex) {
             log.warn("No se pudo crear odoo_webhook_event: {}", ex.getMessage());
+        }
+    }
+
+    private void addColumnIfMissing(String column, String sqlType) {
+        if (columnExists(column)) {
+            return;
+        }
+        try {
+            jdbc.execute("ALTER TABLE odoo_webhook_event ADD COLUMN " + column + " " + sqlType);
+            log.info("odoo_webhook_event.{} creada", column);
+        } catch (Exception ex) {
+            log.warn("No se pudo crear odoo_webhook_event.{}: {}", column, ex.getMessage());
+        }
+    }
+
+    private boolean columnExists(String column) {
+        try {
+            Integer n =
+                    jdbc.queryForObject(
+                            """
+                            SELECT COUNT(*) FROM information_schema.columns
+                            WHERE LOWER(table_name) = 'odoo_webhook_event' AND LOWER(column_name) = LOWER(?)
+                            """,
+                            Integer.class,
+                            column);
+            return n != null && n > 0;
+        } catch (Exception ex) {
+            return false;
         }
     }
 }

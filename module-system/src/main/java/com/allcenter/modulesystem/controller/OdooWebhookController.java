@@ -6,6 +6,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -80,15 +81,25 @@ public class OdooWebhookController {
     }
 
     private static Map<String, Object> toDto(OdooWebhookEvent e) {
-        return Map.of(
-                "id", e.getId(),
-                "tipo", e.getTipo(),
-                "receivedAt", e.getReceivedAt() == null ? Instant.EPOCH.toString() : e.getReceivedAt().toString(),
-                "remoteIp", e.getRemoteIp() == null ? "" : e.getRemoteIp(),
-                "contentType", e.getContentType() == null ? "" : e.getContentType(),
-                "payload", e.getPayload() == null ? "" : e.getPayload(),
-                "matchedProyectoId", e.getMatchedProyectoId() == null ? 0 : e.getMatchedProyectoId(),
-                "actionTaken", e.getActionTaken() == null ? "" : e.getActionTaken(),
-                "note", e.getNote() == null ? "" : e.getNote());
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("id", e.getId());
+        row.put("tipo", e.getTipo());
+        row.put("receivedAt", e.getReceivedAt() == null ? Instant.EPOCH.toString() : e.getReceivedAt().toString());
+        row.put("remoteIp", e.getRemoteIp() == null ? "" : e.getRemoteIp());
+        row.put("contentType", e.getContentType() == null ? "" : e.getContentType());
+        row.put("payload", e.getPayload() == null ? "" : e.getPayload());
+        row.put("matchedProyectoId", e.getMatchedProyectoId() == null ? 0 : e.getMatchedProyectoId());
+        row.put("actionTaken", e.getActionTaken() == null ? "" : e.getActionTaken());
+        row.put("note", e.getNote() == null ? "" : e.getNote());
+        row.put("odooRecordId", e.getOdooRecordId() == null ? 0 : e.getOdooRecordId());
+        row.put("odooModel", e.getOdooModel() == null ? "" : e.getOdooModel());
+        row.put("odooName", e.getOdooName() == null ? "" : e.getOdooName());
+        row.put("odooDisplayName", e.getOdooDisplayName() == null ? "" : e.getOdooDisplayName());
+        row.put("partnerId", e.getPartnerId() == null ? 0 : e.getPartnerId());
+        row.put("partnerName", e.getPartnerName() == null ? "" : e.getPartnerName());
+        row.put("dateOrder", e.getDateOrder() == null ? "" : e.getDateOrder());
+        row.put("amountTotal", e.getAmountTotal() == null ? "" : e.getAmountTotal());
+        row.put("odooState", e.getOdooState() == null ? "" : e.getOdooState());
+        return row;
     }
 }

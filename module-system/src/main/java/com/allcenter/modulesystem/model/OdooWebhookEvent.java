@@ -43,4 +43,31 @@ public class OdooWebhookEvent {
 
     @Column(length = 500)
     private String note;
+
+    @Column(name = "odoo_record_id")
+    private Long odooRecordId;
+
+    @Column(name = "odoo_model", length = 80)
+    private String odooModel;
+
+    @Column(name = "odoo_name", length = 120)
+    private String odooName;
+
+    @Column(name = "odoo_display_name", length = 255)
+    private String odooDisplayName;
+
+    @Column(name = "partner_id")
+    private Long partnerId;
+
+    @Column(name = "partner_name", length = 255)
+    private String partnerName;
+
+    @Column(name = "date_order", length = 40)
+    private String dateOrder;
+
+    @Column(name = "amount_total", length = 40)
+    private String amountTotal;
+
+    @Column(name = "odoo_state", length = 40)
+    private String odooState;
 }
