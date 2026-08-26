@@ -70,11 +70,19 @@ public class BiesseAgentRepository {
     }
 
     public void updateStatus(int machineId, BiesseAgentDtos.StatusPayload status, Long orderId) {
+        // UNKNOWN/vacío no pisa un estado OSI conocido (IDLE/RUN/…).
+        String rawState = status.state();
+        String stateParam =
+                rawState == null
+                                || rawState.isBlank()
+                                || "UNKNOWN".equalsIgnoreCase(rawState.trim())
+                        ? null
+                        : rawState.trim();
         jdbc.update(
                 """
                 UPDATE biesse_agent_machine SET
                     online = TRUE,
-                    state = ?,
+                    state = COALESCE(?, state),
                     job_name = ?,
                     pattern_name = ?,
                     last_part = ?,
@@ -88,7 +96,7 @@ public class BiesseAgentRepository {
                     last_status_at = CURRENT_TIMESTAMP
                 WHERE machine_id = ?
                 """,
-                status.state(),
+                stateParam,
                 status.jobName(),
                 status.patternName(),
                 status.lastPart(),
