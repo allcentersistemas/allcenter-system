@@ -29,6 +29,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -233,6 +234,7 @@ public class OrderPersistenceService {
             }
             byOp.computeIfAbsent(op, k -> new ArrayList<>()).add(orden);
         }
+        Map<Long, Map<String, Object>> biesseById = new HashMap<>();
         List<OrderDtos.SeguimientoOpResponse> result = new ArrayList<>();
         for (Map.Entry<String, List<Orden>> entry : byOp.entrySet()) {
             String opCodigo = entry.getKey();
@@ -249,13 +251,7 @@ public class OrderPersistenceService {
                 }
                 List<OrderDtos.SeguimientoOrdenLink> ordenLinks =
                         pe.getValue().stream()
-                                .map(
-                                        o ->
-                                                new OrderDtos.SeguimientoOrdenLink(
-                                                        o.getId(),
-                                                        o.getOrderCode(),
-                                                        o.getBiesseOrderId(),
-                                                        o.getBiesseOrderName()))
+                                .map(o -> toSeguimientoOrdenLink(o, biesseById))
                                 .toList();
                 proyectoLinks.add(
                         new OrderDtos.SeguimientoProyectoLink(
@@ -1077,6 +1073,40 @@ public class OrderPersistenceService {
                 orden.getBiesseOrderName(),
                 orden.getOpCodigo()
         );
+    }
+
+    private OrderDtos.SeguimientoOrdenLink toSeguimientoOrdenLink(
+            Orden orden, Map<Long, Map<String, Object>> biesseById) {
+        String estadoEscaneo = null;
+        Double porcentaje = null;
+        Long biesseId = orden.getBiesseOrderId();
+        if (biesseId != null) {
+            Map<String, Object> obra =
+                    biesseById.computeIfAbsent(
+                            biesseId,
+                            id -> {
+                                Map<String, Object> found = biesseObrasClient.findOrderById(id);
+                                return found != null ? found : Map.of();
+                            });
+            if (!obra.isEmpty()) {
+                estadoEscaneo =
+                        firstNonBlank(str(obra.get("estado_escaneo")), str(obra.get("estadoEscaneo")));
+                Object pct = obra.get("porcentaje_completado");
+                if (pct == null) {
+                    pct = obra.get("porcentaje");
+                }
+                if (pct instanceof Number n) {
+                    porcentaje = n.doubleValue();
+                }
+            }
+        }
+        return new OrderDtos.SeguimientoOrdenLink(
+                orden.getId(),
+                orden.getOrderCode(),
+                orden.getBiesseOrderId(),
+                orden.getBiesseOrderName(),
+                estadoEscaneo,
+                porcentaje);
     }
 
     private OrderDtos.DetalleResponse toDetalleResponse(OrdenDetalle detalle) {

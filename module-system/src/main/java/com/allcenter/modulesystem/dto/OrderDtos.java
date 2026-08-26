@@ -159,7 +159,9 @@ public final class OrderDtos {
             Long ordenId,
             String codigo,
             Long biesseOrderId,
-            String biesseOrderName
+            String biesseOrderName,
+            String estadoEscaneo,
+            Double porcentaje
     ) {
     }
 
