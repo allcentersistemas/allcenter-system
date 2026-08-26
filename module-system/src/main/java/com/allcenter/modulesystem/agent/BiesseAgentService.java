@@ -156,11 +156,13 @@ public class BiesseAgentService {
             if (isProductInfoPart(type, desc, code)) {
                 String osiPart = !desc.isBlank() ? desc : code;
                 Map<String, Object> live = repository.findMachineById(machineId);
+                Map<String, Object> machineCtx = live != null ? live : machine;
                 Map<String, Object> order =
                         obrasClient.findOrderForJob(
                                 live != null ? str(live.get("job_name")) : str(machine.get("job_name")));
                 if (order != null) {
                     orderId = ((Number) order.get("orderid")).longValue();
+                    markProduccionAndTrace(machineCtx, order, ev.eventTime(), "PIEZA_CORTADA");
                     LabelDto label =
                             buildLabelForPart(
                                     machineId, machineName, order, osiPart, ev.eventUid(), printLocal);
@@ -197,6 +199,8 @@ public class BiesseAgentService {
                                 : null;
                 if (order != null) {
                     orderId = ((Number) order.get("orderid")).longValue();
+                    markProduccionAndTrace(
+                            live != null ? live : machine, order, ev.eventTime(), "BOARDS_DONE");
                     obrasClient.registrarTrazabilidad(
                             opOf(order),
                             orderId,

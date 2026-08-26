@@ -83,11 +83,16 @@ public class AgentCutSyncService {
         }
 
         log.debug("syncAgentCuts orderId={} cuts={} marked={} skipped={}", orderId, cuts.size(), marked, skipped);
+        boolean produccion = false;
+        if (marked > 0) {
+            produccion = obrasRepository.markOrderProduccion(orderId);
+        }
         return Map.of(
                 "orderId", orderId,
                 "cuts", cuts.size(),
                 "marked", marked,
-                "skipped", skipped);
+                "skipped", skipped,
+                "produccion", produccion);
     }
 
     private long cutSortKey(Map<String, Object> cut) {
