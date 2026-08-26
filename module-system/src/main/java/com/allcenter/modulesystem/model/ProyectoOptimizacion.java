@@ -72,6 +72,9 @@ public class ProyectoOptimizacion {
     @Column(name = "fecha_estado_vendido")
     private LocalDateTime fechaEstadoVendido;
 
+    @Column(name = "fecha_estado_optimizado")
+    private LocalDateTime fechaEstadoOptimizado;
+
     @Column(name = "fecha_estado_produccion")
     private LocalDateTime fechaEstadoProduccion;
 

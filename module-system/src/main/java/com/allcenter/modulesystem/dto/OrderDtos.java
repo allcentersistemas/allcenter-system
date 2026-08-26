@@ -204,6 +204,7 @@ public final class OrderDtos {
             LocalDateTime enAtencion,
             LocalDateTime cotizado,
             LocalDateTime vendido,
+            LocalDateTime optimizado,
             LocalDateTime produccion,
             LocalDateTime despacho,
             LocalDateTime listoParaEntregar,

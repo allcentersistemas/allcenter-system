@@ -175,6 +175,8 @@ public class OrderPersistenceService {
         applyEstadoChange(proyecto, ProyectoEstado.VENDIDO);
         ProyectoOptimizacion saved = proyectoRepository.save(proyecto);
         recordProyectoAudit(AuditAction.UPDATE, saved, "Proyecto marcado como VENDIDO");
+        maybeAdvanceAfterVendido(saved);
+        saved = proyectoRepository.findById(saved.getId()).orElse(saved);
         return toProyectoResponse(saved, true);
     }
 
@@ -210,9 +212,20 @@ public class OrderPersistenceService {
         return true;
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public List<OrderDtos.ProyectoResumenResponse> listSeguimiento() {
-        return listSeguimientoProjects().stream().map(p -> toResumenResponse(p, false)).toList();
+        syncSeguimientoFromLinkedObras();
+        return proyectoRepository
+                .findByEstadoInOrderByFechacreacionDesc(
+                        List.of(
+                                ProyectoEstado.OPTIMIZADO,
+                                ProyectoEstado.PRODUCCION,
+                                ProyectoEstado.DESPACHO,
+                                ProyectoEstado.LISTO_PARA_ENTREGAR,
+                                ProyectoEstado.ENTREGADO))
+                .stream()
+                .map(p -> toResumenResponse(p, false))
+                .toList();
     }
 
     @Transactional(readOnly = true)
@@ -341,6 +354,17 @@ public class OrderPersistenceService {
                         + (opCodigo != null ? " OP " + opCodigo : "")
                         + " asignada a orden #"
                         + saved.getId());
+        if (proyecto != null && proyecto.getId() != null) {
+            ProyectoOptimizacion current = proyectoRepository.findById(proyecto.getId()).orElse(proyecto);
+            String estadoEscaneo =
+                    firstNonBlank(str(obra.get("estado_escaneo")), str(obra.get("estadoEscaneo")));
+            maybeAdvanceFromObraEstado(
+                    current,
+                    estadoEscaneo,
+                    "Obra Biesse asignada ("
+                            + (orderName != null ? orderName : ("#" + biesseOrderId))
+                            + ")");
+        }
         return toOrdenResponse(saved);
     }
 
@@ -348,10 +372,103 @@ public class OrderPersistenceService {
         return proyectoRepository.findByEstadoInOrderByFechacreacionDesc(
                 List.of(
                         ProyectoEstado.VENDIDO,
+                        ProyectoEstado.OPTIMIZADO,
                         ProyectoEstado.PRODUCCION,
                         ProyectoEstado.DESPACHO,
                         ProyectoEstado.LISTO_PARA_ENTREGAR,
                         ProyectoEstado.ENTREGADO));
+    }
+
+    private void maybeAdvanceAfterVendido(ProyectoOptimizacion proyecto) {
+        if (proyecto == null || proyecto.getId() == null) {
+            return;
+        }
+        List<Orden> linked = ordenRepository.findLinkedByProyectoIds(List.of(proyecto.getId()));
+        Map<Long, Map<String, Object>> biesseById = new HashMap<>();
+        ProyectoOptimizacion current = proyecto;
+        for (Orden orden : linked) {
+            current = proyectoRepository.findById(proyecto.getId()).orElse(current);
+            String estadoEscaneo = resolveEstadoEscaneo(orden, biesseById);
+            maybeAdvanceFromObraEstado(
+                    current, estadoEscaneo, "Post-venta: obra Biesse ya ligada al marcar VENDIDO");
+        }
+    }
+
+    /**
+     * Si hay obras Biesse ligadas ya optimizadas / en producción, avanza el proyecto
+     * (VENDIDO → OPTIMIZADO → PRODUCCION) para poblar el tablero de seguimiento.
+     */
+    private void syncSeguimientoFromLinkedObras() {
+        List<ProyectoOptimizacion> candidates =
+                proyectoRepository.findByEstadoInOrderByFechacreacionDesc(
+                        List.of(ProyectoEstado.VENDIDO, ProyectoEstado.OPTIMIZADO));
+        if (candidates.isEmpty()) {
+            return;
+        }
+        Map<Long, ProyectoOptimizacion> byId = new LinkedHashMap<>();
+        for (ProyectoOptimizacion p : candidates) {
+            byId.put(p.getId(), p);
+        }
+        List<Orden> linked = ordenRepository.findLinkedByProyectoIds(List.copyOf(byId.keySet()));
+        Map<Long, Map<String, Object>> biesseById = new HashMap<>();
+        for (Orden orden : linked) {
+            ProyectoOptimizacion proyecto = orden.getProyectoOptimizacionId();
+            if (proyecto == null || proyecto.getId() == null) {
+                continue;
+            }
+            ProyectoOptimizacion current = byId.get(proyecto.getId());
+            if (current == null) {
+                continue;
+            }
+            current = proyectoRepository.findById(current.getId()).orElse(current);
+            byId.put(current.getId(), current);
+            String estadoEscaneo = resolveEstadoEscaneo(orden, biesseById);
+            maybeAdvanceFromObraEstado(
+                    current,
+                    estadoEscaneo,
+                    "Sync seguimiento desde obra Biesse");
+        }
+    }
+
+    private void maybeAdvanceFromObraEstado(
+            ProyectoOptimizacion proyecto, String estadoEscaneo, String reason) {
+        ProyectoEstado target = targetFromObraEstado(estadoEscaneo);
+        if (target == null || proyecto == null) {
+            return;
+        }
+        advanceFulfillmentInternal(proyecto, target, reason);
+    }
+
+    private static ProyectoEstado targetFromObraEstado(String estadoEscaneo) {
+        if (estadoEscaneo == null || estadoEscaneo.isBlank()) {
+            return null;
+        }
+        String e = estadoEscaneo.trim().toUpperCase();
+        if ("PRODUCCION".equals(e) || "COMPLETADA".equals(e) || "COMPLETADO".equals(e)) {
+            return ProyectoEstado.PRODUCCION;
+        }
+        if ("OPTIMIZADO".equals(e)) {
+            return ProyectoEstado.OPTIMIZADO;
+        }
+        return null;
+    }
+
+    private String resolveEstadoEscaneo(Orden orden, Map<Long, Map<String, Object>> biesseById) {
+        Long biesseId = orden.getBiesseOrderId();
+        if (biesseId == null) {
+            return null;
+        }
+        Map<String, Object> obra =
+                biesseById.computeIfAbsent(
+                        biesseId,
+                        id -> {
+                            Map<String, Object> found = biesseObrasClient.findOrderById(id);
+                            return found != null ? found : Map.of();
+                        });
+        if (obra.isEmpty()) {
+            return null;
+        }
+        return firstNonBlank(str(obra.get("estado_escaneo")), str(obra.get("estadoEscaneo")));
     }
 
     private static String extractOpFromName(String orderName) {
@@ -886,6 +1003,7 @@ public class OrderPersistenceService {
                 proyecto.getFechaEstadoEnAtencion(),
                 proyecto.getFechaEstadoCotizado(),
                 proyecto.getFechaEstadoVendido(),
+                proyecto.getFechaEstadoOptimizado(),
                 proyecto.getFechaEstadoProduccion(),
                 proyecto.getFechaEstadoDespacho(),
                 proyecto.getFechaEstadoListoEntregar(),
@@ -901,6 +1019,7 @@ public class OrderPersistenceService {
             case EN_ATENCION -> proyecto.setFechaEstadoEnAtencion(now);
             case COTIZADO -> proyecto.setFechaEstadoCotizado(now);
             case VENDIDO -> proyecto.setFechaEstadoVendido(now);
+            case OPTIMIZADO -> proyecto.setFechaEstadoOptimizado(now);
             case PRODUCCION -> proyecto.setFechaEstadoProduccion(now);
             case DESPACHO -> proyecto.setFechaEstadoDespacho(now);
             case LISTO_PARA_ENTREGAR -> proyecto.setFechaEstadoListoEntregar(now);

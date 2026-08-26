@@ -10,6 +10,7 @@ import com.allcenter.modulesystem.agent.BiesseAgentDtos.OkResponse;
 import com.allcenter.modulesystem.agent.BiesseAgentDtos.PrintAckItem;
 import com.allcenter.modulesystem.agent.BiesseAgentDtos.PrintAckRequest;
 import com.allcenter.modulesystem.agent.BiesseAgentDtos.StatusPayload;
+import com.allcenter.modulesystem.service.FulfillmentService;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -35,6 +36,7 @@ public class BiesseAgentService {
 
     private final BiesseAgentRepository repository;
     private final BiesseObrasClient obrasClient;
+    private final FulfillmentService fulfillmentService;
 
     public MeResponse me(Map<String, Object> machine) {
         return new MeResponse(
@@ -267,6 +269,14 @@ public class BiesseAgentService {
                     "AGENTE:" + str(machine.get("machine_name")));
             if (changed) {
                 log.info("Obra {} → PRODUCCION (fuente={})", orderName, source);
+                try {
+                    fulfillmentService.onObraProduccion(orderName, str(order.get("bookingcode")));
+                } catch (Exception ex) {
+                    log.warn(
+                            "No se pudo avanzar proyecto a PRODUCCION por obra {}: {}",
+                            orderName,
+                            ex.getMessage());
+                }
             }
         }
     }

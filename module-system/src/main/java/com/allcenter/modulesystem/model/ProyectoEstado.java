@@ -5,6 +5,7 @@ public enum ProyectoEstado {
     EN_ATENCION,
     COTIZADO,
     VENDIDO,
+    OPTIMIZADO,
     PRODUCCION,
     DESPACHO,
     LISTO_PARA_ENTREGAR,
@@ -32,6 +33,7 @@ public enum ProyectoEstado {
     /** Ya vendido o más adelante en el flujo operativo. */
     public boolean isPostVenta() {
         return this == VENDIDO
+                || this == OPTIMIZADO
                 || this == PRODUCCION
                 || this == DESPACHO
                 || this == LISTO_PARA_ENTREGAR

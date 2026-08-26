@@ -16,7 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 /**
- * Avances post-venta desde la app Android (escaneo Biesse). Producción no se automatiza.
+ * Avances post-venta desde escaneo Android y agente Biesse (optimizado / producción / despacho).
  */
 @Service
 @RequiredArgsConstructor
@@ -40,6 +40,7 @@ public class FulfillmentService {
             }
             String label = firstNonBlank(orderName, bookingCode);
             if (current.getEstado() == ProyectoEstado.VENDIDO
+                    || current.getEstado() == ProyectoEstado.OPTIMIZADO
                     || current.getEstado() == ProyectoEstado.PRODUCCION) {
                 orderPersistenceService.advanceFulfillmentInternal(
                         current,
@@ -53,6 +54,30 @@ public class FulfillmentService {
                         ProyectoEstado.LISTO_PARA_ENTREGAR,
                         "Todas las piezas fueron escaneadas en Android (" + label + ")");
             }
+        }
+    }
+
+    /**
+     * Agente seccionadora marca obra en PRODUCCION → proyecto a PRODUCCION
+     * (desde VENDIDO u OPTIMIZADO).
+     */
+    @Transactional
+    public void onObraProduccion(String orderName, String bookingCode) {
+        Set<Long> seen = new LinkedHashSet<>();
+        String label = firstNonBlank(orderName, bookingCode);
+        for (Orden orden : findOrdenes(orderName, bookingCode)) {
+            ProyectoOptimizacion proyecto = orden.getProyectoOptimizacionId();
+            if (proyecto == null || proyecto.getId() == null || !seen.add(proyecto.getId())) {
+                continue;
+            }
+            ProyectoOptimizacion current = proyectoRepository.findById(proyecto.getId()).orElse(null);
+            if (current == null || current.getEstado() == null || !current.getEstado().isPostVenta()) {
+                continue;
+            }
+            orderPersistenceService.advanceFulfillmentInternal(
+                    current,
+                    ProyectoEstado.PRODUCCION,
+                    "Obra en producción (agente seccionadora: " + label + ")");
         }
     }
 
