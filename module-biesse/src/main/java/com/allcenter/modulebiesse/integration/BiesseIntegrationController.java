@@ -151,6 +151,75 @@ public class BiesseIntegrationController {
         return ResponseEntity.ok(out);
     }
 
+    @GetMapping("/seguimiento")
+    public ResponseEntity<List<Map<String, Object>>> listSeguimiento(
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+            @RequestHeader(value = BiesseInternalAuth.HEADER_INTERNAL, required = false) String internalToken,
+            @RequestParam(defaultValue = "300") int limit) {
+        internalAuth.requireRead(authorization, internalToken);
+        schemaAligner.ensureReady();
+        return ResponseEntity.ok(obrasRepository.listSeguimientoObras(limit));
+    }
+
+    @PostMapping("/orders/{orderId}/entregado")
+    public ResponseEntity<Map<String, Object>> markEntregado(
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+            @RequestHeader(value = BiesseInternalAuth.HEADER_INTERNAL, required = false) String internalToken,
+            @PathVariable long orderId,
+            @RequestParam(required = false) String usuario) {
+        internalAuth.requireWrite(authorization, internalToken);
+        schemaAligner.ensureReady();
+        boolean changed = obrasRepository.markOrderEntregado(orderId, usuario);
+        Map<String, Object> order = obrasRepository.findOrderById(orderId);
+        if (order == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Orden no encontrada");
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("changed", changed);
+        out.put("orderId", orderId);
+        out.put(
+                "estado",
+                BiesseObrasRepository.normalizeEstadoForUi(String.valueOf(order.get("estado_escaneo"))));
+        out.put("orderName", order.get("ordername"));
+        out.put("bookingCode", order.get("bookingcode"));
+        return ResponseEntity.ok(out);
+    }
+
+    @PostMapping("/orders/entregado")
+    public ResponseEntity<Map<String, Object>> markEntregadoByRef(
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+            @RequestHeader(value = BiesseInternalAuth.HEADER_INTERNAL, required = false) String internalToken,
+            @RequestBody(required = false) Map<String, Object> body) {
+        internalAuth.requireWrite(authorization, internalToken);
+        schemaAligner.ensureReady();
+        String orderName = body == null ? null : str(body.get("orderName"));
+        if (orderName == null) {
+            orderName = body == null ? null : str(body.get("ordername"));
+        }
+        String bookingCode = body == null ? null : str(body.get("bookingCode"));
+        if (bookingCode == null) {
+            bookingCode = body == null ? null : str(body.get("bookingcode"));
+        }
+        String usuario = body == null ? null : str(body.get("usuario"));
+        Map<String, Object> order = obrasRepository.findOrderByNameOrBooking(orderName, bookingCode);
+        if (order == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Obra no encontrada");
+        }
+        long orderId = ((Number) order.get("orderid")).longValue();
+        boolean changed = obrasRepository.markOrderEntregado(orderId, usuario);
+        Map<String, Object> refreshed = obrasRepository.findOrderById(orderId);
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("changed", changed);
+        out.put("orderId", orderId);
+        out.put(
+                "estado",
+                BiesseObrasRepository.normalizeEstadoForUi(
+                        refreshed == null ? null : String.valueOf(refreshed.get("estado_escaneo"))));
+        out.put("orderName", order.get("ordername"));
+        out.put("bookingCode", order.get("bookingcode"));
+        return ResponseEntity.ok(out);
+    }
+
     @PostMapping("/trazabilidad")
     public ResponseEntity<Map<String, String>> trazabilidad(
             @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,

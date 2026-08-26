@@ -78,7 +78,7 @@ public class BiesseScanService {
                 req.equipment() != null ? req.equipment() : "",
                 req.scanTimeMs());
         repository.syncOrderScanProgress(orderId);
-        repository.completeOrderIfNeeded(orderId, employeeId);
+        repository.advanceObraEstadoOnScan(orderId, employeeId);
 
         return new ScanResultResponse(true, "Part scanned successfully with method " + method);
     }

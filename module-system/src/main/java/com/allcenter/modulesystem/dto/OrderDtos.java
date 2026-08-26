@@ -183,6 +183,19 @@ public final class OrderDtos {
     ) {
     }
 
+    /** Card del tablero Seguimiento por XML/obra Biesse. */
+    public record SeguimientoObraResponse(
+            Long orderId,
+            String orderName,
+            String bookingCode,
+            String opCodigo,
+            String estadoEscaneo,
+            Double porcentaje,
+            String avanceLabel,
+            String seccionador
+    ) {
+    }
+
     public record ProyectoEstadoPayload(
             String estado
     ) {
@@ -255,7 +268,11 @@ public final class OrderDtos {
     public record FulfillmentActionResponse(
             boolean success,
             String message,
-            Long proyectoId
+            Long proyectoId,
+            Long biesseOrderId
     ) {
+        public FulfillmentActionResponse(boolean success, String message, Long proyectoId) {
+            this(success, message, proyectoId, null);
+        }
     }
 }

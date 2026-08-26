@@ -145,6 +145,79 @@ public class BiesseObrasClient {
         }
     }
 
+    public List<Map<String, Object>> listSeguimientoObras(int limit) {
+        try {
+            UriComponentsBuilder b =
+                    UriComponentsBuilder.fromUriString(
+                                    biesseBaseUrl + "/api/biesse/scan/integration/seguimiento")
+                            .queryParam("limit", Math.max(1, Math.min(limit, 500)));
+            ResponseEntity<List<Map<String, Object>>> res =
+                    restTemplate.exchange(
+                            b.toUriString(),
+                            HttpMethod.GET,
+                            new HttpEntity<>(headers()),
+                            new ParameterizedTypeReference<>() {});
+            return res.getBody() != null ? res.getBody() : List.of();
+        } catch (Exception e) {
+            log.warn("biesse listSeguimientoObras: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    public Map<String, Object> markOrderEntregado(long orderId, String usuario) {
+        try {
+            UriComponentsBuilder b =
+                    UriComponentsBuilder.fromUriString(
+                                    biesseBaseUrl
+                                            + "/api/biesse/scan/integration/orders/"
+                                            + orderId
+                                            + "/entregado");
+            if (usuario != null && !usuario.isBlank()) {
+                b.queryParam("usuario", usuario.trim());
+            }
+            ResponseEntity<Map<String, Object>> res =
+                    restTemplate.exchange(
+                            b.toUriString(),
+                            HttpMethod.POST,
+                            new HttpEntity<>(Map.of(), headers()),
+                            new ParameterizedTypeReference<>() {});
+            return res.getBody();
+        } catch (HttpClientErrorException.NotFound e) {
+            return null;
+        } catch (Exception e) {
+            log.warn("biesse markEntregado({}): {}", orderId, e.getMessage());
+            return null;
+        }
+    }
+
+    public Map<String, Object> markOrderEntregadoByRef(
+            String orderName, String bookingCode, String usuario) {
+        try {
+            Map<String, Object> body = new HashMap<>();
+            if (orderName != null && !orderName.isBlank()) {
+                body.put("orderName", orderName.trim());
+            }
+            if (bookingCode != null && !bookingCode.isBlank()) {
+                body.put("bookingCode", bookingCode.trim());
+            }
+            if (usuario != null && !usuario.isBlank()) {
+                body.put("usuario", usuario.trim());
+            }
+            ResponseEntity<Map<String, Object>> res =
+                    restTemplate.exchange(
+                            biesseBaseUrl + "/api/biesse/scan/integration/orders/entregado",
+                            HttpMethod.POST,
+                            new HttpEntity<>(body, headers()),
+                            new ParameterizedTypeReference<>() {});
+            return res.getBody();
+        } catch (HttpClientErrorException.NotFound e) {
+            return null;
+        } catch (Exception e) {
+            log.warn("biesse markEntregadoByRef: {}", e.getMessage());
+            return null;
+        }
+    }
+
     public void registrarTrazabilidad(
             String opCodigo,
             Long orderId,

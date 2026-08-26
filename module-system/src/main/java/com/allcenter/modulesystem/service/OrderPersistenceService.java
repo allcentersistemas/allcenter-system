@@ -300,6 +300,59 @@ public class OrderPersistenceService {
     }
 
     @Transactional(readOnly = true)
+    public List<OrderDtos.SeguimientoObraResponse> listSeguimientoObras() {
+        List<Map<String, Object>> raw = biesseObrasClient.listSeguimientoObras(300);
+        List<OrderDtos.SeguimientoObraResponse> out = new ArrayList<>();
+        for (Map<String, Object> row : raw) {
+            Long orderId = toLong(row.get("orderId"));
+            if (orderId == null) {
+                orderId = toLong(row.get("orderid"));
+            }
+            if (orderId == null) {
+                continue;
+            }
+            String estado =
+                    firstNonBlank(str(row.get("estadoEscaneo")), str(row.get("estado_escaneo")));
+            if (estado != null) {
+                estado = estado.trim().toUpperCase();
+                if ("COMPLETADA".equals(estado) || "COMPLETADO".equals(estado)) {
+                    estado = "LISTO_PARA_ENTREGAR";
+                }
+            }
+            Double pct = null;
+            Object p = row.get("porcentaje");
+            if (p instanceof Number n) {
+                pct = n.doubleValue();
+            }
+            out.add(
+                    new OrderDtos.SeguimientoObraResponse(
+                            orderId,
+                            firstNonBlank(str(row.get("orderName")), str(row.get("ordername"))),
+                            firstNonBlank(str(row.get("bookingCode")), str(row.get("bookingcode"))),
+                            firstNonBlank(str(row.get("opCodigo")), str(row.get("op_codigo"))),
+                            estado,
+                            pct,
+                            firstNonBlank(str(row.get("avanceLabel")), str(row.get("avance_label"))),
+                            str(row.get("seccionador"))));
+        }
+        return out;
+    }
+
+    private static Long toLong(Object o) {
+        if (o instanceof Number n) {
+            return n.longValue();
+        }
+        if (o == null) {
+            return null;
+        }
+        try {
+            return Long.parseLong(String.valueOf(o).trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    @Transactional(readOnly = true)
     public Map<String, Object> listBiesseObras(String q, int limit, int offset) {
         int safeLimit = Math.max(1, Math.min(limit, 100));
         int safeOffset = Math.max(0, offset);
@@ -401,7 +454,11 @@ public class OrderPersistenceService {
     private void syncSeguimientoFromLinkedObras() {
         List<ProyectoOptimizacion> candidates =
                 proyectoRepository.findByEstadoInOrderByFechacreacionDesc(
-                        List.of(ProyectoEstado.VENDIDO, ProyectoEstado.OPTIMIZADO));
+                        List.of(
+                                ProyectoEstado.VENDIDO,
+                                ProyectoEstado.OPTIMIZADO,
+                                ProyectoEstado.PRODUCCION,
+                                ProyectoEstado.DESPACHO));
         if (candidates.isEmpty()) {
             return;
         }
@@ -443,14 +500,15 @@ public class OrderPersistenceService {
         if (estadoEscaneo == null || estadoEscaneo.isBlank()) {
             return null;
         }
-        String e = estadoEscaneo.trim().toUpperCase();
-        if ("PRODUCCION".equals(e) || "COMPLETADA".equals(e) || "COMPLETADO".equals(e)) {
-            return ProyectoEstado.PRODUCCION;
-        }
-        if ("OPTIMIZADO".equals(e)) {
-            return ProyectoEstado.OPTIMIZADO;
-        }
-        return null;
+        String e = estadoEscaneo.trim().toUpperCase().replace(' ', '_').replace('-', '_');
+        return switch (e) {
+            case "ENTREGADO" -> ProyectoEstado.ENTREGADO;
+            case "LISTO_PARA_ENTREGAR", "COMPLETADA", "COMPLETADO" -> ProyectoEstado.LISTO_PARA_ENTREGAR;
+            case "DESPACHO", "EN_PROCESO" -> ProyectoEstado.DESPACHO;
+            case "PRODUCCION" -> ProyectoEstado.PRODUCCION;
+            case "OPTIMIZADO" -> ProyectoEstado.OPTIMIZADO;
+            default -> null;
+        };
     }
 
     private String resolveEstadoEscaneo(Orden orden, Map<Long, Map<String, Object>> biesseById) {

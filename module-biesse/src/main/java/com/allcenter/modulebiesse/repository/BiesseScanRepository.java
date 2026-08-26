@@ -3,6 +3,7 @@ package com.allcenter.modulebiesse.repository;
 import com.allcenter.modulebiesse.dto.PendingPartResponse;
 import com.allcenter.modulebiesse.dto.ScanPartRequest;
 import com.allcenter.modulebiesse.dto.UserScanStatsResponse;
+import com.allcenter.modulebiesse.obras.BiesseObrasRepository;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
@@ -15,6 +16,7 @@ import org.springframework.stereotype.Repository;
 public class BiesseScanRepository {
 
     private final JdbcTemplate jdbcTemplate;
+    private final BiesseObrasRepository obrasRepository;
 
     public List<PendingPartResponse> findPendingParts(int limit) {
         String sql =
@@ -382,7 +384,7 @@ public class BiesseScanRepository {
                 "AUTOMATICO",
                 equipment != null ? equipment : "");
         syncOrderScanProgress(orderId);
-        completeOrderIfNeeded(orderId, employeeId);
+        advanceObraEstadoOnScan(orderId, employeeId);
         return true;
     }
 
@@ -490,21 +492,21 @@ public class BiesseScanRepository {
             return;
         }
 
+        boolean changed = obrasRepository.markOrderListoParaEntregar(orderId, employeeId);
+        if (!changed) {
+            return;
+        }
+
         try {
             jdbcTemplate.update(
                     """
                     UPDATE ordenes
-                    SET estado_escaneo = 'COMPLETADA',
-                        fecha_completado = CURRENT_TIMESTAMP,
-                        usuario_completado_id = ?,
-                        procesado = TRUE,
-                        partes_escaneadas = ?,
+                    SET partes_escaneadas = ?,
                         partes_totales = ?,
                         porcentaje_completado = 100,
                         fecha_modificacion = CURRENT_TIMESTAMP
                     WHERE orderid = ?
                     """,
-                    employeeId,
                     done,
                     total,
                     orderId);
@@ -526,6 +528,65 @@ public class BiesseScanRepository {
         } catch (Exception ignored) {
             // Tabla opcional en algunos despliegues
         }
+    }
+
+    /**
+     * Primer escaneo → DESPACHO; 100% → LISTO_PARA_ENTREGAR.
+     * Usa piezas si existen; si no, partes.
+     */
+    public void advanceObraEstadoOnScan(Long orderId, Long employeeId) {
+        if (orderId == null) {
+            return;
+        }
+        boolean complete = isOrderScanComplete(orderId);
+        if (complete) {
+            completeOrderIfNeeded(orderId, employeeId);
+            // Si el complete por partes no aplica (solo piezas), forzar listo
+            if (!isStoredListoOrEntregado(orderId)) {
+                obrasRepository.markOrderListoParaEntregar(orderId, employeeId);
+            }
+            return;
+        }
+        if (hasAnyScanProgress(orderId)) {
+            obrasRepository.markOrderDespacho(
+                    orderId, employeeId != null ? "emp:" + employeeId : "android-scan");
+        }
+    }
+
+    private boolean isStoredListoOrEntregado(Long orderId) {
+        Map<String, Object> order = obrasRepository.findOrderById(orderId);
+        if (order == null) {
+            return false;
+        }
+        String e = BiesseObrasRepository.normalizeEstadoForUi(String.valueOf(order.get("estado_escaneo")));
+        return BiesseObrasRepository.ESTADO_LISTO.equals(e)
+                || BiesseObrasRepository.ESTADO_ENTREGADO.equals(e);
+    }
+
+    private boolean hasAnyScanProgress(Long orderId) {
+        try {
+            Integer piezas =
+                    jdbcTemplate.queryForObject(
+                            """
+                            SELECT COUNT(*)
+                            FROM piezas z
+                            JOIN partes p ON p.partid = z.partid
+                            WHERE p.orderid = ? AND COALESCE(z.escaneado, FALSE)
+                            """,
+                            Integer.class,
+                            orderId);
+            if (piezas != null && piezas > 0) {
+                return true;
+            }
+        } catch (DataAccessException ignored) {
+            // sin tabla piezas
+        }
+        Integer partes =
+                jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM partes WHERE orderid = ? AND escaneado = TRUE",
+                        Integer.class,
+                        orderId);
+        return partes != null && partes > 0;
     }
 
     /**
@@ -663,11 +724,15 @@ public class BiesseScanRepository {
                                             100.0 * COUNT(*) FILTER (WHERE COALESCE(p.escaneado, FALSE)) / COUNT(*), 2)
                                    END AS porcentaje_completado,
                                    CASE
-                                        WHEN COUNT(*) > 0
-                                             AND COUNT(*) FILTER (WHERE NOT COALESCE(p.escaneado, FALSE)) = 0
-                                            THEN 'COMPLETADA'
-                                        WHEN COUNT(*) FILTER (WHERE COALESCE(p.escaneado, FALSE)) > 0
-                                            THEN 'EN_PROCESO'
+                                        WHEN UPPER(COALESCE(o.estado_escaneo, '')) IN ('ENTREGADO')
+                                            THEN 'ENTREGADO'
+                                        WHEN UPPER(COALESCE(o.estado_escaneo, '')) IN ('LISTO_PARA_ENTREGAR', 'COMPLETADA', 'COMPLETADO')
+                                             OR (COUNT(*) > 0
+                                                 AND COUNT(*) FILTER (WHERE NOT COALESCE(p.escaneado, FALSE)) = 0)
+                                            THEN 'LISTO_PARA_ENTREGAR'
+                                        WHEN UPPER(COALESCE(o.estado_escaneo, '')) = 'DESPACHO'
+                                             OR COUNT(*) FILTER (WHERE COALESCE(p.escaneado, FALSE)) > 0
+                                            THEN 'DESPACHO'
                                         WHEN UPPER(COALESCE(o.estado_escaneo, '')) IN ('PRODUCCION', 'OPTIMIZADO')
                                             THEN UPPER(o.estado_escaneo)
                                         ELSE COALESCE(NULLIF(UPPER(TRIM(o.estado_escaneo)), ''), 'PENDIENTE')
@@ -706,11 +771,15 @@ public class BiesseScanRepository {
                                                 100.0 * COUNT(*) FILTER (WHERE COALESCE(p.escaneado, FALSE)) / COUNT(*), 2)
                                        END AS porcentaje_completado,
                                        CASE
-                                            WHEN COUNT(*) > 0
-                                                 AND COUNT(*) FILTER (WHERE NOT COALESCE(p.escaneado, FALSE)) = 0
-                                                THEN 'COMPLETADA'
-                                            WHEN COUNT(*) FILTER (WHERE COALESCE(p.escaneado, FALSE)) > 0
-                                                THEN 'EN_PROCESO'
+                                            WHEN UPPER(COALESCE(o.estado_escaneo, '')) IN ('ENTREGADO')
+                                                THEN 'ENTREGADO'
+                                            WHEN UPPER(COALESCE(o.estado_escaneo, '')) IN ('LISTO_PARA_ENTREGAR', 'COMPLETADA', 'COMPLETADO')
+                                                 OR (COUNT(*) > 0
+                                                     AND COUNT(*) FILTER (WHERE NOT COALESCE(p.escaneado, FALSE)) = 0)
+                                                THEN 'LISTO_PARA_ENTREGAR'
+                                            WHEN UPPER(COALESCE(o.estado_escaneo, '')) = 'DESPACHO'
+                                                 OR COUNT(*) FILTER (WHERE COALESCE(p.escaneado, FALSE)) > 0
+                                                THEN 'DESPACHO'
                                             WHEN UPPER(COALESCE(o.estado_escaneo, '')) IN ('PRODUCCION', 'OPTIMIZADO')
                                                 THEN UPPER(o.estado_escaneo)
                                             ELSE COALESCE(NULLIF(UPPER(TRIM(o.estado_escaneo)), ''), 'PENDIENTE')
@@ -789,8 +858,11 @@ public class BiesseScanRepository {
             return "";
         }
         String normalized = state.trim().toUpperCase();
-        if ("COMPLETADO".equals(normalized)) {
-            return "COMPLETADA";
+        if ("COMPLETADO".equals(normalized) || "COMPLETADA".equals(normalized)) {
+            return BiesseObrasRepository.ESTADO_LISTO;
+        }
+        if ("EN_PROCESO".equals(normalized)) {
+            return BiesseObrasRepository.ESTADO_DESPACHO;
         }
         return normalized;
     }
@@ -1086,14 +1158,19 @@ public class BiesseScanRepository {
                         ? String.valueOf(order.get("estado_escaneo")).trim().toUpperCase()
                         : "";
         String estado;
-        if (total > 0 && escaneadas >= total) {
-            estado = "COMPLETADA";
-        } else if (escaneadas > 0) {
-            estado = "EN_PROCESO";
+        if ("ENTREGADO".equals(stored)) {
+            estado = BiesseObrasRepository.ESTADO_ENTREGADO;
+        } else if ((total > 0 && escaneadas >= total)
+                || "LISTO_PARA_ENTREGAR".equals(stored)
+                || "COMPLETADA".equals(stored)
+                || "COMPLETADO".equals(stored)) {
+            estado = BiesseObrasRepository.ESTADO_LISTO;
+        } else if (escaneadas > 0 || "DESPACHO".equals(stored)) {
+            estado = BiesseObrasRepository.ESTADO_DESPACHO;
         } else if ("PRODUCCION".equals(stored) || "OPTIMIZADO".equals(stored)) {
             estado = stored;
         } else if (!stored.isBlank()) {
-            estado = stored;
+            estado = BiesseObrasRepository.normalizeEstadoForUi(stored);
         } else {
             estado = "PENDIENTE";
         }
@@ -1484,21 +1561,19 @@ public class BiesseScanRepository {
             return false;
         }
 
+        obrasRepository.markOrderListoParaEntregar(orderId, employeeId);
+
         try {
             jdbcTemplate.update(
                     """
                     UPDATE ordenes
-                    SET estado_escaneo = 'COMPLETADA',
-                        fecha_completado = CURRENT_TIMESTAMP,
-                        usuario_completado_id = ?,
-                        procesado = TRUE,
-                        partes_escaneadas = ?,
+                    SET partes_escaneadas = ?,
                         partes_totales = ?,
                         porcentaje_completado = 100,
+                        procesado = TRUE,
                         fecha_modificacion = CURRENT_TIMESTAMP
                     WHERE orderid = ?
                     """,
-                    employeeId,
                     done,
                     total,
                     orderId);
@@ -1769,16 +1844,20 @@ public class BiesseScanRepository {
                             ? String.valueOf(row.get("estado_escaneo")).trim().toUpperCase()
                             : "";
             String estado;
-            if (piezasTot > 0 && piezasEsc >= piezasTot) {
-                estado = "COMPLETADA";
-            } else if (totalPartes > 0 && partesEsc >= totalPartes && piezasTot == 0) {
-                estado = "COMPLETADA";
-            } else if (piezasEsc > 0 || partesEsc > 0) {
-                estado = "EN_PROCESO";
+            if ("ENTREGADO".equals(stored)) {
+                estado = BiesseObrasRepository.ESTADO_ENTREGADO;
+            } else if ((piezasTot > 0 && piezasEsc >= piezasTot)
+                    || (totalPartes > 0 && partesEsc >= totalPartes && piezasTot == 0)
+                    || "LISTO_PARA_ENTREGAR".equals(stored)
+                    || "COMPLETADA".equals(stored)
+                    || "COMPLETADO".equals(stored)) {
+                estado = BiesseObrasRepository.ESTADO_LISTO;
+            } else if (piezasEsc > 0 || partesEsc > 0 || "DESPACHO".equals(stored)) {
+                estado = BiesseObrasRepository.ESTADO_DESPACHO;
             } else if ("PRODUCCION".equals(stored) || "OPTIMIZADO".equals(stored)) {
                 estado = stored;
             } else if (!stored.isBlank()) {
-                estado = stored;
+                estado = BiesseObrasRepository.normalizeEstadoForUi(stored);
             } else {
                 estado = "PENDIENTE";
             }

@@ -123,6 +123,17 @@ public class OrderController {
         return service.listSeguimientoByOp();
     }
 
+    /** Tablero Resumen → Seguimiento: una card por XML/obra (estado_escaneo). */
+    @GetMapping("/obras/seguimiento")
+    public java.util.List<OrderDtos.SeguimientoObraResponse> listSeguimientoObras() {
+        return service.listSeguimientoObras();
+    }
+
+    @PostMapping("/obras/{biesseOrderId}/entregado")
+    public OrderDtos.FulfillmentActionResponse markObraEntregado(@PathVariable long biesseOrderId) {
+        return fulfillmentService.markEntregadoByBiesseOrderId(biesseOrderId);
+    }
+
     @GetMapping("/biesse/obras")
     @PreAuthorize("@portalAuth.canCreate() or @portalAuth.canGestionOrVentasGestion()")
     public Map<String, Object> listBiesseObras(

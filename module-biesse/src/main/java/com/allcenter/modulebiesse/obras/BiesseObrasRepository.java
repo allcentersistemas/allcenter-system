@@ -1,10 +1,15 @@
 package com.allcenter.modulebiesse.obras;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -12,6 +17,35 @@ import org.springframework.stereotype.Repository;
 @Repository
 @RequiredArgsConstructor
 public class BiesseObrasRepository {
+
+    public static final String ESTADO_OPTIMIZADO = "OPTIMIZADO";
+    public static final String ESTADO_PRODUCCION = "PRODUCCION";
+    public static final String ESTADO_DESPACHO = "DESPACHO";
+    public static final String ESTADO_LISTO = "LISTO_PARA_ENTREGAR";
+    public static final String ESTADO_ENTREGADO = "ENTREGADO";
+    /** Legacy; se trata como {@link #ESTADO_LISTO} en lecturas y nuevas escrituras. */
+    public static final String ESTADO_COMPLETADA_LEGACY = "COMPLETADA";
+
+    private static final Set<String> BLOQUEA_PRODUCCION =
+            Set.of(
+                    ESTADO_PRODUCCION,
+                    ESTADO_DESPACHO,
+                    ESTADO_LISTO,
+                    ESTADO_ENTREGADO,
+                    ESTADO_COMPLETADA_LEGACY,
+                    "COMPLETADO");
+    private static final Set<String> FROM_DESPACHO = Set.of(ESTADO_OPTIMIZADO, ESTADO_PRODUCCION);
+    private static final Set<String> FROM_ENTREGADO =
+            Set.of(ESTADO_LISTO, ESTADO_COMPLETADA_LEGACY, "COMPLETADO", ESTADO_DESPACHO);
+    private static final Set<String> SEGUIMIENTO_ESTADOS =
+            Set.of(
+                    ESTADO_OPTIMIZADO,
+                    ESTADO_PRODUCCION,
+                    ESTADO_DESPACHO,
+                    ESTADO_LISTO,
+                    ESTADO_ENTREGADO,
+                    ESTADO_COMPLETADA_LEGACY,
+                    "COMPLETADO");
 
     private static final Pattern OP_PATTERN = Pattern.compile("^([A-Za-z]?\\d{3,})\\b");
     private static final Pattern PART_PATTERN =
@@ -96,18 +130,324 @@ public class BiesseObrasRepository {
         return fuzzy.isEmpty() ? null : fuzzy.getFirst();
     }
 
+    /**
+     * Agente CNC/seccionador: OPTIMIZADO (u vacío) → PRODUCCION.
+     * No retrocede ni pisa DESPACHO / LISTO / ENTREGADO.
+     */
     public boolean markOrderProduccion(long orderId) {
+        Map<String, Object> order = findOrderById(orderId);
+        if (order == null) {
+            return false;
+        }
+        String current = normalizeEstado(str(order.get("estado_escaneo")));
+        if (BLOQUEA_PRODUCCION.contains(current)) {
+            return false;
+        }
         int updated =
                 jdbc.update(
                         """
                         UPDATE ordenes
-                        SET estado_escaneo = 'PRODUCCION',
+                        SET estado_escaneo = ?,
                             fecha_modificacion = CURRENT_TIMESTAMP
                         WHERE orderid = ?
-                          AND COALESCE(UPPER(estado_escaneo), '') NOT IN ('COMPLETADA', 'PRODUCCION')
+                          AND COALESCE(UPPER(TRIM(estado_escaneo)), '') NOT IN (
+                              'PRODUCCION', 'DESPACHO', 'LISTO_PARA_ENTREGAR',
+                              'ENTREGADO', 'COMPLETADA', 'COMPLETADO')
                         """,
+                        ESTADO_PRODUCCION,
                         orderId);
+        if (updated > 0) {
+            registrarTrazabilidad(
+                    str(order.get("op_codigo")),
+                    orderId,
+                    str(order.get("ordername")),
+                    ESTADO_PRODUCCION,
+                    "PRODUCCION",
+                    "Agente seccionador detectó XML/job",
+                    numberInt(order.get("nparts")),
+                    numberInt(order.get("partes_totales")),
+                    "agente-cnc");
+        }
         return updated > 0;
+    }
+
+    /**
+     * Primer escaneo parcial Android: OPTIMIZADO/PRODUCCION → DESPACHO.
+     */
+    public boolean markOrderDespacho(long orderId, String usuario) {
+        Map<String, Object> order = findOrderById(orderId);
+        if (order == null) {
+            return false;
+        }
+        String current = normalizeEstado(str(order.get("estado_escaneo")));
+        if (ESTADO_DESPACHO.equals(current)
+                || ESTADO_LISTO.equals(current)
+                || ESTADO_ENTREGADO.equals(current)) {
+            return false;
+        }
+        if (!FROM_DESPACHO.contains(current) && !current.isBlank() && !"PENDIENTE".equals(current)) {
+            return false;
+        }
+        int updated =
+                jdbc.update(
+                        """
+                        UPDATE ordenes
+                        SET estado_escaneo = ?,
+                            fecha_modificacion = CURRENT_TIMESTAMP
+                        WHERE orderid = ?
+                          AND COALESCE(UPPER(TRIM(estado_escaneo)), '') IN ('OPTIMIZADO', 'PRODUCCION', '', 'PENDIENTE')
+                        """,
+                        ESTADO_DESPACHO,
+                        orderId);
+        if (updated > 0) {
+            registrarTrazabilidad(
+                    str(order.get("op_codigo")),
+                    orderId,
+                    str(order.get("ordername")),
+                    ESTADO_DESPACHO,
+                    "DESPACHO",
+                    "Primer escaneo de piezas en Android",
+                    numberInt(order.get("nparts")),
+                    numberInt(order.get("partes_totales")),
+                    usuario != null ? usuario : "android-scan");
+        }
+        return updated > 0;
+    }
+
+    /**
+     * Escaneo al 100%: → LISTO_PARA_ENTREGAR (reemplaza escrituras legacy COMPLETADA).
+     */
+    public boolean markOrderListoParaEntregar(long orderId, Long employeeId) {
+        Map<String, Object> order = findOrderById(orderId);
+        if (order == null) {
+            return false;
+        }
+        String current = normalizeEstado(str(order.get("estado_escaneo")));
+        if (ESTADO_LISTO.equals(current) || ESTADO_ENTREGADO.equals(current)) {
+            return false;
+        }
+        int updated;
+        try {
+            updated =
+                    jdbc.update(
+                            """
+                            UPDATE ordenes
+                            SET estado_escaneo = ?,
+                                fecha_completado = CURRENT_TIMESTAMP,
+                                usuario_completado_id = ?,
+                                procesado = TRUE,
+                                porcentaje_completado = 100,
+                                fecha_modificacion = CURRENT_TIMESTAMP
+                            WHERE orderid = ?
+                              AND COALESCE(UPPER(TRIM(estado_escaneo)), '') NOT IN ('LISTO_PARA_ENTREGAR', 'ENTREGADO')
+                            """,
+                            ESTADO_LISTO,
+                            employeeId,
+                            orderId);
+        } catch (DataAccessException ex) {
+            updated =
+                    jdbc.update(
+                            """
+                            UPDATE ordenes
+                            SET estado_escaneo = ?,
+                                fecha_modificacion = CURRENT_TIMESTAMP
+                            WHERE orderid = ?
+                              AND COALESCE(UPPER(TRIM(estado_escaneo)), '') NOT IN ('LISTO_PARA_ENTREGAR', 'ENTREGADO')
+                            """,
+                            ESTADO_LISTO,
+                            orderId);
+        }
+        if (updated > 0) {
+            registrarTrazabilidad(
+                    str(order.get("op_codigo")),
+                    orderId,
+                    str(order.get("ordername")),
+                    ESTADO_LISTO,
+                    "LISTO_PARA_ENTREGAR",
+                    "Escaneo al 100% de piezas/partes",
+                    numberInt(order.get("nparts")),
+                    numberInt(order.get("partes_totales")),
+                    employeeId != null ? "emp:" + employeeId : "android-scan");
+        }
+        return updated > 0;
+    }
+
+    public boolean markOrderEntregado(long orderId, String usuario) {
+        Map<String, Object> order = findOrderById(orderId);
+        if (order == null) {
+            return false;
+        }
+        String current = normalizeEstado(str(order.get("estado_escaneo")));
+        if (ESTADO_ENTREGADO.equals(current)) {
+            return true;
+        }
+        if (!FROM_ENTREGADO.contains(current)) {
+            return false;
+        }
+        int updated =
+                jdbc.update(
+                        """
+                        UPDATE ordenes
+                        SET estado_escaneo = ?,
+                            fecha_modificacion = CURRENT_TIMESTAMP
+                        WHERE orderid = ?
+                          AND COALESCE(UPPER(TRIM(estado_escaneo)), '') IN (
+                              'LISTO_PARA_ENTREGAR', 'COMPLETADA', 'COMPLETADO', 'DESPACHO')
+                        """,
+                        ESTADO_ENTREGADO,
+                        orderId);
+        if (updated > 0) {
+            registrarTrazabilidad(
+                    str(order.get("op_codigo")),
+                    orderId,
+                    str(order.get("ordername")),
+                    ESTADO_ENTREGADO,
+                    "ENTREGADO",
+                    "Obra marcada como entregada",
+                    numberInt(order.get("nparts")),
+                    numberInt(order.get("partes_totales")),
+                    usuario != null ? usuario : "android");
+        }
+        return updated > 0;
+    }
+
+    public Map<String, Object> findOrderByNameOrBooking(String orderName, String bookingCode) {
+        if ((orderName == null || orderName.isBlank()) && (bookingCode == null || bookingCode.isBlank())) {
+            return null;
+        }
+        List<Map<String, Object>> rows =
+                jdbc.queryForList(
+                        """
+                        SELECT orderid, ordername, bookingcode, op_codigo, estado_escaneo,
+                               nparts, partes_totales
+                        FROM ordenes
+                        WHERE (? IS NOT NULL AND UPPER(TRIM(ordername)) = UPPER(TRIM(?)))
+                           OR (? IS NOT NULL AND bookingcode IS NOT NULL
+                               AND UPPER(TRIM(bookingcode)) = UPPER(TRIM(?)))
+                        ORDER BY fechacreacion DESC
+                        LIMIT 1
+                        """,
+                        blankToNull(orderName),
+                        blankToNull(orderName),
+                        blankToNull(bookingCode),
+                        blankToNull(bookingCode));
+        return rows.isEmpty() ? null : rows.getFirst();
+    }
+
+    /**
+     * Tablero Seguimiento: obras en flujo post-XML (no kanban CRM).
+     */
+    public List<Map<String, Object>> listSeguimientoObras(int limit) {
+        int safe = Math.max(1, Math.min(limit, 500));
+        List<Map<String, Object>> rows;
+        try {
+            rows =
+                    jdbc.queryForList(
+                            """
+                            SELECT o.orderid, o.ordername, o.bookingcode, o.op_codigo, o.estado_escaneo,
+                                   o.fechacreacion,
+                                   (SELECT COUNT(*) FROM partes p WHERE p.orderid = o.orderid) AS total_partes,
+                                   (SELECT COUNT(*) FROM partes p WHERE p.orderid = o.orderid AND COALESCE(p.escaneado, FALSE)) AS partes_escaneadas,
+                                   (SELECT COUNT(*) FROM piezas z JOIN partes p ON p.partid = z.partid WHERE p.orderid = o.orderid) AS piezas_totales,
+                                   (SELECT COUNT(*) FROM piezas z JOIN partes p ON p.partid = z.partid WHERE p.orderid = o.orderid AND COALESCE(z.escaneado, FALSE)) AS piezas_escaneadas,
+                                   (SELECT z.cortada_por FROM piezas z
+                                      JOIN partes p ON p.partid = z.partid
+                                     WHERE p.orderid = o.orderid AND z.cortada_por IS NOT NULL AND TRIM(z.cortada_por) <> ''
+                                     ORDER BY z.cortada_at DESC NULLS LAST
+                                     LIMIT 1) AS seccionador
+                            FROM ordenes o
+                            WHERE UPPER(TRIM(COALESCE(o.estado_escaneo, ''))) IN (
+                                'OPTIMIZADO', 'PRODUCCION', 'DESPACHO',
+                                'LISTO_PARA_ENTREGAR', 'ENTREGADO', 'COMPLETADA', 'COMPLETADO')
+                            ORDER BY o.fechacreacion DESC NULLS LAST, o.orderid DESC
+                            LIMIT ?
+                            """,
+                            safe);
+        } catch (DataAccessException ex) {
+            rows =
+                    jdbc.queryForList(
+                            """
+                            SELECT o.orderid, o.ordername, o.bookingcode, o.op_codigo, o.estado_escaneo,
+                                   o.fechacreacion,
+                                   (SELECT COUNT(*) FROM partes p WHERE p.orderid = o.orderid) AS total_partes,
+                                   (SELECT COUNT(*) FROM partes p WHERE p.orderid = o.orderid AND COALESCE(p.escaneado, FALSE)) AS partes_escaneadas,
+                                   0 AS piezas_totales,
+                                   0 AS piezas_escaneadas,
+                                   NULL AS seccionador
+                            FROM ordenes o
+                            WHERE UPPER(TRIM(COALESCE(o.estado_escaneo, ''))) IN (
+                                'OPTIMIZADO', 'PRODUCCION', 'DESPACHO',
+                                'LISTO_PARA_ENTREGAR', 'ENTREGADO', 'COMPLETADA', 'COMPLETADO')
+                            ORDER BY o.fechacreacion DESC NULLS LAST, o.orderid DESC
+                            LIMIT ?
+                            """,
+                            safe);
+        }
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (Map<String, Object> row : rows) {
+            out.add(toSeguimientoCard(row));
+        }
+        return out;
+    }
+
+    private Map<String, Object> toSeguimientoCard(Map<String, Object> row) {
+        int totalPartes = numberInt(row.get("total_partes"));
+        int partesEsc = numberInt(row.get("partes_escaneadas"));
+        int piezasTot = numberInt(row.get("piezas_totales"));
+        int piezasEsc = numberInt(row.get("piezas_escaneadas"));
+        double pct;
+        String avance;
+        if (piezasTot > 0) {
+            pct = Math.round(piezasEsc * 1000.0 / piezasTot) / 10.0;
+            avance = piezasEsc + "/" + piezasTot + " piezas";
+        } else if (totalPartes > 0) {
+            pct = Math.round(partesEsc * 1000.0 / totalPartes) / 10.0;
+            avance = partesEsc + "/" + totalPartes + " partes";
+        } else {
+            pct = 0;
+            avance = "0/0";
+        }
+        Map<String, Object> obra = new LinkedHashMap<>();
+        obra.put("orderid", row.get("orderid"));
+        obra.put("orderId", row.get("orderid"));
+        obra.put("ordername", row.get("ordername"));
+        obra.put("orderName", row.get("ordername"));
+        obra.put("bookingcode", row.get("bookingcode"));
+        obra.put("bookingCode", row.get("bookingcode"));
+        obra.put("op_codigo", row.get("op_codigo"));
+        obra.put("opCodigo", row.get("op_codigo"));
+        obra.put("estado_escaneo", normalizeEstadoForUi(str(row.get("estado_escaneo"))));
+        obra.put("estadoEscaneo", normalizeEstadoForUi(str(row.get("estado_escaneo"))));
+        obra.put("fechacreacion", row.get("fechacreacion"));
+        obra.put("porcentaje", pct);
+        obra.put("avance_label", avance);
+        obra.put("avanceLabel", avance);
+        obra.put("seccionador", blankToNull(str(row.get("seccionador"))));
+        obra.put("piezas_totales", piezasTot);
+        obra.put("piezas_escaneadas", piezasEsc);
+        obra.put("partes_totales", totalPartes);
+        obra.put("partes_escaneadas", partesEsc);
+        return obra;
+    }
+
+    /** Normaliza COMPLETADA → LISTO_PARA_ENTREGAR para UI/API. */
+    public static String normalizeEstadoForUi(String raw) {
+        String e = normalizeEstado(raw);
+        if (ESTADO_COMPLETADA_LEGACY.equals(e) || "COMPLETADO".equals(e)) {
+            return ESTADO_LISTO;
+        }
+        return e;
+    }
+
+    public static String normalizeEstado(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return "";
+        }
+        return raw.trim().toUpperCase(Locale.ROOT).replace(' ', '_').replace('-', '_');
+    }
+
+    public static boolean isSeguimientoEstado(String raw) {
+        return SEGUIMIENTO_ESTADOS.contains(normalizeEstado(raw));
     }
 
     public void registrarTrazabilidad(
@@ -330,5 +670,27 @@ public class BiesseObrasRepository {
 
     private static String str(Object o) {
         return o == null ? null : String.valueOf(o);
+    }
+
+    private static String blankToNull(String v) {
+        if (v == null) {
+            return null;
+        }
+        String t = v.trim();
+        return t.isEmpty() || "null".equalsIgnoreCase(t) ? null : t;
+    }
+
+    private static int numberInt(Object o) {
+        if (o instanceof Number n) {
+            return n.intValue();
+        }
+        if (o == null) {
+            return 0;
+        }
+        try {
+            return Integer.parseInt(String.valueOf(o).trim());
+        } catch (NumberFormatException e) {
+            return 0;
+        }
     }
 }
