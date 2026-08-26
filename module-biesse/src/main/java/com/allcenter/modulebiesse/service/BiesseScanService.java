@@ -28,6 +28,7 @@ import static org.springframework.http.HttpStatus.NOT_FOUND;
 public class BiesseScanService {
 
     private final BiesseScanRepository repository;
+    private final AgentCutSyncService agentCutSyncService;
 
     public List<PendingPartResponse> getPendingParts(int limit) {
         int safeLimit = Math.max(1, Math.min(limit, 500));
@@ -202,6 +203,8 @@ public class BiesseScanService {
             throw new ResponseStatusException(NOT_FOUND, "Order not found");
         }
         repository.syncOrderScanProgress(orderId);
+        // Idempotente: refleja cortes del monitor en piezas.cortada (no toca escaneado).
+        agentCutSyncService.syncOrderFromMonitor(orderId);
         order = repository.findOrderById(orderId);
         List<Map<String, Object>> parts = repository.findOrderParts(orderId);
         List<Map<String, Object>> pieces = repository.findOrderPieces(orderId);

@@ -602,44 +602,75 @@ public class BiesseObrasRepository {
         if (qty <= 0) {
             return 0;
         }
+        Long orderId = null;
+        try {
+            List<Map<String, Object>> orderRows =
+                    jdbc.queryForList("SELECT orderid FROM partes WHERE partid = ? LIMIT 1", partId);
+            if (!orderRows.isEmpty() && orderRows.getFirst().get("orderid") instanceof Number n) {
+                orderId = n.longValue();
+            }
+        } catch (DataAccessException ignored) {
+            // partes sin orderid en esquemas antiguos
+        }
+
         int created = 0;
         for (int i = 1; i <= qty; i++) {
             try {
                 int n =
                         jdbc.update(
                                 """
-                                INSERT INTO piezas (partid, numero_pieza, escaneado, cortada)
-                                SELECT ?, ?, FALSE, FALSE
+                                INSERT INTO piezas (partid, orderid, numero_pieza, escaneado, cortada)
+                                SELECT ?, ?, ?, FALSE, FALSE
                                 WHERE NOT EXISTS (
                                     SELECT 1 FROM piezas z
                                     WHERE z.partid = ? AND z.numero_pieza = ?
                                 )
                                 """,
                                 partId,
+                                orderId,
                                 i,
                                 partId,
                                 i);
                 created += Math.max(n, 0);
             } catch (DataAccessException ex) {
-                // Esquema sin cortada / columnas distintas: intentar insert mínimo.
+                // Esquema sin cortada / orderid: intentar insert mínimo.
                 try {
                     int n =
                             jdbc.update(
                                     """
-                                    INSERT INTO piezas (partid, numero_pieza, escaneado)
-                                    SELECT ?, ?, FALSE
+                                    INSERT INTO piezas (partid, orderid, numero_pieza, escaneado)
+                                    SELECT ?, ?, ?, FALSE
                                     WHERE NOT EXISTS (
                                         SELECT 1 FROM piezas z
                                         WHERE z.partid = ? AND z.numero_pieza = ?
                                     )
                                     """,
                                     partId,
+                                    orderId,
                                     i,
                                     partId,
                                     i);
                     created += Math.max(n, 0);
                 } catch (DataAccessException ignored) {
-                    // no-op
+                    try {
+                        int n =
+                                jdbc.update(
+                                        """
+                                        INSERT INTO piezas (partid, numero_pieza, escaneado)
+                                        SELECT ?, ?, FALSE
+                                        WHERE NOT EXISTS (
+                                            SELECT 1 FROM piezas z
+                                            WHERE z.partid = ? AND z.numero_pieza = ?
+                                        )
+                                        """,
+                                        partId,
+                                        i,
+                                        partId,
+                                        i);
+                        created += Math.max(n, 0);
+                    } catch (DataAccessException ignored2) {
+                        // no-op
+                    }
                 }
             }
         }
@@ -647,11 +678,81 @@ public class BiesseObrasRepository {
     }
 
     /**
+     * Asegura una sola fila en {@code piezas} (sin crear el resto de la parte).
+     * Usado al marcar corte del agente; no altera {@code escaneado}.
+     */
+    public boolean ensurePiezaRow(long partId, int pieceNumber) {
+        if (pieceNumber <= 0) {
+            return false;
+        }
+        List<Map<String, Object>> exists =
+                jdbc.queryForList(
+                        """
+                        SELECT piezaid FROM piezas
+                        WHERE partid = ? AND numero_pieza = ?
+                        LIMIT 1
+                        """,
+                        partId,
+                        pieceNumber);
+        if (!exists.isEmpty()) {
+            return true;
+        }
+        Long orderId = null;
+        try {
+            List<Map<String, Object>> orderRows =
+                    jdbc.queryForList("SELECT orderid FROM partes WHERE partid = ? LIMIT 1", partId);
+            if (!orderRows.isEmpty() && orderRows.getFirst().get("orderid") instanceof Number n) {
+                orderId = n.longValue();
+            }
+        } catch (DataAccessException ignored) {
+            // partes sin orderid
+        }
+        try {
+            int n =
+                    jdbc.update(
+                            """
+                            INSERT INTO piezas (partid, orderid, numero_pieza, escaneado, cortada)
+                            VALUES (?, ?, ?, FALSE, FALSE)
+                            """,
+                            partId,
+                            orderId,
+                            pieceNumber);
+            return n > 0;
+        } catch (DataAccessException ex) {
+            try {
+                int n =
+                        jdbc.update(
+                                """
+                                INSERT INTO piezas (partid, orderid, numero_pieza, escaneado)
+                                VALUES (?, ?, ?, FALSE)
+                                """,
+                                partId,
+                                orderId,
+                                pieceNumber);
+                return n > 0;
+            } catch (DataAccessException ignored) {
+                try {
+                    int n =
+                            jdbc.update(
+                                    """
+                                    INSERT INTO piezas (partid, numero_pieza, escaneado)
+                                    VALUES (?, ?, FALSE)
+                                    """,
+                                    partId,
+                                    pieceNumber);
+                    return n > 0;
+                } catch (DataAccessException ignored2) {
+                    return false;
+                }
+            }
+        }
+    }
+
+    /**
      * Siguiente número de pieza aún no cortada por el agente. No inventa filas al marcar:
      * si todas están cortadas, devuelve max+1 (el mark fallará sin crear pieza).
      */
     public Integer nextPieceNumber(long partId) {
-        ensurePiezasForPart(partId);
         List<Map<String, Object>> pending =
                 jdbc.queryForList(
                         """

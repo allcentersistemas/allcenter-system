@@ -128,6 +128,8 @@ public class SecurityConfiguration {
                                         .permitAll()
                                         .requestMatchers("/api/biesse/agent/**")
                                         .permitAll()
+                                        .requestMatchers("/api/biesse/monitor/internal/**")
+                                        .permitAll()
                                         .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**")
                                         .permitAll()
                                         .requestMatchers(HttpMethod.GET, "/actuator/info")

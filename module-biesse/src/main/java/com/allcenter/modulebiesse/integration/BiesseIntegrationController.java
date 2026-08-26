@@ -3,6 +3,7 @@ package com.allcenter.modulebiesse.integration;
 import com.allcenter.modulebiesse.obras.BiesseObrasRepository;
 import com.allcenter.modulebiesse.obras.BiesseObrasSchemaAligner;
 import com.allcenter.modulebiesse.repository.BiesseScanRepository;
+import com.allcenter.modulebiesse.service.AgentCutSyncService;
 import com.allcenter.modulebiesse.service.BiesseScanService;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -35,6 +36,7 @@ public class BiesseIntegrationController {
     private final BiesseInternalAuth internalAuth;
     private final BiesseScanService scanService;
     private final BiesseScanRepository scanRepository;
+    private final AgentCutSyncService agentCutSyncService;
 
     public record TrazabilidadRequest(
             String opCodigo,
@@ -316,12 +318,8 @@ public class BiesseIntegrationController {
 
         Map<String, Object> cortadaInfo = null;
         if (markCortada) {
-            obrasRepository.ensurePiezasForPart(partId, pieceNum);
+            obrasRepository.ensurePiezaRow(partId, pieceNum);
             cortadaInfo = obrasRepository.markPiezaCortada(partId, pieceNum, machineName);
-            if (cortadaInfo == null) {
-                obrasRepository.ensurePiezasForPart(partId, pieceNum);
-                cortadaInfo = obrasRepository.markPiezaCortada(partId, pieceNum, machineName);
-            }
         }
 
         out.put("mapStatus", "MAPPED");
@@ -357,7 +355,7 @@ public class BiesseIntegrationController {
         return ResponseEntity.ok(out);
     }
 
-    /** Marca pieza cortada (solo piezas existentes; no inventa filas). */
+    /** Marca pieza cortada; crea la fila de esa pieza si aún no existe (solo al cortar). */
     @PostMapping("/parts/mark-cortada")
     public ResponseEntity<Map<String, Object>> markCortada(
             @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
@@ -384,6 +382,7 @@ public class BiesseIntegrationController {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST, "partId+pieceNumber u orderId+osiPart requeridos");
         }
+        obrasRepository.ensurePiezaRow(partId, pieceNumber);
         Map<String, Object> result =
                 obrasRepository.markPiezaCortada(partId, pieceNumber, body.machineName());
         if (result == null) {
@@ -396,6 +395,20 @@ public class BiesseIntegrationController {
         Map<String, Object> out = new LinkedHashMap<>(result);
         out.put("found", true);
         return ResponseEntity.ok(out);
+    }
+
+    /** Backfill: monitor del agente → {@code piezas.cortada} para una orden (idempotente). */
+    @PostMapping("/orders/{orderId}/sync-agent-cuts")
+    public ResponseEntity<Map<String, Object>> syncAgentCuts(
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+            @RequestHeader(value = BiesseInternalAuth.HEADER_INTERNAL, required = false) String internalToken,
+            @PathVariable long orderId) {
+        internalAuth.requireWrite(authorization, internalToken);
+        schemaAligner.ensureReady();
+        if (obrasRepository.findOrderById(orderId) == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Orden no encontrada");
+        }
+        return ResponseEntity.ok(agentCutSyncService.syncOrderFromMonitor(orderId));
     }
 
     private static String str(Object o) {

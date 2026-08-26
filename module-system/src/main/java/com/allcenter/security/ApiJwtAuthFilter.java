@@ -39,6 +39,7 @@ public class ApiJwtAuthFilter extends OncePerRequestFilter {
         if (PATH_MATCHER.match("/actuator/**", path)
                 || PATH_MATCHER.match("/error", path)
                 || PATH_MATCHER.match("/api/biesse/agent/**", path)
+                || PATH_MATCHER.match("/api/biesse/monitor/internal/**", path)
                 || "OPTIONS".equalsIgnoreCase(request.getMethod())) {
             return true;
         }

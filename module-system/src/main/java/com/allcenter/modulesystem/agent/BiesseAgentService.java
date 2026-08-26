@@ -415,8 +415,8 @@ public class BiesseAgentService {
         Long partId =
                 mapped.get("partId") instanceof Number n ? n.longValue() : null;
 
-        // UNMAPPED: solo cut_piece + sticker; no inventar pieza en BD obras.
-        // MAPPED: partForOsi ya marca cortada en obras (solo eventos nuevos vía event_uid).
+        // UNMAPPED: solo cut_piece + sticker.
+        // MAPPED: el corte queda en monitor (biesse_agent_cut_piece); el detalle de orden lo pinta desde ahí.
         long cutId =
                 repository.insertCutPiece(
                         eventUid,
