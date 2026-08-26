@@ -579,10 +579,79 @@ public class BiesseObrasRepository {
     }
 
     /**
+     * Asegura filas en {@code piezas} 1..N de la parte (N = max(cantidad, minCount)).
+     * Sin esto el agente puede registrar el corte en monitor pero {@code markPiezaCortada} no pinta nada.
+     */
+    public int ensurePiezasForPart(long partId) {
+        return ensurePiezasForPart(partId, 0);
+    }
+
+    public int ensurePiezasForPart(long partId, int minCount) {
+        List<Map<String, Object>> partRows =
+                jdbc.queryForList(
+                        "SELECT cantidad FROM partes WHERE partid = ? LIMIT 1", partId);
+        if (partRows.isEmpty()) {
+            return 0;
+        }
+        int qty = 0;
+        Object raw = partRows.getFirst().get("cantidad");
+        if (raw instanceof Number n) {
+            qty = n.intValue();
+        }
+        qty = Math.max(qty, Math.max(0, minCount));
+        if (qty <= 0) {
+            return 0;
+        }
+        int created = 0;
+        for (int i = 1; i <= qty; i++) {
+            try {
+                int n =
+                        jdbc.update(
+                                """
+                                INSERT INTO piezas (partid, numero_pieza, escaneado, cortada)
+                                SELECT ?, ?, FALSE, FALSE
+                                WHERE NOT EXISTS (
+                                    SELECT 1 FROM piezas z
+                                    WHERE z.partid = ? AND z.numero_pieza = ?
+                                )
+                                """,
+                                partId,
+                                i,
+                                partId,
+                                i);
+                created += Math.max(n, 0);
+            } catch (DataAccessException ex) {
+                // Esquema sin cortada / columnas distintas: intentar insert mínimo.
+                try {
+                    int n =
+                            jdbc.update(
+                                    """
+                                    INSERT INTO piezas (partid, numero_pieza, escaneado)
+                                    SELECT ?, ?, FALSE
+                                    WHERE NOT EXISTS (
+                                        SELECT 1 FROM piezas z
+                                        WHERE z.partid = ? AND z.numero_pieza = ?
+                                    )
+                                    """,
+                                    partId,
+                                    i,
+                                    partId,
+                                    i);
+                    created += Math.max(n, 0);
+                } catch (DataAccessException ignored) {
+                    // no-op
+                }
+            }
+        }
+        return created;
+    }
+
+    /**
      * Siguiente número de pieza aún no cortada por el agente. No inventa filas al marcar:
      * si todas están cortadas, devuelve max+1 (el mark fallará sin crear pieza).
      */
     public Integer nextPieceNumber(long partId) {
+        ensurePiezasForPart(partId);
         List<Map<String, Object>> pending =
                 jdbc.queryForList(
                         """

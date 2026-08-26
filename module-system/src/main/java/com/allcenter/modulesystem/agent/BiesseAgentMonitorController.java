@@ -120,9 +120,10 @@ public class BiesseAgentMonitorController {
     @GetMapping("/cut-pieces")
     @PreAuthorize("@portalAuth.canRead()")
     public ResponseEntity<List<Map<String, Object>>> cutPieces(
+            @RequestParam(required = false) Long orderId,
             @RequestParam(defaultValue = "40") int limit) {
         schemaAligner.ensureReady();
-        return ResponseEntity.ok(agentRepository.listRecentCutPieces(limit));
+        return ResponseEntity.ok(agentRepository.listCutPieces(orderId, limit));
     }
 
     /**

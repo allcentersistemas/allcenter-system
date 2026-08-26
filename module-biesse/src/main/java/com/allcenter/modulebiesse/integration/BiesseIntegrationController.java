@@ -316,7 +316,12 @@ public class BiesseIntegrationController {
 
         Map<String, Object> cortadaInfo = null;
         if (markCortada) {
+            obrasRepository.ensurePiezasForPart(partId, pieceNum);
             cortadaInfo = obrasRepository.markPiezaCortada(partId, pieceNum, machineName);
+            if (cortadaInfo == null) {
+                obrasRepository.ensurePiezasForPart(partId, pieceNum);
+                cortadaInfo = obrasRepository.markPiezaCortada(partId, pieceNum, machineName);
+            }
         }
 
         out.put("mapStatus", "MAPPED");

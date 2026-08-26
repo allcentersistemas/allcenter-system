@@ -337,7 +337,7 @@ public class BiesseAgentRepository {
                        health_status, last_error, agent_version, compatible_profile,
                        current_order_id, job_started_at, last_heartbeat_at, last_status_at, created_at
                 FROM biesse_agent_machine
-                ORDER BY online DESC NULLS LAST, last_heartbeat_at DESC NULLS LAST, machine_id
+                ORDER BY machine_id ASC
                 """,
                 ONLINE_STALE_SECONDS);
     }
@@ -405,7 +405,26 @@ public class BiesseAgentRepository {
     }
 
     public List<Map<String, Object>> listRecentCutPieces(int limit) {
-        int safe = Math.max(1, Math.min(limit, 200));
+        return listCutPieces(null, limit);
+    }
+
+    public List<Map<String, Object>> listCutPieces(Long orderId, int limit) {
+        int safe = Math.max(1, Math.min(limit, 500));
+        if (orderId != null) {
+            return jdbc.queryForList(
+                    """
+                    SELECT c.cut_piece_id, c.event_uid, c.machine_id, c.order_id, c.order_name,
+                           c.part_id, c.osi_part_id, c.unit_code, c.map_status, c.printed, c.print_error,
+                           c.printed_at, c.created_at, m.machine_name, m.plant_name
+                    FROM biesse_agent_cut_piece c
+                    LEFT JOIN biesse_agent_machine m ON m.machine_id = c.machine_id
+                    WHERE c.order_id = ?
+                    ORDER BY c.created_at DESC
+                    LIMIT ?
+                    """,
+                    orderId,
+                    safe);
+        }
         return jdbc.queryForList(
                 """
                 SELECT c.cut_piece_id, c.event_uid, c.machine_id, c.order_id, c.order_name,
