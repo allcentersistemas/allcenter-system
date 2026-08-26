@@ -126,6 +126,8 @@ public class SecurityConfiguration {
                                         .permitAll()
                                         .requestMatchers(HttpMethod.POST, "/webhook/odoo-orden-compra", "/webhook/odoo-pago")
                                         .permitAll()
+                                        .requestMatchers("/api/biesse/agent/**")
+                                        .permitAll()
                                         .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**")
                                         .permitAll()
                                         .requestMatchers(HttpMethod.GET, "/actuator/info")

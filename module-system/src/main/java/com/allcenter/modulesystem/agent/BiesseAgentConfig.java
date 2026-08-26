@@ -1,4 +1,4 @@
-package com.allcenter.modulebiesse.agent;
+package com.allcenter.modulesystem.agent;
 
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
@@ -13,8 +13,9 @@ public class BiesseAgentConfig {
             BiesseAgentSchemaAligner schemaAligner) {
         FilterRegistrationBean<BiesseAgentAuthFilter> reg = new FilterRegistrationBean<>();
         reg.setFilter(new BiesseAgentAuthFilter(schemaAligner));
-        reg.setOrder(Ordered.HIGHEST_PRECEDENCE + 5);
+        reg.setName("biesseAgentAuthFilter");
         reg.addUrlPatterns("/api/biesse/agent/*");
+        reg.setOrder(Ordered.HIGHEST_PRECEDENCE + 5);
         return reg;
     }
 }

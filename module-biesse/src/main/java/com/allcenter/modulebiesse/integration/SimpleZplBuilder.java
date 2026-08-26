@@ -1,4 +1,4 @@
-package com.allcenter.modulebiesse.agent;
+package com.allcenter.modulebiesse.integration;
 
 /** ZPL simple 80×50 mm para impresión local del agente CNC. */
 public final class SimpleZplBuilder {
@@ -19,7 +19,6 @@ public final class SimpleZplBuilder {
         String code = esc(unitCode != null ? unitCode : "");
         String machine = esc(trunc(machineName != null ? machineName : "", 24));
 
-        // 80mm x 50mm @ 203 dpi ≈ 640 x 400 dots
         return """
                 ^XA
                 ^PW640

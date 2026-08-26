@@ -1,12 +1,12 @@
-package com.allcenter.modulebiesse.agent;
+package com.allcenter.modulesystem.agent;
 
-import com.allcenter.modulebiesse.agent.BiesseAgentDtos.EventsRequest;
-import com.allcenter.modulebiesse.agent.BiesseAgentDtos.EventsResponse;
-import com.allcenter.modulebiesse.agent.BiesseAgentDtos.HeartbeatRequest;
-import com.allcenter.modulebiesse.agent.BiesseAgentDtos.MeResponse;
-import com.allcenter.modulebiesse.agent.BiesseAgentDtos.OkResponse;
-import com.allcenter.modulebiesse.agent.BiesseAgentDtos.PrintAckRequest;
-import com.allcenter.modulebiesse.agent.BiesseAgentDtos.StatusPayload;
+import com.allcenter.modulesystem.agent.BiesseAgentDtos.EventsRequest;
+import com.allcenter.modulesystem.agent.BiesseAgentDtos.EventsResponse;
+import com.allcenter.modulesystem.agent.BiesseAgentDtos.HeartbeatRequest;
+import com.allcenter.modulesystem.agent.BiesseAgentDtos.MeResponse;
+import com.allcenter.modulesystem.agent.BiesseAgentDtos.OkResponse;
+import com.allcenter.modulesystem.agent.BiesseAgentDtos.PrintAckRequest;
+import com.allcenter.modulesystem.agent.BiesseAgentDtos.StatusPayload;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
@@ -46,7 +46,9 @@ public class BiesseAgentController {
 
     @PostMapping("/events")
     public EventsResponse events(HttpServletRequest request, @RequestBody EventsRequest body) {
-        return agentService.events(requireMachine(request), body != null ? body : new EventsRequest(null, null, null, null, null));
+        return agentService.events(
+                requireMachine(request),
+                body != null ? body : new EventsRequest(null, null, null, null, null));
     }
 
     @PostMapping("/print-ack")
@@ -61,7 +63,6 @@ public class BiesseAgentController {
         if (attr instanceof Map<?, ?> map) {
             return (Map<String, Object>) map;
         }
-        // Fallback si el filtro no corrió (auth deshabilitado en tests)
         String token = request.getHeader(HEADER_TOKEN);
         Map<String, Object> machine = schemaAligner.findMachineByToken(token);
         if (machine == null) {

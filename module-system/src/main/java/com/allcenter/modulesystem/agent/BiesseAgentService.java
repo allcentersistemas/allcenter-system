@@ -1,15 +1,15 @@
-package com.allcenter.modulebiesse.agent;
+package com.allcenter.modulesystem.agent;
 
-import com.allcenter.modulebiesse.agent.BiesseAgentDtos.AgentEventDto;
-import com.allcenter.modulebiesse.agent.BiesseAgentDtos.EventsRequest;
-import com.allcenter.modulebiesse.agent.BiesseAgentDtos.EventsResponse;
-import com.allcenter.modulebiesse.agent.BiesseAgentDtos.HeartbeatRequest;
-import com.allcenter.modulebiesse.agent.BiesseAgentDtos.LabelDto;
-import com.allcenter.modulebiesse.agent.BiesseAgentDtos.MeResponse;
-import com.allcenter.modulebiesse.agent.BiesseAgentDtos.OkResponse;
-import com.allcenter.modulebiesse.agent.BiesseAgentDtos.PrintAckItem;
-import com.allcenter.modulebiesse.agent.BiesseAgentDtos.PrintAckRequest;
-import com.allcenter.modulebiesse.agent.BiesseAgentDtos.StatusPayload;
+import com.allcenter.modulesystem.agent.BiesseAgentDtos.AgentEventDto;
+import com.allcenter.modulesystem.agent.BiesseAgentDtos.EventsRequest;
+import com.allcenter.modulesystem.agent.BiesseAgentDtos.EventsResponse;
+import com.allcenter.modulesystem.agent.BiesseAgentDtos.HeartbeatRequest;
+import com.allcenter.modulesystem.agent.BiesseAgentDtos.LabelDto;
+import com.allcenter.modulesystem.agent.BiesseAgentDtos.MeResponse;
+import com.allcenter.modulesystem.agent.BiesseAgentDtos.OkResponse;
+import com.allcenter.modulesystem.agent.BiesseAgentDtos.PrintAckItem;
+import com.allcenter.modulesystem.agent.BiesseAgentDtos.PrintAckRequest;
+import com.allcenter.modulesystem.agent.BiesseAgentDtos.StatusPayload;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -34,6 +34,7 @@ public class BiesseAgentService {
     private static final Pattern PATTERN_SUFFIX = Pattern.compile("\\.(\\d{3})$");
 
     private final BiesseAgentRepository repository;
+    private final BiesseObrasClient obrasClient;
 
     public MeResponse me(Map<String, Object> machine) {
         return new MeResponse(
@@ -60,12 +61,11 @@ public class BiesseAgentService {
         }
         int machineId = ((Number) machine.get("machine_id")).intValue();
         String jobName = status.jobName();
-        Map<String, Object> order = repository.findOrderForJob(jobName);
+        Map<String, Object> order = obrasClient.findOrderForJob(jobName);
         Long orderId = order != null ? ((Number) order.get("orderid")).longValue() : null;
 
         repository.updateStatus(machineId, status, orderId);
 
-        // Recargar snapshot (job_started_at / job_name) tras el update
         Map<String, Object> live = repository.findMachineById(machineId);
         if (live == null) {
             live = machine;
@@ -113,10 +113,9 @@ public class BiesseAgentService {
             String action = "INGESTED";
             Long orderId = null;
 
-            // Start program → PRODUCCION + tiempos
             if (isStartProgram(type, desc)) {
                 String job = parseJobName(desc);
-                Map<String, Object> order = repository.findOrderForJob(job);
+                Map<String, Object> order = obrasClient.findOrderForJob(job);
                 if (order != null) {
                     orderId = ((Number) order.get("orderid")).longValue();
                     markProduccionAndTrace(machine, order, ev.eventTime(), "START_PROGRAM");
@@ -127,12 +126,11 @@ public class BiesseAgentService {
                 }
             }
 
-            // PRODUCT INFO Part → sticker ZPL
             if (isProductInfoPart(type, desc, code)) {
                 String osiPart = !desc.isBlank() ? desc : code;
                 Map<String, Object> live = repository.findMachineById(machineId);
                 Map<String, Object> order =
-                        repository.findOrderForJob(
+                        obrasClient.findOrderForJob(
                                 live != null ? str(live.get("job_name")) : str(machine.get("job_name")));
                 if (order != null) {
                     orderId = ((Number) order.get("orderid")).longValue();
@@ -145,8 +143,8 @@ public class BiesseAgentService {
                     } else {
                         action = "PART_UNMAPPED";
                     }
-                    repository.registrarTrazabilidad(
-                            BiesseAgentRepository.extractOp(str(order.get("ordername"))),
+                    obrasClient.registrarTrazabilidad(
+                            opOf(order),
                             orderId,
                             str(order.get("ordername")),
                             "PRODUCCION",
@@ -160,13 +158,12 @@ public class BiesseAgentService {
                 }
             }
 
-            // Boards done → avance
             if ("Boards done".equalsIgnoreCase(type) && machine.get("job_name") != null) {
-                Map<String, Object> order = repository.findOrderForJob(str(machine.get("job_name")));
+                Map<String, Object> order = obrasClient.findOrderForJob(str(machine.get("job_name")));
                 if (order != null) {
                     orderId = ((Number) order.get("orderid")).longValue();
-                    repository.registrarTrazabilidad(
-                            BiesseAgentRepository.extractOp(str(order.get("ordername"))),
+                    obrasClient.registrarTrazabilidad(
+                            opOf(order),
                             orderId,
                             str(order.get("ordername")),
                             "PRODUCCION",
@@ -179,14 +176,13 @@ public class BiesseAgentService {
                 }
             }
 
-            // Idle / Session End → cierre de ventana de tiempo
             if ("State".equalsIgnoreCase(type)
                     && desc != null
                     && desc.equalsIgnoreCase("Idle")
                     && machine.get("job_started_at") != null) {
                 Map<String, Object> order =
                         machine.get("job_name") != null
-                                ? repository.findOrderForJob(str(machine.get("job_name")))
+                                ? obrasClient.findOrderForJob(str(machine.get("job_name")))
                                 : null;
                 closeCuttingWindow(machine, order, ev.eventTime(), "EVENT_IDLE");
                 action = "CORTE_FIN";
@@ -242,18 +238,15 @@ public class BiesseAgentService {
             Map<String, Object> machine, Map<String, Object> order, String eventTime, String source) {
         long orderId = ((Number) order.get("orderid")).longValue();
         String orderName = str(order.get("ordername"));
-        String op = str(order.get("op_codigo"));
-        if (op == null || op.isBlank()) {
-            op = BiesseAgentRepository.extractOp(orderName);
-        }
+        String op = opOf(order);
         int machineId = ((Number) machine.get("machine_id")).intValue();
         Instant started = BiesseAgentRepository.parseEventTime(eventTime);
 
-        boolean changed = repository.markOrderProduccion(orderId);
+        boolean changed = obrasClient.markOrderProduccion(orderId);
         repository.markJobStarted(machineId, orderId, started);
 
         if (changed) {
-            repository.registrarTrazabilidad(
+            obrasClient.registrarTrazabilidad(
                     op,
                     orderId,
                     orderName,
@@ -299,12 +292,8 @@ public class BiesseAgentService {
         }
         long orderId = ((Number) order.get("orderid")).longValue();
         String orderName = str(order.get("ordername"));
-        String op = str(order.get("op_codigo"));
-        if (op == null || op.isBlank()) {
-            op = BiesseAgentRepository.extractOp(orderName);
-        }
-        repository.registrarTrazabilidad(
-                op,
+        obrasClient.registrarTrazabilidad(
+                opOf(order),
                 orderId,
                 orderName,
                 "PRODUCCION",
@@ -330,43 +319,28 @@ public class BiesseAgentService {
             String eventUid,
             boolean printLocal) {
         long orderId = ((Number) order.get("orderid")).longValue();
-        Map<String, Object> part = repository.findPartForOsi(orderId, osiPart);
-        String mapStatus;
-        String unitCode;
-        String zpl;
-        Long partId = null;
-
-        String orderName = str(order.get("ordername"));
-        String booking = str(order.get("bookingcode"));
-
-        if (part == null) {
-            mapStatus = "UNMAPPED";
-            unitCode = orderName + "-" + osiPart.replaceAll("\\s+", "");
-            zpl = SimpleZplBuilder.build(orderName, booking, osiPart, "", unitCode, machineName);
-        } else {
-            partId = ((Number) part.get("partid")).longValue();
-            int partNumber = intOrZero(part.get("partnumber"));
-            if (partNumber <= 0) {
-                partNumber = BiesseAgentRepository.parsePartNumber(osiPart) != null
-                        ? BiesseAgentRepository.parsePartNumber(osiPart)
-                        : 0;
-            }
-            int pieceNum = repository.nextPieceNumber(partId);
-            unitCode = orderName + "-P" + partNumber + "-" + pieceNum;
-            mapStatus = "MAPPED";
-            zpl = SimpleZplBuilder.build(
-                    orderName,
-                    booking,
-                    str(part.get("partcode")),
-                    str(part.get("material")),
-                    unitCode,
-                    machineName);
+        Map<String, Object> mapped = obrasClient.partForOsi(orderId, osiPart, machineName);
+        if (mapped == null) {
+            return null;
         }
+        String mapStatus = str(mapped.get("mapStatus"));
+        String unitCode = str(mapped.get("unitCode"));
+        String zpl = str(mapped.get("zpl"));
+        Long partId =
+                mapped.get("partId") instanceof Number n ? n.longValue() : null;
 
         long cutId =
                 repository.insertCutPiece(
                         eventUid, machineId, orderId, partId, osiPart, unitCode, mapStatus, zpl);
         return new LabelDto(cutId, eventUid, osiPart, unitCode, mapStatus, zpl, printLocal);
+    }
+
+    private static String opOf(Map<String, Object> order) {
+        String op = str(order.get("op_codigo"));
+        if (op == null || op.isBlank()) {
+            op = BiesseAgentRepository.extractOp(str(order.get("ordername")));
+        }
+        return op;
     }
 
     private static boolean isStartProgram(String type, String desc) {

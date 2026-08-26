@@ -6,6 +6,8 @@ import com.allcenter.modulebiesse.dto.ScanPieceRequest;
 import com.allcenter.modulebiesse.dto.ScanResultResponse;
 import com.allcenter.modulebiesse.dto.UpdateOrderRequest;
 import com.allcenter.modulebiesse.dto.UserScanStatsResponse;
+import com.allcenter.modulebiesse.obras.BiesseObrasRepository;
+import com.allcenter.modulebiesse.obras.BiesseObrasSchemaAligner;
 import com.allcenter.modulebiesse.service.AuthGatewayService;
 import com.allcenter.modulebiesse.service.BiesseScanService;
 import com.allcenter.modulebiesse.service.SystemFulfillmentClient;
@@ -36,6 +38,8 @@ public class BiesseScanController {
     private final AuthGatewayService authGatewayService;
     private final BiessePortalRoleAuthorization portalAuth;
     private final SystemFulfillmentClient fulfillmentClient;
+    private final BiesseObrasRepository obrasRepository;
+    private final BiesseObrasSchemaAligner obrasSchemaAligner;
 
     @GetMapping("/parts/pending")
     public ResponseEntity<List<PendingPartResponse>> getPendingParts(
@@ -203,5 +207,17 @@ public class BiesseScanController {
             @PathVariable Long pieceId) {
         portalAuth.requireRead(authorization);
         return ResponseEntity.ok(scanService.getPieceById(pieceId));
+    }
+
+    /** Trazabilidad OP/obra (portal JWT). El agente CNC escribe vía module-system → integration. */
+    @GetMapping("/trazabilidad")
+    public ResponseEntity<List<Map<String, Object>>> trazabilidad(
+            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
+            @RequestParam(required = false) String op,
+            @RequestParam(required = false) Long orderId,
+            @RequestParam(defaultValue = "100") int limit) {
+        portalAuth.requireRead(authorization);
+        obrasSchemaAligner.ensureReady();
+        return ResponseEntity.ok(obrasRepository.listTrazabilidad(op, orderId, limit));
     }
 }

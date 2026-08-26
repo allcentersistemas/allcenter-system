@@ -73,7 +73,7 @@ public class AppCorsAutoConfiguration implements WebMvcConfigurer {
                         "X-First-Setup-Secret",
                         "X-Actor-Employee-Id",
                         "X-Actor-Email",
-                        "X-Agent-Token")
+                        "X-Internal-Token")
                 .exposedHeaders("Authorization")
                 .allowCredentials(false)
                 .maxAge(3600);

@@ -1,4 +1,4 @@
-package com.allcenter.modulebiesse.agent;
+package com.allcenter.modulesystem.agent;
 
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -16,13 +16,12 @@ import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Repository;
 
+/** Persistencia del agente CNC en {@code app_db} (máquinas, eventos, cortes). */
 @Repository
 @RequiredArgsConstructor
 public class BiesseAgentRepository {
 
     private static final Pattern OP_PATTERN = Pattern.compile("^([A-Za-z]?\\d{3,})\\b");
-    private static final Pattern PART_PATTERN =
-            Pattern.compile("(?i)^Part\\s*(P?\\d+)", Pattern.CASE_INSENSITIVE);
     private static final DateTimeFormatter EVENT_TIME =
             DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss");
 
@@ -238,185 +237,12 @@ public class BiesseAgentRepository {
         }
     }
 
-    public Map<String, Object> findOrderForJob(String jobName) {
-        if (jobName == null || jobName.isBlank()) {
-            return null;
-        }
-        String token = jobName.trim();
-        String op = extractOp(token);
-
-        List<Map<String, Object>> exact =
-                jdbc.queryForList(
-                        """
-                        SELECT orderid, ordername, bookingcode, op_codigo, estado_escaneo,
-                               nparts, partes_totales
-                        FROM ordenes
-                        WHERE UPPER(TRIM(ordername)) = UPPER(TRIM(?))
-                           OR (bookingcode IS NOT NULL AND UPPER(TRIM(bookingcode)) = UPPER(TRIM(?)))
-                        ORDER BY fechacreacion DESC
-                        LIMIT 1
-                        """,
-                        token,
-                        token);
-        if (!exact.isEmpty()) {
-            return exact.getFirst();
-        }
-
-        if (op != null) {
-            List<Map<String, Object>> byOp =
-                    jdbc.queryForList(
-                            """
-                            SELECT orderid, ordername, bookingcode, op_codigo, estado_escaneo,
-                                   nparts, partes_totales
-                            FROM ordenes
-                            WHERE UPPER(TRIM(COALESCE(op_codigo, ''))) = UPPER(?)
-                               OR UPPER(TRIM(ordername)) LIKE UPPER(?) || ' %'
-                               OR UPPER(REPLACE(ordername, ' ', '')) LIKE UPPER(REPLACE(?, ' ', '')) || '%'
-                            ORDER BY fechacreacion DESC
-                            LIMIT 1
-                            """,
-                            op,
-                            op,
-                            token);
-            if (!byOp.isEmpty()) {
-                return byOp.getFirst();
-            }
-        }
-
-        String noSpaces = token.replaceAll("\\s+", "");
-        List<Map<String, Object>> fuzzy =
-                jdbc.queryForList(
-                        """
-                        SELECT orderid, ordername, bookingcode, op_codigo, estado_escaneo,
-                               nparts, partes_totales
-                        FROM ordenes
-                        WHERE UPPER(REPLACE(ordername, ' ', '')) = UPPER(?)
-                           OR UPPER(REPLACE(ordername, ' ', '')) LIKE UPPER(?) || '%'
-                           OR UPPER(?) LIKE UPPER(REPLACE(ordername, ' ', '')) || '%'
-                        ORDER BY fechacreacion DESC
-                        LIMIT 1
-                        """,
-                        noSpaces,
-                        noSpaces,
-                        noSpaces);
-        return fuzzy.isEmpty() ? null : fuzzy.getFirst();
-    }
-
-    public boolean markOrderProduccion(long orderId) {
-        int updated =
-                jdbc.update(
-                        """
-                        UPDATE ordenes
-                        SET estado_escaneo = 'PRODUCCION',
-                            fecha_modificacion = CURRENT_TIMESTAMP
-                        WHERE orderid = ?
-                          AND COALESCE(UPPER(estado_escaneo), '') NOT IN ('COMPLETADA', 'PRODUCCION')
-                        """,
-                        orderId);
-        return updated > 0;
-    }
-
-    public void forceEstado(long orderId, String estado) {
-        jdbc.update(
-                """
-                UPDATE ordenes
-                SET estado_escaneo = ?,
-                    fecha_modificacion = CURRENT_TIMESTAMP
-                WHERE orderid = ?
-                  AND COALESCE(UPPER(estado_escaneo), '') <> 'COMPLETADA'
-                """,
-                estado,
-                orderId);
-    }
-
-    public void registrarTrazabilidad(
-            String opCodigo,
-            Long orderId,
-            String orderName,
-            String estado,
-            String accion,
-            String detalle,
-            int piezas,
-            int partes,
-            String usuario) {
-        jdbc.update(
-                """
-                INSERT INTO op_trazabilidad
-                    (op_codigo, orderid, ordername, estado, accion, detalle,
-                     piezas_totales, partes_totales, usuario, fecha)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                """,
-                opCodigo != null ? opCodigo : extractOp(orderName),
-                orderId,
-                orderName,
-                estado,
-                accion,
-                detalle,
-                piezas,
-                partes,
-                usuario);
-    }
-
-    public Map<String, Object> findPartForOsi(long orderId, String osiPartText) {
-        Integer partNumber = parsePartNumber(osiPartText);
-        if (partNumber == null) {
-            return null;
-        }
-        List<Map<String, Object>> rows =
-                jdbc.queryForList(
-                        """
-                        SELECT partid, orderid, partcode, partnumber, cantidad, material,
-                               descripcion, descripcion1, escaneado
-                        FROM partes
-                        WHERE orderid = ?
-                          AND (partnumber = ? OR UPPER(TRIM(partcode)) = UPPER(?) OR UPPER(TRIM(partcode)) = UPPER(?))
-                        ORDER BY partid
-                        LIMIT 1
-                        """,
-                        orderId,
-                        partNumber,
-                        "P" + partNumber,
-                        String.valueOf(partNumber));
-        return rows.isEmpty() ? null : rows.getFirst();
-    }
-
-    public Integer nextPieceNumber(long partId) {
-        List<Map<String, Object>> rows =
-                jdbc.queryForList(
-                        """
-                        SELECT COALESCE(MIN(numero_pieza), 1) AS n
-                        FROM piezas
-                        WHERE partid = ? AND escaneado = FALSE
-                        """,
-                        partId);
-        if (rows.isEmpty() || rows.getFirst().get("n") == null) {
-            return 1;
-        }
-        return ((Number) rows.getFirst().get("n")).intValue();
-    }
-
     public static String extractOp(String name) {
         if (name == null || name.isBlank()) {
             return null;
         }
         Matcher m = OP_PATTERN.matcher(name.trim());
         return m.find() ? m.group(1).toUpperCase() : null;
-    }
-
-    public static Integer parsePartNumber(String osiPartText) {
-        if (osiPartText == null || osiPartText.isBlank()) {
-            return null;
-        }
-        Matcher m = PART_PATTERN.matcher(osiPartText.trim());
-        if (!m.find()) {
-            return null;
-        }
-        String raw = m.group(1).toUpperCase().replace("P", "");
-        try {
-            return Integer.parseInt(raw);
-        } catch (NumberFormatException e) {
-            return null;
-        }
     }
 
     public static Instant parseEventTime(String value) {
@@ -469,8 +295,7 @@ public class BiesseAgentRepository {
                 keys);
         Number id = keys.getKey();
         long machineId = id != null ? id.longValue() : 0L;
-        Map<String, Object> row = findMachineById((int) machineId);
-        return row;
+        return findMachineById((int) machineId);
     }
 
     public boolean rotateToken(int machineId, String tokenHash) {
@@ -488,83 +313,13 @@ public class BiesseAgentRepository {
                 """
                 SELECT e.id, e.event_uid, e.machine_id, m.machine_name, e.event_type, e.code,
                        e.description, e.severity, e.event_time, e.order_id, e.processed_action,
-                       e.created_at, o.ordername
+                       e.created_at
                 FROM biesse_agent_event e
                 LEFT JOIN biesse_agent_machine m ON m.machine_id = e.machine_id
-                LEFT JOIN ordenes o ON o.orderid = e.order_id
                 ORDER BY e.created_at DESC, e.id DESC
                 LIMIT ?
                 """,
                 safe);
-    }
-
-    public List<Map<String, Object>> listTrazabilidad(String opCodigo, Long orderId, int limit) {
-        int safe = Math.max(1, Math.min(limit, 500));
-        String op = opCodigo;
-        if ((op == null || op.isBlank()) && orderId != null) {
-            List<Map<String, Object>> ord =
-                    jdbc.queryForList(
-                            "SELECT ordername, op_codigo FROM ordenes WHERE orderid = ?", orderId);
-            if (!ord.isEmpty()) {
-                op = str(ord.getFirst().get("op_codigo"));
-                if (op == null || op.isBlank()) {
-                    op = extractOp(str(ord.getFirst().get("ordername")));
-                }
-            }
-        }
-        if (orderId != null && op != null && !op.isBlank()) {
-            return jdbc.queryForList(
-                    """
-                    SELECT id, op_codigo, orderid, ordername, estado, accion, detalle,
-                           xml_file, piezas_totales, partes_totales, usuario, usuario_id, fecha
-                    FROM op_trazabilidad
-                    WHERE orderid = ? OR UPPER(TRIM(op_codigo)) = UPPER(TRIM(?))
-                    ORDER BY fecha DESC, id DESC
-                    LIMIT ?
-                    """,
-                    orderId,
-                    op,
-                    safe);
-        }
-        if (orderId != null) {
-            return jdbc.queryForList(
-                    """
-                    SELECT id, op_codigo, orderid, ordername, estado, accion, detalle,
-                           xml_file, piezas_totales, partes_totales, usuario, usuario_id, fecha
-                    FROM op_trazabilidad
-                    WHERE orderid = ?
-                    ORDER BY fecha DESC, id DESC
-                    LIMIT ?
-                    """,
-                    orderId,
-                    safe);
-        }
-        if (op != null && !op.isBlank()) {
-            return jdbc.queryForList(
-                    """
-                    SELECT id, op_codigo, orderid, ordername, estado, accion, detalle,
-                           xml_file, piezas_totales, partes_totales, usuario, usuario_id, fecha
-                    FROM op_trazabilidad
-                    WHERE UPPER(TRIM(op_codigo)) = UPPER(TRIM(?))
-                    ORDER BY fecha DESC, id DESC
-                    LIMIT ?
-                    """,
-                    op.trim(),
-                    safe);
-        }
-        return jdbc.queryForList(
-                """
-                SELECT id, op_codigo, orderid, ordername, estado, accion, detalle,
-                       xml_file, piezas_totales, partes_totales, usuario, usuario_id, fecha
-                FROM op_trazabilidad
-                ORDER BY fecha DESC, id DESC
-                LIMIT ?
-                """,
-                safe);
-    }
-
-    private static String str(Object o) {
-        return o == null ? null : String.valueOf(o);
     }
 
     public List<Map<String, Object>> listRecentCutPieces(int limit) {
@@ -573,9 +328,8 @@ public class BiesseAgentRepository {
                 """
                 SELECT c.cut_piece_id, c.event_uid, c.machine_id, c.order_id, c.part_id,
                        c.osi_part_id, c.unit_code, c.map_status, c.printed, c.print_error,
-                       c.printed_at, c.created_at, o.ordername, m.machine_name
+                       c.printed_at, c.created_at, m.machine_name
                 FROM biesse_agent_cut_piece c
-                LEFT JOIN ordenes o ON o.orderid = c.order_id
                 LEFT JOIN biesse_agent_machine m ON m.machine_id = c.machine_id
                 ORDER BY c.created_at DESC
                 LIMIT ?

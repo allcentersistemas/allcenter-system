@@ -1,30 +1,26 @@
-package com.allcenter.modulebiesse.controller;
+package com.allcenter.modulesystem.agent;
 
-import com.allcenter.modulebiesse.agent.BiesseAgentRepository;
-import com.allcenter.modulebiesse.agent.BiesseAgentSchemaAligner;
-import com.allcenter.security.BiessePortalRoleAuthorization;
 import java.security.SecureRandom;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
-/** Lectura JWT del monitor CNC + alta de tokens (no usa X-Agent-Token). */
+/** Monitor CNC + tokens (JWT empleado). El agente Win10 usa {@code /api/biesse/agent}. */
 @RestController
-@RequestMapping("/api/biesse/scan/agent")
+@RequestMapping("/api/biesse/monitor")
 @RequiredArgsConstructor
 public class BiesseAgentMonitorController {
 
@@ -32,23 +28,20 @@ public class BiesseAgentMonitorController {
 
     private final BiesseAgentRepository agentRepository;
     private final BiesseAgentSchemaAligner schemaAligner;
-    private final BiessePortalRoleAuthorization portalAuth;
+    private final BiesseObrasClient obrasClient;
 
     public record CreateMachineRequest(String machineName, String plantName) {}
 
     @GetMapping("/machines")
-    public ResponseEntity<List<Map<String, Object>>> machines(
-            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization) {
-        portalAuth.requireRead(authorization);
+    @PreAuthorize("@portalAuth.canRead()")
+    public ResponseEntity<List<Map<String, Object>>> machines() {
         schemaAligner.ensureReady();
         return ResponseEntity.ok(agentRepository.listMachines());
     }
 
     @PostMapping("/machines")
-    public ResponseEntity<Map<String, Object>> createMachine(
-            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
-            @RequestBody CreateMachineRequest body) {
-        portalAuth.requireAdminOps(authorization);
+    @PreAuthorize("@portalAuth.canUpdate()")
+    public ResponseEntity<Map<String, Object>> createMachine(@RequestBody CreateMachineRequest body) {
         schemaAligner.ensureReady();
         String name =
                 body != null && body.machineName() != null && !body.machineName().isBlank()
@@ -67,15 +60,13 @@ public class BiesseAgentMonitorController {
         out.put(
                 "message",
                 "Guarde el token ahora: no se vuelve a mostrar. En el agente Win10 use URL "
-                        + "http://IP:8086 y este token en X-Agent-Token / config.");
+                        + "http://IP:8080 y este token en X-Agent-Token / config.");
         return ResponseEntity.status(HttpStatus.CREATED).body(out);
     }
 
     @PostMapping("/machines/{machineId}/rotate-token")
-    public ResponseEntity<Map<String, Object>> rotateToken(
-            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
-            @PathVariable int machineId) {
-        portalAuth.requireAdminOps(authorization);
+    @PreAuthorize("@portalAuth.canUpdate()")
+    public ResponseEntity<Map<String, Object>> rotateToken(@PathVariable int machineId) {
         schemaAligner.ensureReady();
         String rawToken = generateToken();
         String hash = BiesseAgentSchemaAligner.sha256Hex(rawToken);
@@ -91,32 +82,28 @@ public class BiesseAgentMonitorController {
     }
 
     @GetMapping("/events")
+    @PreAuthorize("@portalAuth.canRead()")
     public ResponseEntity<List<Map<String, Object>>> events(
-            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
             @RequestParam(defaultValue = "80") int limit) {
-        portalAuth.requireRead(authorization);
         schemaAligner.ensureReady();
         return ResponseEntity.ok(agentRepository.listRecentEvents(limit));
     }
 
     @GetMapping("/cut-pieces")
+    @PreAuthorize("@portalAuth.canRead()")
     public ResponseEntity<List<Map<String, Object>>> cutPieces(
-            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
             @RequestParam(defaultValue = "40") int limit) {
-        portalAuth.requireRead(authorization);
         schemaAligner.ensureReady();
         return ResponseEntity.ok(agentRepository.listRecentCutPieces(limit));
     }
 
     @GetMapping("/trazabilidad")
+    @PreAuthorize("@portalAuth.canRead()")
     public ResponseEntity<List<Map<String, Object>>> trazabilidad(
-            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
             @RequestParam(required = false) String op,
             @RequestParam(required = false) Long orderId,
             @RequestParam(defaultValue = "100") int limit) {
-        portalAuth.requireRead(authorization);
-        schemaAligner.ensureReady();
-        return ResponseEntity.ok(agentRepository.listTrazabilidad(op, orderId, limit));
+        return ResponseEntity.ok(obrasClient.listTrazabilidad(op, orderId, limit));
     }
 
     private static String generateToken() {

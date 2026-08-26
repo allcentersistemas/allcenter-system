@@ -1,11 +1,11 @@
-package com.allcenter.modulebiesse.agent;
+package com.allcenter.modulesystem.agent;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Contratos JSON del agente Win10 (`/api/biesse/agent`). */
+/** Contratos JSON del agente Win10 (`/api/biesse/agent` en module-system). */
 public final class BiesseAgentDtos {
 
     private BiesseAgentDtos() {}

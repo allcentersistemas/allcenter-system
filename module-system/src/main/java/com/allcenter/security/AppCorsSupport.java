@@ -24,7 +24,8 @@ public final class AppCorsSupport {
                         "X-Requested-With",
                         "X-First-Setup-Secret",
                         "X-Actor-Employee-Id",
-                        "X-Actor-Email"));
+                        "X-Actor-Email",
+                        "X-Agent-Token"));
         config.setExposedHeaders(List.of("Authorization"));
         config.setAllowCredentials(false);
         config.setMaxAge(3600L);
