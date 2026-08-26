@@ -268,17 +268,70 @@ public class BiesseAgentRepository {
         }
     }
 
+    /**
+     * Segundos sin heartbeat/status para considerar la máquina offline.
+     * El agente Win10 late cada 5–10s; 30s ≈ 3 heartbeats perdidos.
+     */
+    public static final int ONLINE_STALE_SECONDS = 30;
+
+    /** Última señal de vida: el más reciente entre heartbeat y status. */
+    private static final String LAST_SEEN_SQL =
+            """
+            CASE
+              WHEN last_heartbeat_at IS NULL THEN last_status_at
+              WHEN last_status_at IS NULL THEN last_heartbeat_at
+              WHEN last_heartbeat_at >= last_status_at THEN last_heartbeat_at
+              ELSE last_status_at
+            END
+            """;
+
+    /**
+     * Persiste {@code online=FALSE} cuando el último heartbeat/status es más viejo que el TTL.
+     * Así el flag no queda “pegado” en TRUE tras desconexión.
+     */
+    public int markStaleMachinesOffline() {
+        return jdbc.update(
+                """
+                UPDATE biesse_agent_machine SET online = FALSE
+                WHERE online = TRUE
+                  AND (
+                    ("""
+                        + LAST_SEEN_SQL
+                        + """
+                    ) IS NULL
+                    OR ("""
+                        + LAST_SEEN_SQL
+                        + """
+                    ) < CURRENT_TIMESTAMP - (? * INTERVAL '1 second')
+                  )
+                """,
+                ONLINE_STALE_SECONDS);
+    }
+
     public List<Map<String, Object>> listMachines() {
+        markStaleMachinesOffline();
         return jdbc.queryForList(
                 """
-                SELECT machine_id, machine_name, company_id, online, state, job_name, pattern_name,
+                SELECT machine_id, machine_name, company_id,
+                       (
+                         ("""
+                        + LAST_SEEN_SQL
+                        + """
+                         ) IS NOT NULL
+                         AND ("""
+                        + LAST_SEEN_SQL
+                        + """
+                         ) > CURRENT_TIMESTAMP - (? * INTERVAL '1 second')
+                       ) AS online,
+                       state, job_name, pattern_name,
                        last_part, boards_done, pieces_produced, osi_session_id,
                        printer_name, printer_enabled, plant_name, hostname, machine_type,
                        health_status, last_error, agent_version, compatible_profile,
                        current_order_id, job_started_at, last_heartbeat_at, last_status_at, created_at
                 FROM biesse_agent_machine
                 ORDER BY online DESC NULLS LAST, last_heartbeat_at DESC NULLS LAST, machine_id
-                """);
+                """,
+                ONLINE_STALE_SECONDS);
     }
 
     public Map<String, Object> createMachine(String machineName, String plantName, String tokenHash) {
@@ -311,6 +364,20 @@ public class BiesseAgentRepository {
                         "UPDATE biesse_agent_machine SET token_hash = ? WHERE machine_id = ?",
                         tokenHash,
                         machineId);
+        return n > 0;
+    }
+
+    /**
+     * Elimina el seccionador y datos asociados. {@code biesse_agent_cut_piece} no tiene FK CASCADE.
+     *
+     * @return true si existía y se eliminó
+     */
+    public boolean deleteMachine(int machineId) {
+        if (findMachineById(machineId) == null) {
+            return false;
+        }
+        jdbc.update("DELETE FROM biesse_agent_cut_piece WHERE machine_id = ?", machineId);
+        int n = jdbc.update("DELETE FROM biesse_agent_machine WHERE machine_id = ?", machineId);
         return n > 0;
     }
 

@@ -18,6 +18,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -91,6 +92,20 @@ public class BiesseAgentMonitorController {
         out.put("machine", machine);
         out.put("token", rawToken);
         out.put("message", "Token rotado. Actualice config.json del agente con el nuevo valor.");
+        return ResponseEntity.ok(out);
+    }
+
+    @DeleteMapping("/machines/{machineId}")
+    @PreAuthorize("@portalAuth.canUpdate()")
+    public ResponseEntity<Map<String, Object>> deleteMachine(@PathVariable int machineId) {
+        schemaAligner.ensureReady();
+        if (!agentRepository.deleteMachine(machineId)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Seccionador no encontrado");
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("ok", true);
+        out.put("machine_id", machineId);
+        out.put("message", "Seccionador eliminado.");
         return ResponseEntity.ok(out);
     }
 

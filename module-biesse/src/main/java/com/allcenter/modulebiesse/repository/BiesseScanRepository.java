@@ -1541,7 +1541,8 @@ public class BiesseScanRepository {
         try {
             return jdbcTemplate.queryForList(
                     """
-                    SELECT z.piezaid, z.partid, p.orderid, z.numero_pieza, z.escaneado, z.fecha_escaneo
+                    SELECT z.piezaid, z.partid, p.orderid, z.numero_pieza, z.escaneado, z.fecha_escaneo,
+                           COALESCE(z.cortada, FALSE) AS cortada, z.cortada_at, z.cortada_por
                     FROM piezas z
                     JOIN partes p ON p.partid = z.partid
                     WHERE p.orderid = ?
@@ -1549,7 +1550,21 @@ public class BiesseScanRepository {
                     """,
                     orderId);
         } catch (DataAccessException ex) {
-            return List.of();
+            // BD sin columnas cortada (schema antiguo): devolver sin corte.
+            try {
+                return jdbcTemplate.queryForList(
+                        """
+                        SELECT z.piezaid, z.partid, p.orderid, z.numero_pieza, z.escaneado, z.fecha_escaneo,
+                               FALSE AS cortada, NULL::timestamp AS cortada_at, NULL::varchar AS cortada_por
+                        FROM piezas z
+                        JOIN partes p ON p.partid = z.partid
+                        WHERE p.orderid = ?
+                        ORDER BY z.partid, z.numero_pieza
+                        """,
+                        orderId);
+            } catch (DataAccessException ignored) {
+                return List.of();
+            }
         }
     }
 

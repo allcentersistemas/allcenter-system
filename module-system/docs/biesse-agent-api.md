@@ -22,6 +22,7 @@ Base: `/api/biesse/monitor`
 - `GET /machines`
 - `POST /machines` — crea token (mostrar una vez)
 - `POST /machines/{id}/rotate-token`
+- `DELETE /machines/{id}` — elimina seccionador (cascada eventos/planchas)
 - `GET /events`
 - `GET /cut-pieces`
 - `GET /boards/live` — planchas en vivo por máquina + `total_live` (online RUN) / `total_today`
