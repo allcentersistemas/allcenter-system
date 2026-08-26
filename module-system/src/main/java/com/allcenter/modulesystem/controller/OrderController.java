@@ -123,7 +123,8 @@ public class OrderController {
         return service.listSeguimientoByOp();
     }
 
-    /** Tablero Resumen → Seguimiento: una card por XML/obra (estado_escaneo). */
+    /** Tablero Resumen → Seguimiento: una card por XML/obra (estado_escaneo).
+     * El histórico se filtra en module-biesse ({@code app.biesse.seguimiento-since}). */
     @GetMapping("/obras/seguimiento")
     public java.util.List<OrderDtos.SeguimientoObraResponse> listSeguimientoObras() {
         return service.listSeguimientoObras();

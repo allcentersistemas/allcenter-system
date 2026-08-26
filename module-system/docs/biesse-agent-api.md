@@ -24,7 +24,12 @@ Base: `/api/biesse/monitor`
 - `POST /machines/{id}/rotate-token`
 - `GET /events`
 - `GET /cut-pieces`
+- `GET /boards/live` — planchas en vivo por máquina + `total_live` (online RUN) / `total_today`
+- `GET /boards/history?from=&to=&machineId=` — historial de planchas (`biesse_agent_board_cut`)
+- `GET /boards/summary?from=&to=` — totales por máquina y gran total
 - `GET /trazabilidad?orderId=` — proxy a obras
+
+Plancha = board OSI (`Boards done` / `boards_done`), no pieza. Se registra al evento (idempotente por `event_uid`) o por delta de `boards_done` en status si no hubo evento reciente.
 
 ## Config
 

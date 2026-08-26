@@ -1,11 +1,14 @@
 package com.allcenter.modulesystem.agent;
 
+import java.sql.Date;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
@@ -357,5 +360,216 @@ public class BiesseAgentRepository {
                 LIMIT ?
                 """,
                 safe);
+    }
+
+    /**
+     * Registra planchas cortadas (idempotente por {@code event_uid}).
+     *
+     * @return true si se insertó una fila nueva
+     */
+    public boolean insertBoardCut(
+            String eventUid,
+            int machineId,
+            String machineName,
+            Long orderId,
+            String jobName,
+            int boardsDelta,
+            Integer boardsTotalAfter,
+            Instant eventTime,
+            String source) {
+        if (eventUid == null || eventUid.isBlank() || boardsDelta <= 0) {
+            return false;
+        }
+        int n =
+                jdbc.update(
+                        """
+                        INSERT INTO biesse_agent_board_cut
+                            (machine_id, machine_name, order_id, job_name, boards_delta,
+                             boards_total_after, event_uid, event_time, source)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT (event_uid) DO NOTHING
+                        """,
+                        machineId,
+                        machineName,
+                        orderId,
+                        jobName,
+                        boardsDelta,
+                        boardsTotalAfter,
+                        eventUid.trim(),
+                        eventTime != null ? Timestamp.from(eventTime) : Timestamp.from(Instant.now()),
+                        source != null ? source : "EVENT");
+        return n > 0;
+    }
+
+    /** Evita doble conteo status vs evento cuando ya hay un registro con el mismo total. */
+    public boolean boardCutExistsForTotal(int machineId, String jobName, int boardsTotalAfter) {
+        Integer n =
+                jdbc.queryForObject(
+                        """
+                        SELECT COUNT(*) FROM biesse_agent_board_cut
+                        WHERE machine_id = ?
+                          AND boards_total_after = ?
+                          AND COALESCE(job_name, '') = COALESCE(?, '')
+                          AND COALESCE(event_time, created_at) >= CURRENT_TIMESTAMP - INTERVAL '36 hours'
+                        """,
+                        Integer.class,
+                        machineId,
+                        boardsTotalAfter,
+                        jobName);
+        return n != null && n > 0;
+    }
+
+    public String boardCutSourceForTotal(int machineId, String jobName, int boardsTotalAfter) {
+        List<Map<String, Object>> rows =
+                jdbc.queryForList(
+                        """
+                        SELECT source FROM biesse_agent_board_cut
+                        WHERE machine_id = ?
+                          AND boards_total_after = ?
+                          AND COALESCE(job_name, '') = COALESCE(?, '')
+                          AND COALESCE(event_time, created_at) >= CURRENT_TIMESTAMP - INTERVAL '36 hours'
+                        ORDER BY created_at DESC, id DESC
+                        LIMIT 1
+                        """,
+                        machineId,
+                        boardsTotalAfter,
+                        jobName);
+        if (rows.isEmpty() || rows.getFirst().get("source") == null) {
+            return null;
+        }
+        return String.valueOf(rows.getFirst().get("source"));
+    }
+
+    public int maxBoardsTotalAfter(int machineId, String jobName) {
+        Integer n =
+                jdbc.queryForObject(
+                        """
+                        SELECT COALESCE(MAX(boards_total_after), 0) FROM biesse_agent_board_cut
+                        WHERE machine_id = ?
+                          AND COALESCE(job_name, '') = COALESCE(?, '')
+                          AND COALESCE(event_time, created_at) >= CURRENT_TIMESTAMP - INTERVAL '36 hours'
+                        """,
+                        Integer.class,
+                        machineId,
+                        jobName);
+        return n != null ? n : 0;
+    }
+
+    public boolean recentBoardsDoneEvent(int machineId, int withinSeconds) {
+        int safe = Math.max(5, Math.min(withinSeconds, 300));
+        Integer n =
+                jdbc.queryForObject(
+                        """
+                        SELECT COUNT(*) FROM biesse_agent_event
+                        WHERE machine_id = ?
+                          AND LOWER(COALESCE(event_type, '')) = 'boards done'
+                          AND created_at >= CURRENT_TIMESTAMP - (? * INTERVAL '1 second')
+                        """,
+                        Integer.class,
+                        machineId,
+                        safe);
+        return n != null && n > 0;
+    }
+
+    public int sumBoardsToday(Integer machineId) {
+        if (machineId != null) {
+            Integer n =
+                    jdbc.queryForObject(
+                            """
+                            SELECT COALESCE(SUM(boards_delta), 0) FROM biesse_agent_board_cut
+                            WHERE machine_id = ?
+                              AND DATE(COALESCE(event_time, created_at)) = CURRENT_DATE
+                            """,
+                            Integer.class,
+                            machineId);
+            return n != null ? n : 0;
+        }
+        Integer n =
+                jdbc.queryForObject(
+                        """
+                        SELECT COALESCE(SUM(boards_delta), 0) FROM biesse_agent_board_cut
+                        WHERE DATE(COALESCE(event_time, created_at)) = CURRENT_DATE
+                        """,
+                        Integer.class);
+        return n != null ? n : 0;
+    }
+
+    public List<Map<String, Object>> listBoardCuts(
+            LocalDate from, LocalDate to, Integer machineId, int limit) {
+        int safe = Math.max(1, Math.min(limit, 500));
+        StringBuilder sql =
+                new StringBuilder(
+                        """
+                        SELECT b.id, b.machine_id, b.machine_name, b.order_id, b.job_name,
+                               b.boards_delta, b.boards_total_after, b.event_uid, b.event_time,
+                               b.source, b.created_at
+                        FROM biesse_agent_board_cut b
+                        WHERE 1=1
+                        """);
+        List<Object> args = new ArrayList<>();
+        if (from != null) {
+            sql.append(" AND DATE(COALESCE(b.event_time, b.created_at)) >= ?");
+            args.add(Date.valueOf(from));
+        }
+        if (to != null) {
+            sql.append(" AND DATE(COALESCE(b.event_time, b.created_at)) <= ?");
+            args.add(Date.valueOf(to));
+        }
+        if (machineId != null) {
+            sql.append(" AND b.machine_id = ?");
+            args.add(machineId);
+        }
+        sql.append(" ORDER BY COALESCE(b.event_time, b.created_at) DESC, b.id DESC LIMIT ?");
+        args.add(safe);
+        return jdbc.queryForList(sql.toString(), args.toArray());
+    }
+
+    public List<Map<String, Object>> summarizeBoardCuts(LocalDate from, LocalDate to) {
+        StringBuilder sql =
+                new StringBuilder(
+                        """
+                        SELECT b.machine_id,
+                               COALESCE(MAX(b.machine_name), m.machine_name) AS machine_name,
+                               COALESCE(SUM(b.boards_delta), 0) AS boards_total,
+                               COUNT(*) AS cut_events
+                        FROM biesse_agent_board_cut b
+                        LEFT JOIN biesse_agent_machine m ON m.machine_id = b.machine_id
+                        WHERE 1=1
+                        """);
+        List<Object> args = new ArrayList<>();
+        if (from != null) {
+            sql.append(" AND DATE(COALESCE(b.event_time, b.created_at)) >= ?");
+            args.add(Date.valueOf(from));
+        }
+        if (to != null) {
+            sql.append(" AND DATE(COALESCE(b.event_time, b.created_at)) <= ?");
+            args.add(Date.valueOf(to));
+        }
+        sql.append(" GROUP BY b.machine_id, m.machine_name ORDER BY boards_total DESC, b.machine_id");
+        return jdbc.queryForList(sql.toString(), args.toArray());
+    }
+
+    public int sumBoardCutsInRange(LocalDate from, LocalDate to, Integer machineId) {
+        StringBuilder sql =
+                new StringBuilder(
+                        """
+                        SELECT COALESCE(SUM(boards_delta), 0) FROM biesse_agent_board_cut
+                        WHERE 1=1
+                        """);
+        List<Object> args = new ArrayList<>();
+        if (from != null) {
+            sql.append(" AND DATE(COALESCE(event_time, created_at)) >= ?");
+            args.add(Date.valueOf(from));
+        }
+        if (to != null) {
+            sql.append(" AND DATE(COALESCE(event_time, created_at)) <= ?");
+            args.add(Date.valueOf(to));
+        }
+        if (machineId != null) {
+            sql.append(" AND machine_id = ?");
+            args.add(machineId);
+        }
+        Integer n = jdbc.queryForObject(sql.toString(), Integer.class, args.toArray());
+        return n != null ? n : 0;
     }
 }

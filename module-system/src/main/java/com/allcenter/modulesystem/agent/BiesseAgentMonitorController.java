@@ -1,6 +1,8 @@
 package com.allcenter.modulesystem.agent;
 
 import java.security.SecureRandom;
+import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Comparator;
@@ -106,6 +108,126 @@ public class BiesseAgentMonitorController {
             @RequestParam(defaultValue = "40") int limit) {
         schemaAligner.ensureReady();
         return ResponseEntity.ok(agentRepository.listRecentCutPieces(limit));
+    }
+
+    /**
+     * Planchas en tiempo real: por máquina ({@code boards_done} del status) + totales.
+     *
+     * <p>Criterio: {@code total_live} = suma de {@code boards_done} de máquinas online en RUN.
+     * {@code total_today} = suma de planchas registradas hoy en historial ({@code boards_delta}).
+     */
+    @GetMapping("/boards/live")
+    @PreAuthorize("@portalAuth.canRead()")
+    public ResponseEntity<Map<String, Object>> boardsLive() {
+        schemaAligner.ensureReady();
+        List<Map<String, Object>> machines = agentRepository.listMachines();
+        List<Map<String, Object>> rows = new ArrayList<>();
+        int totalLive = 0;
+        int totalOnline = 0;
+        for (Map<String, Object> m : machines) {
+            int machineId = ((Number) m.get("machine_id")).intValue();
+            boolean online = Boolean.TRUE.equals(m.get("online"));
+            String state = str(m.get("state"));
+            String stateUpper = state != null ? state.trim().toUpperCase(Locale.ROOT) : "";
+            int boardsDone = m.get("boards_done") instanceof Number n ? n.intValue() : 0;
+            int boardsToday = agentRepository.sumBoardsToday(machineId);
+
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("machine_id", machineId);
+            row.put("machine_name", m.get("machine_name"));
+            row.put("plant_name", m.get("plant_name"));
+            row.put("online", online);
+            row.put("state", state);
+            row.put("job_name", m.get("job_name"));
+            row.put("boards_done", boardsDone);
+            row.put("boards_today", boardsToday);
+            row.put("pieces_produced", m.get("pieces_produced"));
+            row.put("job_started_at", m.get("job_started_at"));
+            row.put("last_status_at", m.get("last_status_at"));
+            row.put("last_heartbeat_at", m.get("last_heartbeat_at"));
+            rows.add(row);
+
+            if (online) {
+                totalOnline += boardsDone;
+                if ("RUN".equals(stateUpper)) {
+                    totalLive += boardsDone;
+                }
+            }
+        }
+
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("machines", rows);
+        out.put("total_live", totalLive);
+        out.put("total_online", totalOnline);
+        out.put("total_today", agentRepository.sumBoardsToday(null));
+        out.put(
+                "criterion",
+                "total_live = suma boards_done de máquinas online en RUN; "
+                        + "total_online = suma boards_done de todas online; "
+                        + "total_today = planchas registradas hoy (historial); "
+                        + "por máquina: boards_done = sesión/job actual (status), boards_today = hoy");
+        return ResponseEntity.ok(out);
+    }
+
+    /**
+     * Historial de planchas cortadas. Filtros: {@code from}, {@code to} (yyyy-MM-dd), {@code machineId}.
+     */
+    @GetMapping("/boards/history")
+    @PreAuthorize("@portalAuth.canRead()")
+    public ResponseEntity<Map<String, Object>> boardsHistory(
+            @RequestParam(required = false) String from,
+            @RequestParam(required = false) String to,
+            @RequestParam(required = false) Integer machineId,
+            @RequestParam(defaultValue = "100") int limit) {
+        schemaAligner.ensureReady();
+        LocalDate fromDate = parseDateParam(from);
+        LocalDate toDate = parseDateParam(to);
+        if (fromDate == null && toDate == null) {
+            toDate = LocalDate.now();
+            fromDate = toDate.minusDays(7);
+        } else if (fromDate == null) {
+            fromDate = toDate.minusDays(7);
+        } else if (toDate == null) {
+            toDate = LocalDate.now();
+        }
+        List<Map<String, Object>> items =
+                agentRepository.listBoardCuts(fromDate, toDate, machineId, limit);
+        int totalBoards = agentRepository.sumBoardCutsInRange(fromDate, toDate, machineId);
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("from", fromDate.toString());
+        out.put("to", toDate.toString());
+        out.put("machine_id", machineId);
+        out.put("total_boards", totalBoards);
+        out.put("count", items.size());
+        out.put("items", items);
+        return ResponseEntity.ok(out);
+    }
+
+    /** Totales de planchas por máquina y gran total en el rango de fechas. */
+    @GetMapping("/boards/summary")
+    @PreAuthorize("@portalAuth.canRead()")
+    public ResponseEntity<Map<String, Object>> boardsSummary(
+            @RequestParam(required = false) String from,
+            @RequestParam(required = false) String to) {
+        schemaAligner.ensureReady();
+        LocalDate fromDate = parseDateParam(from);
+        LocalDate toDate = parseDateParam(to);
+        if (fromDate == null && toDate == null) {
+            toDate = LocalDate.now();
+            fromDate = toDate.minusDays(7);
+        } else if (fromDate == null) {
+            fromDate = toDate.minusDays(7);
+        } else if (toDate == null) {
+            toDate = LocalDate.now();
+        }
+        List<Map<String, Object>> byMachine = agentRepository.summarizeBoardCuts(fromDate, toDate);
+        int grandTotal = agentRepository.sumBoardCutsInRange(fromDate, toDate, null);
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("from", fromDate.toString());
+        out.put("to", toDate.toString());
+        out.put("grand_total", grandTotal);
+        out.put("by_machine", byMachine);
+        return ResponseEntity.ok(out);
     }
 
     @GetMapping("/trazabilidad")
@@ -323,6 +445,18 @@ public class BiesseAgentMonitorController {
 
     private static String str(Object o) {
         return o == null ? null : String.valueOf(o);
+    }
+
+    private static LocalDate parseDateParam(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return LocalDate.parse(value.trim());
+        } catch (DateTimeParseException e) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST, "Fecha inválida (use yyyy-MM-dd): " + value);
+        }
     }
 
     private static String generateToken() {

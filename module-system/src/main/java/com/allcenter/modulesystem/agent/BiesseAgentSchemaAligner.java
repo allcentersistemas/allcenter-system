@@ -125,6 +125,32 @@ public class BiesseAgentSchemaAligner {
         jdbc.execute(
                 "CREATE INDEX IF NOT EXISTS idx_biesse_agent_event_machine "
                         + "ON biesse_agent_event(machine_id, created_at DESC)");
+        jdbc.execute(
+                """
+                CREATE TABLE IF NOT EXISTS biesse_agent_board_cut
+                (
+                    id BIGSERIAL PRIMARY KEY,
+                    machine_id INTEGER NOT NULL REFERENCES biesse_agent_machine(machine_id) ON DELETE CASCADE,
+                    machine_name VARCHAR(120),
+                    order_id INTEGER,
+                    job_name TEXT,
+                    boards_delta INTEGER NOT NULL DEFAULT 1,
+                    boards_total_after INTEGER,
+                    event_uid VARCHAR(64) NOT NULL UNIQUE,
+                    event_time TIMESTAMP,
+                    source VARCHAR(40) DEFAULT 'EVENT',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """);
+        jdbc.execute(
+                "CREATE INDEX IF NOT EXISTS idx_biesse_agent_board_cut_time "
+                        + "ON biesse_agent_board_cut(event_time DESC NULLS LAST, created_at DESC)");
+        jdbc.execute(
+                "CREATE INDEX IF NOT EXISTS idx_biesse_agent_board_cut_machine "
+                        + "ON biesse_agent_board_cut(machine_id, event_time DESC NULLS LAST)");
+        jdbc.execute(
+                "CREATE INDEX IF NOT EXISTS idx_biesse_agent_board_cut_machine_total "
+                        + "ON biesse_agent_board_cut(machine_id, boards_total_after, created_at DESC)");
     }
 
     private void bootstrapMachineIfNeeded() {

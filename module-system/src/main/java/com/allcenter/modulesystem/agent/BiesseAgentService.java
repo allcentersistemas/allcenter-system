@@ -66,7 +66,29 @@ public class BiesseAgentService {
         Map<String, Object> order = obrasClient.findOrderForJob(jobName);
         Long orderId = order != null ? ((Number) order.get("orderid")).longValue() : null;
 
+        Integer previousBoards = intOrNull(machine.get("boards_done"));
+        // Si el status llegó tras un evento reciente, machine puede estar desactualizado: releer.
+        Map<String, Object> before = repository.findMachineById(machineId);
+        if (before != null) {
+            previousBoards = intOrNull(before.get("boards_done"));
+            if (jobName == null || jobName.isBlank()) {
+                jobName = str(before.get("job_name"));
+            }
+            if (orderId == null && before.get("current_order_id") instanceof Number n) {
+                orderId = n.longValue();
+            }
+        }
+
         repository.updateStatus(machineId, status, orderId);
+
+        recordBoardsFromStatusDelta(
+                machineId,
+                str(machine.get("machine_name")),
+                jobName,
+                orderId,
+                previousBoards,
+                status.boardsDone(),
+                BiesseAgentRepository.parseEventTime(status.eventTime()));
 
         Map<String, Object> live = repository.findMachineById(machineId);
         if (live == null) {
@@ -98,6 +120,9 @@ public class BiesseAgentService {
         int accepted = 0;
         int duplicates = 0;
         List<LabelDto> labels = new ArrayList<>();
+        // Cursor de planchas dentro del batch (varios "Boards done" antes del status).
+        int boardsSessionTotal = -1;
+        boolean boardsJobRestart = false;
 
         for (AgentEventDto ev : request.eventsOrEmpty()) {
             if (ev == null || ev.eventUid() == null || ev.eventUid().isBlank()) {
@@ -160,8 +185,16 @@ public class BiesseAgentService {
                 }
             }
 
-            if ("Boards done".equalsIgnoreCase(type) && machine.get("job_name") != null) {
-                Map<String, Object> order = obrasClient.findOrderForJob(str(machine.get("job_name")));
+            if ("Boards done".equalsIgnoreCase(type)) {
+                Map<String, Object> live = repository.findMachineById(machineId);
+                String jobName =
+                        live != null && live.get("job_name") != null
+                                ? str(live.get("job_name"))
+                                : str(machine.get("job_name"));
+                Map<String, Object> order =
+                        jobName != null && !jobName.isBlank()
+                                ? obrasClient.findOrderForJob(jobName)
+                                : null;
                 if (order != null) {
                     orderId = ((Number) order.get("orderid")).longValue();
                     obrasClient.registrarTrazabilidad(
@@ -175,6 +208,42 @@ public class BiesseAgentService {
                             0,
                             "AGENTE:" + machineName);
                     action = "BOARDS_DONE";
+                } else {
+                    action = "BOARDS_DONE_NO_ORDER";
+                }
+                int boardsDelta = parseBoardsDelta(code);
+                if (boardsSessionTotal < 0) {
+                    int maxAfter = repository.maxBoardsTotalAfter(machineId, jobName);
+                    Integer liveBoards =
+                            intOrNull(live != null ? live.get("boards_done") : machine.get("boards_done"));
+                    // Reinicio de job: el contador vivo bajó respecto al histórico del mismo job_name.
+                    if (liveBoards != null && liveBoards < maxAfter) {
+                        boardsSessionTotal = liveBoards;
+                        boardsJobRestart = true;
+                    } else {
+                        boardsSessionTotal = maxAfter;
+                    }
+                }
+                boardsSessionTotal += boardsDelta;
+                boolean alreadyCounted =
+                        !boardsJobRestart
+                                && repository.boardCutExistsForTotal(
+                                        machineId, jobName, boardsSessionTotal);
+                if (!alreadyCounted) {
+                    repository.insertBoardCut(
+                            ev.eventUid(),
+                            machineId,
+                            machineName,
+                            orderId != null
+                                    ? orderId
+                                    : (live != null && live.get("current_order_id") instanceof Number n
+                                            ? n.longValue()
+                                            : null),
+                            jobName,
+                            boardsDelta,
+                            boardsSessionTotal,
+                            eventTime,
+                            "EVENT");
                 }
             }
 
@@ -418,6 +487,93 @@ public class BiesseAgentService {
 
     private static HeartbeatRequest emptyHeartbeat() {
         return new HeartbeatRequest(null, null, null, null, null, null, null, null, null, null, null, null);
+    }
+
+    /**
+     * Plancha = board OSI ({@code Boards done} / {@code boards_done}).
+     * Fallback: si solo llega status (sin evento reciente), registra el incremento.
+     */
+    private void recordBoardsFromStatusDelta(
+            int machineId,
+            String machineName,
+            String jobName,
+            Long orderId,
+            Integer previousBoards,
+            Integer newBoards,
+            Instant eventTime) {
+        if (newBoards == null || previousBoards == null) {
+            return;
+        }
+        if (newBoards <= previousBoards) {
+            return;
+        }
+        // El evento Boards done es la fuente preferida; evitar doble conteo.
+        if (repository.recentBoardsDoneEvent(machineId, 45)) {
+            return;
+        }
+        int maxAfter = repository.maxBoardsTotalAfter(machineId, jobName);
+        if (newBoards <= maxAfter) {
+            return;
+        }
+        if (repository.boardCutExistsForTotal(machineId, jobName, newBoards)) {
+            return;
+        }
+        int delta = newBoards - Math.max(previousBoards, maxAfter);
+        if (delta <= 0) {
+            return;
+        }
+        String syntheticUid =
+                "status-boards-"
+                        + machineId
+                        + "-"
+                        + (jobName != null ? jobName.replaceAll("\\s+", "_") : "noj")
+                        + "-"
+                        + newBoards;
+        if (syntheticUid.length() > 64) {
+            syntheticUid =
+                    "status-boards-"
+                            + machineId
+                            + "-"
+                            + Integer.toHexString(jobName != null ? jobName.hashCode() : 0)
+                            + "-"
+                            + newBoards;
+        }
+        repository.insertBoardCut(
+                syntheticUid,
+                machineId,
+                machineName,
+                orderId,
+                jobName,
+                delta,
+                newBoards,
+                eventTime,
+                "STATUS_DELTA");
+    }
+
+    private static int parseBoardsDelta(String code) {
+        if (code == null || code.isBlank()) {
+            return 1;
+        }
+        try {
+            int n = Integer.parseInt(code.trim());
+            return Math.max(n, 1);
+        } catch (NumberFormatException e) {
+            return 1;
+        }
+    }
+
+    private static Integer intOrNull(Object o) {
+        if (o instanceof Number n) {
+            return n.intValue();
+        }
+        if (o == null) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(String.valueOf(o).trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     private static String str(Object o) {

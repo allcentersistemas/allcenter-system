@@ -1,5 +1,6 @@
 package com.allcenter.modulebiesse.obras;
 
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -9,6 +10,7 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -52,6 +54,14 @@ public class BiesseObrasRepository {
             Pattern.compile("(?i)^Part\\s*(P?\\d+)", Pattern.CASE_INSENSITIVE);
 
     private final JdbcTemplate jdbc;
+
+    /**
+     * Cutoff del tablero Seguimiento por XML: solo obras con {@code fechacreacion >=} esta fecha
+     * (ISO {@code yyyy-MM-dd}). Configurable con {@code app.biesse.seguimiento-since} /
+     * env {@code APP_BIESSE_SEGUIMIENTO_SINCE}.
+     */
+    @Value("${app.biesse.seguimiento-since:2026-08-26}")
+    private LocalDate seguimientoSince;
 
     public Map<String, Object> findOrderById(long orderId) {
         List<Map<String, Object>> rows =
@@ -336,9 +346,12 @@ public class BiesseObrasRepository {
 
     /**
      * Tablero Seguimiento: obras en flujo post-XML (no kanban CRM).
+     * Solo incluye obras con {@code fechacreacion >= app.biesse.seguimiento-since} para no listar
+     * histórico anterior al arranque del tablero limpio.
      */
     public List<Map<String, Object>> listSeguimientoObras(int limit) {
         int safe = Math.max(1, Math.min(limit, 500));
+        LocalDate since = seguimientoSince != null ? seguimientoSince : LocalDate.of(2026, 8, 26);
         List<Map<String, Object>> rows;
         try {
             rows =
@@ -359,9 +372,12 @@ public class BiesseObrasRepository {
                             WHERE UPPER(TRIM(COALESCE(o.estado_escaneo, ''))) IN (
                                 'OPTIMIZADO', 'PRODUCCION', 'DESPACHO',
                                 'LISTO_PARA_ENTREGAR', 'ENTREGADO', 'COMPLETADA', 'COMPLETADO')
+                              AND o.fechacreacion IS NOT NULL
+                              AND DATE(o.fechacreacion) >= CAST(? AS DATE)
                             ORDER BY o.fechacreacion DESC NULLS LAST, o.orderid DESC
                             LIMIT ?
                             """,
+                            since,
                             safe);
         } catch (DataAccessException ex) {
             rows =
@@ -378,9 +394,12 @@ public class BiesseObrasRepository {
                             WHERE UPPER(TRIM(COALESCE(o.estado_escaneo, ''))) IN (
                                 'OPTIMIZADO', 'PRODUCCION', 'DESPACHO',
                                 'LISTO_PARA_ENTREGAR', 'ENTREGADO', 'COMPLETADA', 'COMPLETADO')
+                              AND o.fechacreacion IS NOT NULL
+                              AND DATE(o.fechacreacion) >= CAST(? AS DATE)
                             ORDER BY o.fechacreacion DESC NULLS LAST, o.orderid DESC
                             LIMIT ?
                             """,
+                            since,
                             safe);
         }
         List<Map<String, Object>> out = new ArrayList<>();
