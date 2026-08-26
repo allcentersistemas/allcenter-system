@@ -63,15 +63,13 @@ public class BiesseObrasSchemaAligner {
                             LIMIT 5000
                             """);
             for (Map<String, Object> row : rows) {
+                long orderId = ((Number) row.get("orderid")).longValue();
                 String name = row.get("ordername") != null ? String.valueOf(row.get("ordername")) : "";
-                String op = BiesseObrasRepository.extractOp(name);
-                if (op == null) {
-                    continue;
-                }
+                String op = BiesseObrasRepository.resolveOpCodigo(null, name, orderId);
                 jdbc.update(
                         "UPDATE ordenes SET op_codigo = ? WHERE orderid = ?",
                         op,
-                        ((Number) row.get("orderid")).longValue());
+                        orderId);
             }
         } catch (Exception e) {
             log.debug("backfill op_codigo: {}", e.getMessage());

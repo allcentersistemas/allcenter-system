@@ -479,6 +479,14 @@ public class BiesseObrasRepository {
             int piezas,
             int partes,
             String usuario) {
+        // op_codigo / estado / accion son NOT NULL en op_trazabilidad.
+        // Primer escaneo Android → DESPACHO suele llegar con op_codigo null si la orden
+        // no matchea OP_PATTERN (p.ej. nombres sin prefijo numérico).
+        String resolvedOp = resolveOpCodigo(opCodigo, orderName, orderId);
+        String resolvedEstado =
+                blankToNull(estado) != null ? estado.trim().toUpperCase(Locale.ROOT) : "DESCONOCIDO";
+        String resolvedAccion =
+                blankToNull(accion) != null ? accion.trim().toUpperCase(Locale.ROOT) : "EVENTO";
         jdbc.update(
                 """
                 INSERT INTO op_trazabilidad
@@ -486,15 +494,65 @@ public class BiesseObrasRepository {
                      piezas_totales, partes_totales, usuario, fecha)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 """,
-                opCodigo != null ? opCodigo : extractOp(orderName),
+                resolvedOp,
                 orderId,
                 orderName,
-                estado,
-                accion,
+                resolvedEstado,
+                resolvedAccion,
                 detalle,
                 piezas,
                 partes,
                 usuario);
+        persistOpCodigoIfMissing(orderId, resolvedOp);
+    }
+
+    /**
+     * Resuelve un op_codigo nunca-null para inserts NOT NULL.
+     * Orden: valor dado → extractOp(ordername) → ordername truncado → ORD-{id} → SIN_OP.
+     */
+    public static String resolveOpCodigo(String opCodigo, String orderName, Long orderId) {
+        String fromCol = blankToNull(opCodigo);
+        if (fromCol != null) {
+            return truncate(fromCol, 40);
+        }
+        String fromName = extractOp(orderName);
+        if (fromName != null) {
+            return truncate(fromName, 40);
+        }
+        String name = blankToNull(orderName);
+        if (name != null) {
+            return truncate(name, 40);
+        }
+        if (orderId != null) {
+            return "ORD-" + orderId;
+        }
+        return "SIN_OP";
+    }
+
+    private void persistOpCodigoIfMissing(Long orderId, String resolvedOp) {
+        if (orderId == null || resolvedOp == null || resolvedOp.isBlank()) {
+            return;
+        }
+        try {
+            jdbc.update(
+                    """
+                    UPDATE ordenes
+                    SET op_codigo = ?
+                    WHERE orderid = ?
+                      AND (op_codigo IS NULL OR TRIM(op_codigo) = '')
+                    """,
+                    truncate(resolvedOp, 40),
+                    orderId);
+        } catch (DataAccessException ignored) {
+            // Columna ausente en esquemas muy antiguos
+        }
+    }
+
+    private static String truncate(String v, int max) {
+        if (v == null) {
+            return null;
+        }
+        return v.length() <= max ? v : v.substring(0, max);
     }
 
     public Map<String, Object> findPartForOsi(long orderId, String osiPartText) {
