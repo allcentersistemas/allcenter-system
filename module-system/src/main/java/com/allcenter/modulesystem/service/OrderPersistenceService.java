@@ -1,5 +1,6 @@
 package com.allcenter.modulesystem.service;
 
+import com.allcenter.modulesystem.agent.BiesseObrasClient;
 import com.allcenter.modulesystem.event.ProyectoQuoteSubmittedEvent;
 import com.allcenter.modulesystem.model.ClientUser;
 import com.allcenter.modulesystem.model.Employee;
@@ -27,6 +28,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -47,6 +49,7 @@ public class OrderPersistenceService {
     private final MailService mailService;
     private final AuditService auditService;
     private final EmployeeNotificationService employeeNotificationService;
+    private final BiesseObrasClient biesseObrasClient;
 
     public OrderPersistenceService(
             ProyectoRepository proyectoRepository,
@@ -59,7 +62,8 @@ public class OrderPersistenceService {
             com.allcenter.modulesystem.support.OptimizacionStorageService optimizacionStorage,
             MailService mailService,
             AuditService auditService,
-            @Lazy EmployeeNotificationService employeeNotificationService
+            @Lazy EmployeeNotificationService employeeNotificationService,
+            BiesseObrasClient biesseObrasClient
     ) {
         this.proyectoRepository = proyectoRepository;
         this.ordenRepository = ordenRepository;
@@ -72,6 +76,7 @@ public class OrderPersistenceService {
         this.mailService = mailService;
         this.auditService = auditService;
         this.employeeNotificationService = employeeNotificationService;
+        this.biesseObrasClient = biesseObrasClient;
     }
 
     @Transactional
@@ -206,17 +211,172 @@ public class OrderPersistenceService {
 
     @Transactional(readOnly = true)
     public List<OrderDtos.ProyectoResumenResponse> listSeguimiento() {
-        return proyectoRepository
-                .findByEstadoInOrderByFechacreacionDesc(
-                        List.of(
-                                ProyectoEstado.VENDIDO,
-                                ProyectoEstado.PRODUCCION,
-                                ProyectoEstado.DESPACHO,
-                                ProyectoEstado.LISTO_PARA_ENTREGAR,
-                                ProyectoEstado.ENTREGADO))
-                .stream()
-                .map(p -> toResumenResponse(p, false))
-                .toList();
+        return listSeguimientoProjects().stream().map(p -> toResumenResponse(p, false)).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<OrderDtos.SeguimientoOpResponse> listSeguimientoByOp() {
+        List<ProyectoOptimizacion> proyectos = listSeguimientoProjects();
+        if (proyectos.isEmpty()) {
+            return List.of();
+        }
+        Map<Long, ProyectoOptimizacion> byId = new LinkedHashMap<>();
+        for (ProyectoOptimizacion p : proyectos) {
+            byId.put(p.getId(), p);
+        }
+        List<Orden> linked = ordenRepository.findLinkedByProyectoIds(List.copyOf(byId.keySet()));
+        Map<String, List<Orden>> byOp = new LinkedHashMap<>();
+        for (Orden orden : linked) {
+            String op = orden.getOpCodigo() == null ? "" : orden.getOpCodigo().trim();
+            if (op.isEmpty()) {
+                continue;
+            }
+            byOp.computeIfAbsent(op, k -> new ArrayList<>()).add(orden);
+        }
+        List<OrderDtos.SeguimientoOpResponse> result = new ArrayList<>();
+        for (Map.Entry<String, List<Orden>> entry : byOp.entrySet()) {
+            String opCodigo = entry.getKey();
+            Map<Long, List<Orden>> ordenesByProyecto = new LinkedHashMap<>();
+            for (Orden orden : entry.getValue()) {
+                Long proyectoId = orden.getProyectoOptimizacionId().getId();
+                ordenesByProyecto.computeIfAbsent(proyectoId, k -> new ArrayList<>()).add(orden);
+            }
+            List<OrderDtos.SeguimientoProyectoLink> proyectoLinks = new ArrayList<>();
+            for (Map.Entry<Long, List<Orden>> pe : ordenesByProyecto.entrySet()) {
+                ProyectoOptimizacion proyecto = byId.get(pe.getKey());
+                if (proyecto == null) {
+                    continue;
+                }
+                List<OrderDtos.SeguimientoOrdenLink> ordenLinks =
+                        pe.getValue().stream()
+                                .map(
+                                        o ->
+                                                new OrderDtos.SeguimientoOrdenLink(
+                                                        o.getId(),
+                                                        o.getOrderCode(),
+                                                        o.getBiesseOrderId(),
+                                                        o.getBiesseOrderName()))
+                                .toList();
+                proyectoLinks.add(
+                        new OrderDtos.SeguimientoProyectoLink(
+                                proyecto.getId(),
+                                proyecto.getNombre(),
+                                proyecto.getCliente(),
+                                estadoLabel(proyecto.getEstado()),
+                                ordenLinks));
+            }
+            Map<String, Object> opSummary = biesseObrasClient.getOpSummary(opCodigo);
+            Double porcentaje = null;
+            String avanceLabel = null;
+            int totalObras = 0;
+            if (opSummary != null) {
+                Object pct = opSummary.get("porcentaje");
+                if (pct instanceof Number n) {
+                    porcentaje = n.doubleValue();
+                }
+                Object al = opSummary.get("avance_label");
+                if (al != null) {
+                    avanceLabel = String.valueOf(al);
+                }
+                Object to = opSummary.get("total_obras");
+                if (to instanceof Number n) {
+                    totalObras = n.intValue();
+                }
+            }
+            result.add(
+                    new OrderDtos.SeguimientoOpResponse(
+                            opCodigo, porcentaje, avanceLabel, totalObras, proyectoLinks));
+        }
+        return result;
+    }
+
+    @Transactional(readOnly = true)
+    public Map<String, Object> listBiesseObras(String q, int limit, int offset) {
+        int safeLimit = Math.max(1, Math.min(limit, 100));
+        int safeOffset = Math.max(0, offset);
+        return biesseObrasClient.listOrders(q, safeLimit, safeOffset);
+    }
+
+    @Transactional
+    public OrderDtos.OrdenResponse assignBiesseObra(Long ordenId, Long biesseOrderId) {
+        Orden orden =
+                ordenRepository
+                        .findById(ordenId)
+                        .orElseThrow(() -> new EntityNotFoundException("Orden no encontrada"));
+        if (biesseOrderId == null) {
+            orden.setBiesseOrderId(null);
+            orden.setBiesseOrderName(null);
+            orden.setOpCodigo(null);
+            return toOrdenResponse(ordenRepository.save(orden));
+        }
+        Map<String, Object> obra = biesseObrasClient.findOrderById(biesseOrderId);
+        if (obra == null) {
+            throw new IllegalArgumentException("Obra Biesse no encontrada: " + biesseOrderId);
+        }
+        String orderName = firstNonBlank(str(obra.get("ordername")), str(obra.get("orderName")));
+        String opCodigo =
+                firstNonBlank(
+                        str(obra.get("op_codigo")),
+                        str(obra.get("opCodigo")),
+                        extractOpFromName(orderName));
+        List<Orden> already = ordenRepository.findByBiesseOrderId(biesseOrderId);
+        for (Orden other : already) {
+            if (!Objects.equals(other.getId(), ordenId)) {
+                throw new IllegalArgumentException(
+                        "La obra Biesse ya está asignada a otra orden del sistema (#"
+                                + other.getId()
+                                + ").");
+            }
+        }
+        orden.setBiesseOrderId(biesseOrderId);
+        orden.setBiesseOrderName(orderName);
+        orden.setOpCodigo(opCodigo);
+        if (orderName != null && !orderName.isBlank()) {
+            orden.setOrderName(orderName.trim());
+        }
+        Orden saved = ordenRepository.save(orden);
+        ProyectoOptimizacion proyecto = saved.getProyectoOptimizacionId();
+        recordProyectoAudit(
+                AuditAction.UPDATE,
+                proyecto,
+                "Obra Biesse #"
+                        + biesseOrderId
+                        + (orderName != null ? " (" + orderName + ")" : "")
+                        + (opCodigo != null ? " OP " + opCodigo : "")
+                        + " asignada a orden #"
+                        + saved.getId());
+        return toOrdenResponse(saved);
+    }
+
+    private List<ProyectoOptimizacion> listSeguimientoProjects() {
+        return proyectoRepository.findByEstadoInOrderByFechacreacionDesc(
+                List.of(
+                        ProyectoEstado.VENDIDO,
+                        ProyectoEstado.PRODUCCION,
+                        ProyectoEstado.DESPACHO,
+                        ProyectoEstado.LISTO_PARA_ENTREGAR,
+                        ProyectoEstado.ENTREGADO));
+    }
+
+    private static String extractOpFromName(String orderName) {
+        if (orderName == null || orderName.isBlank()) {
+            return null;
+        }
+        java.util.regex.Matcher m =
+                java.util.regex.Pattern.compile("^([A-Za-z]?\\d{3,})\\b").matcher(orderName.trim());
+        return m.find() ? m.group(1) : null;
+    }
+
+    private static String firstNonBlank(String... values) {
+        if (values == null) {
+            return null;
+        }
+        for (String v : values) {
+            if (v != null && !v.isBlank()) {
+                return v.trim();
+            }
+        }
+        return null;
     }
 
     @Transactional
@@ -655,6 +815,9 @@ public class OrderPersistenceService {
                             orden.getProyectoOptimizacionId().getId(),
                             orden.getOrderCode(),
                             orden.getDescripcion(),
+                            orden.getBiesseOrderId(),
+                            orden.getBiesseOrderName(),
+                            orden.getOpCodigo(),
                             detalles
                     );
                 }).toList();
@@ -909,7 +1072,10 @@ public class OrderPersistenceService {
                 orden.getId(),
                 orden.getProyectoOptimizacionId().getId(),
                 orden.getOrderCode(),
-                orden.getDescripcion()
+                orden.getDescripcion(),
+                orden.getBiesseOrderId(),
+                orden.getBiesseOrderName(),
+                orden.getOpCodigo()
         );
     }
 

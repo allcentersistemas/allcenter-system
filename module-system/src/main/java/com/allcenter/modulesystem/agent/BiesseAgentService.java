@@ -243,9 +243,11 @@ public class BiesseAgentService {
         Instant started = BiesseAgentRepository.parseEventTime(eventTime);
 
         boolean changed = obrasClient.markOrderProduccion(orderId);
+        boolean newCutWindow = machine.get("job_started_at") == null;
         repository.markJobStarted(machineId, orderId, started);
 
-        if (changed) {
+        // CORTE_INICIO en cada ventana (primera PRODUCCION o reanudación tras CORTE_FIN).
+        if (changed || newCutWindow) {
             obrasClient.registrarTrazabilidad(
                     op,
                     orderId,
@@ -254,7 +256,7 @@ public class BiesseAgentService {
                     "CORTE_INICIO",
                     "Inicio de corte ("
                             + source
-                            + ") máquina="
+                            + ") seccionador="
                             + str(machine.get("machine_name"))
                             + " job="
                             + str(machine.get("job_name"))
@@ -263,7 +265,9 @@ public class BiesseAgentService {
                     0,
                     intOrZero(order.get("partes_totales")),
                     "AGENTE:" + str(machine.get("machine_name")));
-            log.info("Obra {} → PRODUCCION (fuente={})", orderName, source);
+            if (changed) {
+                log.info("Obra {} → PRODUCCION (fuente={})", orderName, source);
+            }
         }
     }
 
@@ -300,7 +304,9 @@ public class BiesseAgentService {
                 "CORTE_FIN",
                 "Fin/pausa corte ("
                         + source
-                        + ") duración="
+                        + ") seccionador="
+                        + str(machine.get("machine_name"))
+                        + " duración="
                         + seconds
                         + "s ("
                         + formatDuration(seconds)
@@ -319,6 +325,7 @@ public class BiesseAgentService {
             String eventUid,
             boolean printLocal) {
         long orderId = ((Number) order.get("orderid")).longValue();
+        String orderName = str(order.get("ordername"));
         Map<String, Object> mapped = obrasClient.partForOsi(orderId, osiPart, machineName);
         if (mapped == null) {
             return null;
@@ -329,9 +336,19 @@ public class BiesseAgentService {
         Long partId =
                 mapped.get("partId") instanceof Number n ? n.longValue() : null;
 
+        // UNMAPPED: solo cut_piece + sticker; no inventar pieza en BD obras.
+        // MAPPED: partForOsi ya marca cortada en obras (solo eventos nuevos vía event_uid).
         long cutId =
                 repository.insertCutPiece(
-                        eventUid, machineId, orderId, partId, osiPart, unitCode, mapStatus, zpl);
+                        eventUid,
+                        machineId,
+                        orderId,
+                        orderName,
+                        partId,
+                        osiPart,
+                        unitCode,
+                        mapStatus,
+                        zpl);
         return new LabelDto(cutId, eventUid, osiPart, unitCode, mapStatus, zpl, printLocal);
     }
 

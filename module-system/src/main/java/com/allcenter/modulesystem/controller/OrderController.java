@@ -118,6 +118,28 @@ public class OrderController {
         return service.listSeguimiento();
     }
 
+    @GetMapping("/proyectos/seguimiento/ops")
+    public java.util.List<OrderDtos.SeguimientoOpResponse> listSeguimientoByOp() {
+        return service.listSeguimientoByOp();
+    }
+
+    @GetMapping("/biesse/obras")
+    @PreAuthorize("@portalAuth.canCreate() or @portalAuth.canGestionOrVentasGestion()")
+    public Map<String, Object> listBiesseObras(
+            @RequestParam(required = false) String q,
+            @RequestParam(defaultValue = "30") int limit,
+            @RequestParam(defaultValue = "0") int offset) {
+        return service.listBiesseObras(q, limit, offset);
+    }
+
+    @PutMapping("/ordenes/{ordenId}/biesse-obra")
+    @PreAuthorize("@portalAuth.canCreate() or @portalAuth.canGestionOrVentasGestion()")
+    public OrderDtos.OrdenResponse assignBiesseObra(
+            @PathVariable Long ordenId, @RequestBody(required = false) OrderDtos.AsignarBiesseObraPayload payload) {
+        Long biesseOrderId = payload == null ? null : payload.biesseOrderId();
+        return service.assignBiesseObra(ordenId, biesseOrderId);
+    }
+
     @GetMapping({"/proyectos/{proyectoId}", "/projects/{proyectoId}"})
     public OrderDtos.ProyectoConOrdenesResponse getProyecto(@PathVariable Long proyectoId) {
         return service.getProjectTree(proyectoId);

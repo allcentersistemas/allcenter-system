@@ -24,6 +24,18 @@ public class Orden {
     @Column(name = "descripcion")
     private String descripcion;
 
+    /** PK de la obra en module-biesse ({@code ordenes.orderid}). */
+    @Column(name = "biesse_order_id")
+    private Long biesseOrderId;
+
+    /** Nombre denormalizado de la obra Biesse para UI y matching de fulfillment. */
+    @Column(name = "biesse_order_name")
+    private String biesseOrderName;
+
+    /** Código OP denormalizado desde la obra Biesse. */
+    @Column(name = "op_codigo")
+    private String opCodigo;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "proyectoid", nullable = false)
     private ProyectoOptimizacion proyectoOptimizacionId;

@@ -16,7 +16,7 @@ import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Repository;
 
-/** Persistencia del agente CNC en {@code app_db} (máquinas, eventos, cortes). */
+/** Persistencia del agente seccionador en {@code app_db} (máquinas, eventos, cortes). */
 @Repository
 @RequiredArgsConstructor
 public class BiesseAgentRepository {
@@ -160,6 +160,7 @@ public class BiesseAgentRepository {
             String eventUid,
             int machineId,
             Long orderId,
+            String orderName,
             Long partId,
             String osiPartId,
             String unitCode,
@@ -172,10 +173,12 @@ public class BiesseAgentRepository {
                             con.prepareStatement(
                                     """
                                     INSERT INTO biesse_agent_cut_piece
-                                        (event_uid, machine_id, order_id, part_id, osi_part_id,
+                                        (event_uid, machine_id, order_id, order_name, part_id, osi_part_id,
                                          unit_code, map_status, zpl)
-                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                                    ON CONFLICT (event_uid) DO UPDATE SET zpl = EXCLUDED.zpl
+                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    ON CONFLICT (event_uid) DO UPDATE SET
+                                        zpl = EXCLUDED.zpl,
+                                        order_name = COALESCE(EXCLUDED.order_name, biesse_agent_cut_piece.order_name)
                                     RETURNING cut_piece_id
                                     """,
                                     new String[] {"cut_piece_id"});
@@ -186,15 +189,16 @@ public class BiesseAgentRepository {
                     } else {
                         ps.setLong(3, orderId);
                     }
+                    ps.setString(4, orderName);
                     if (partId == null) {
-                        ps.setObject(4, null);
+                        ps.setObject(5, null);
                     } else {
-                        ps.setLong(4, partId);
+                        ps.setLong(5, partId);
                     }
-                    ps.setString(5, osiPartId);
-                    ps.setString(6, unitCode);
-                    ps.setString(7, mapStatus);
-                    ps.setString(8, zpl);
+                    ps.setString(6, osiPartId);
+                    ps.setString(7, unitCode);
+                    ps.setString(8, mapStatus);
+                    ps.setString(9, zpl);
                     return ps;
                 },
                 keys);
@@ -266,7 +270,7 @@ public class BiesseAgentRepository {
                 """
                 SELECT machine_id, machine_name, company_id, online, state, job_name, pattern_name,
                        last_part, boards_done, pieces_produced, osi_session_id,
-                       printer_name, printer_enabled, plant_name, hostname,
+                       printer_name, printer_enabled, plant_name, hostname, machine_type,
                        health_status, last_error, agent_version, compatible_profile,
                        current_order_id, job_started_at, last_heartbeat_at, last_status_at, created_at
                 FROM biesse_agent_machine
@@ -326,12 +330,30 @@ public class BiesseAgentRepository {
         int safe = Math.max(1, Math.min(limit, 200));
         return jdbc.queryForList(
                 """
-                SELECT c.cut_piece_id, c.event_uid, c.machine_id, c.order_id, c.part_id,
-                       c.osi_part_id, c.unit_code, c.map_status, c.printed, c.print_error,
-                       c.printed_at, c.created_at, m.machine_name
+                SELECT c.cut_piece_id, c.event_uid, c.machine_id, c.order_id, c.order_name,
+                       c.part_id, c.osi_part_id, c.unit_code, c.map_status, c.printed, c.print_error,
+                       c.printed_at, c.created_at, m.machine_name, m.plant_name
                 FROM biesse_agent_cut_piece c
                 LEFT JOIN biesse_agent_machine m ON m.machine_id = c.machine_id
                 ORDER BY c.created_at DESC
+                LIMIT ?
+                """,
+                safe);
+    }
+
+    /** Ventanas de corte derivadas de CORTE_INICIO / CORTE_FIN en eventos del agente. */
+    public List<Map<String, Object>> listRecentCutWindows(int limit) {
+        int safe = Math.max(1, Math.min(limit, 200));
+        return jdbc.queryForList(
+                """
+                SELECT e.id, e.event_uid, e.machine_id, m.machine_name, m.plant_name,
+                       e.event_type, e.description, e.event_time, e.order_id, e.processed_action,
+                       e.created_at
+                FROM biesse_agent_event e
+                LEFT JOIN biesse_agent_machine m ON m.machine_id = e.machine_id
+                WHERE e.processed_action IN ('PRODUCCION', 'CORTE_FIN', 'LABEL', 'BOARDS_DONE')
+                   OR UPPER(COALESCE(e.processed_action, '')) LIKE 'CORTE_%'
+                ORDER BY e.created_at DESC, e.id DESC
                 LIMIT ?
                 """,
                 safe);

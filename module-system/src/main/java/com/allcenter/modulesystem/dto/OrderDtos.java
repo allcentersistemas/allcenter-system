@@ -106,7 +106,10 @@ public final class OrderDtos {
             Long id,
             Long proyectoId,
             String codigo,
-            String descripcion
+            String descripcion,
+            Long biesseOrderId,
+            String biesseOrderName,
+            String opCodigo
     ) {
     }
 
@@ -140,7 +143,41 @@ public final class OrderDtos {
             Long proyectoId,
             String codigo,
             String descripcion,
+            Long biesseOrderId,
+            String biesseOrderName,
+            String opCodigo,
             List<DetalleResponse> detalles
+    ) {
+    }
+
+    public record AsignarBiesseObraPayload(
+            Long biesseOrderId
+    ) {
+    }
+
+    public record SeguimientoOrdenLink(
+            Long ordenId,
+            String codigo,
+            Long biesseOrderId,
+            String biesseOrderName
+    ) {
+    }
+
+    public record SeguimientoProyectoLink(
+            Long proyectoId,
+            String nombre,
+            String cliente,
+            String estado,
+            List<SeguimientoOrdenLink> ordenes
+    ) {
+    }
+
+    public record SeguimientoOpResponse(
+            String opCodigo,
+            Double porcentaje,
+            String avanceLabel,
+            int totalObrasBiesse,
+            List<SeguimientoProyectoLink> proyectos
     ) {
     }
 

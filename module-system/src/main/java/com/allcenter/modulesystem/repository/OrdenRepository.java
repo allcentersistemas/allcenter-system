@@ -16,6 +16,18 @@ public interface OrdenRepository extends JpaRepository<Orden, Long> {
             SELECT o FROM Orden o
             WHERE LOWER(TRIM(COALESCE(o.orderCode, ''))) = LOWER(TRIM(:q))
                OR LOWER(TRIM(COALESCE(o.orderName, ''))) = LOWER(TRIM(:q))
+               OR LOWER(TRIM(COALESCE(o.biesseOrderName, ''))) = LOWER(TRIM(:q))
             """)
     List<Orden> findByCodeOrName(@Param("q") String q);
+
+    List<Orden> findByBiesseOrderId(Long biesseOrderId);
+
+    @Query(
+            """
+            SELECT o FROM Orden o
+            WHERE o.opCodigo IS NOT NULL AND TRIM(o.opCodigo) <> ''
+              AND o.proyectoOptimizacionId.id IN :proyectoIds
+            ORDER BY o.opCodigo ASC, o.id ASC
+            """)
+    List<Orden> findLinkedByProyectoIds(@Param("proyectoIds") List<Long> proyectoIds);
 }

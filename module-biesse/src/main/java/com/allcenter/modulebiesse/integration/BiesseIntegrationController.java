@@ -2,6 +2,8 @@ package com.allcenter.modulebiesse.integration;
 
 import com.allcenter.modulebiesse.obras.BiesseObrasRepository;
 import com.allcenter.modulebiesse.obras.BiesseObrasSchemaAligner;
+import com.allcenter.modulebiesse.repository.BiesseScanRepository;
+import com.allcenter.modulebiesse.service.BiesseScanService;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -20,7 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
 /**
- * APIs de obras/XML para que module-system orqueste el agente CNC.
+ * APIs de obras/XML para que module-system orqueste el agente seccionador.
  * Auth: JWT portal o header {@code X-Internal-Token}.
  */
 @RestController
@@ -31,6 +33,8 @@ public class BiesseIntegrationController {
     private final BiesseObrasRepository obrasRepository;
     private final BiesseObrasSchemaAligner schemaAligner;
     private final BiesseInternalAuth internalAuth;
+    private final BiesseScanService scanService;
+    private final BiesseScanRepository scanRepository;
 
     public record TrazabilidadRequest(
             String opCodigo,
@@ -42,6 +46,25 @@ public class BiesseIntegrationController {
             Integer piezas,
             Integer partes,
             String usuario) {}
+
+    @GetMapping("/orders")
+    public ResponseEntity<Map<String, Object>> listOrders(
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+            @RequestHeader(value = BiesseInternalAuth.HEADER_INTERNAL, required = false) String internalToken,
+            @RequestParam(required = false) String q,
+            @RequestParam(defaultValue = "30") int limit,
+            @RequestParam(defaultValue = "0") int offset) {
+        internalAuth.requireRead(authorization, internalToken);
+        schemaAligner.ensureReady();
+        int safeLimit = Math.max(1, Math.min(limit, 100));
+        int safeOffset = Math.max(0, offset);
+        List<Map<String, Object>> items =
+                scanService.getOrders(null, null, q, null, null, safeLimit, safeOffset);
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("items", items);
+        out.put("totalCount", items.size());
+        return ResponseEntity.ok(out);
+    }
 
     @GetMapping("/orders/by-job")
     public ResponseEntity<Map<String, Object>> orderByJob(
@@ -69,6 +92,48 @@ public class BiesseIntegrationController {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Orden no encontrada");
         }
         return ResponseEntity.ok(order);
+    }
+
+    @GetMapping("/ops/{opCodigo}")
+    public ResponseEntity<Map<String, Object>> opSummary(
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+            @RequestHeader(value = BiesseInternalAuth.HEADER_INTERNAL, required = false) String internalToken,
+            @PathVariable String opCodigo) {
+        internalAuth.requireRead(authorization, internalToken);
+        schemaAligner.ensureReady();
+        if (opCodigo == null || opCodigo.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "opCodigo requerido");
+        }
+        List<Map<String, Object>> obras = scanRepository.findObrasByOp(opCodigo.trim());
+        int piezasTot = 0;
+        int piezasEsc = 0;
+        int partesTot = 0;
+        int partesEsc = 0;
+        for (Map<String, Object> o : obras) {
+            piezasTot += numberInt(o.get("piezas_totales"));
+            piezasEsc += numberInt(o.get("piezas_escaneadas"));
+            partesTot += numberInt(o.get("total_partes"));
+            partesEsc += numberInt(o.get("partes_escaneadas"));
+        }
+        double pct;
+        String avance;
+        if (piezasTot > 0) {
+            pct = Math.round(piezasEsc * 1000.0 / piezasTot) / 10.0;
+            avance = piezasEsc + "/" + piezasTot + " piezas";
+        } else if (partesTot > 0) {
+            pct = Math.round(partesEsc * 1000.0 / partesTot) / 10.0;
+            avance = partesEsc + "/" + partesTot + " partes";
+        } else {
+            pct = 0;
+            avance = "0/0";
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("op_codigo", opCodigo.trim());
+        out.put("total_obras", obras.size());
+        out.put("porcentaje", pct);
+        out.put("avance_label", avance);
+        out.put("obras", obras);
+        return ResponseEntity.ok(out);
     }
 
     @PostMapping("/orders/{orderId}/produccion")
@@ -121,14 +186,18 @@ public class BiesseIntegrationController {
         return ResponseEntity.ok(obrasRepository.listTrazabilidad(op, orderId, limit));
     }
 
+    public record MarkCortadaRequest(
+            Long orderId, String osiPart, Long partId, Integer pieceNumber, String machineName) {}
+
     @GetMapping("/parts/for-osi")
     public ResponseEntity<Map<String, Object>> partForOsi(
             @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
             @RequestHeader(value = BiesseInternalAuth.HEADER_INTERNAL, required = false) String internalToken,
             @RequestParam long orderId,
             @RequestParam String osiPart,
-            @RequestParam(required = false) String machineName) {
-        internalAuth.requireRead(authorization, internalToken);
+            @RequestParam(required = false) String machineName,
+            @RequestParam(defaultValue = "true") boolean markCortada) {
+        internalAuth.requireWrite(authorization, internalToken);
         schemaAligner.ensureReady();
 
         Map<String, Object> order = obrasRepository.findOrderById(orderId);
@@ -142,11 +211,21 @@ public class BiesseIntegrationController {
             out.put("mapStatus", "UNMAPPED");
             out.put("unitCode", unitCode);
             out.put("partId", null);
+            out.put("pieceNumber", null);
             out.put("partCode", osiPart);
             out.put("material", null);
+            out.put("cortada", false);
             out.put(
                     "zpl",
-                    SimpleZplBuilder.build(orderName, booking, osiPart, "", unitCode, machineName));
+                    SimpleZplBuilder.build(
+                            SimpleZplBuilder.LabelData.builder()
+                                    .orderName(orderName)
+                                    .bookingCode(booking)
+                                    .partCode(osiPart)
+                                    .osiPart(osiPart)
+                                    .unitCode(unitCode)
+                                    .machineName(machineName)
+                                    .build()));
             return ResponseEntity.ok(out);
         }
 
@@ -158,20 +237,90 @@ public class BiesseIntegrationController {
         }
         int pieceNum = obrasRepository.nextPieceNumber(partId);
         String unitCode = orderName + "-P" + partNumber + "-" + pieceNum;
+        String material = str(part.get("material"));
+        String partCode = str(part.get("partcode"));
+        String desc1 = str(part.get("descripcion"));
+        String desc2 = str(part.get("descripcion1"));
+        double length = toDouble(part.get("longitud"));
+        double width = toDouble(part.get("ancho"));
+        int qty = intOrZero(part.get("cantidad"));
+
+        Map<String, Object> cortadaInfo = null;
+        if (markCortada) {
+            cortadaInfo = obrasRepository.markPiezaCortada(partId, pieceNum, machineName);
+        }
+
         out.put("mapStatus", "MAPPED");
         out.put("unitCode", unitCode);
         out.put("partId", partId);
-        out.put("partCode", part.get("partcode"));
-        out.put("material", part.get("material"));
+        out.put("pieceNumber", pieceNum);
+        out.put("partCode", partCode);
+        out.put("material", material);
+        out.put("length", length > 0 ? length : null);
+        out.put("width", width > 0 ? width : null);
+        out.put("cortada", cortadaInfo != null);
+        out.put("cortadaInfo", cortadaInfo);
         out.put(
                 "zpl",
                 SimpleZplBuilder.build(
-                        orderName,
-                        booking,
-                        str(part.get("partcode")),
-                        str(part.get("material")),
-                        unitCode,
-                        machineName));
+                        SimpleZplBuilder.LabelData.builder()
+                                .orderName(orderName)
+                                .bookingCode(booking)
+                                .partCode(partCode)
+                                .material(material)
+                                .unitCode(unitCode)
+                                .machineName(machineName)
+                                .desc1(desc1)
+                                .desc2(desc2)
+                                .osiPart(osiPart)
+                                .partLabel("P" + partNumber)
+                                .length(length)
+                                .width(width)
+                                .partNumber(partNumber)
+                                .pieceNumber(pieceNum)
+                                .quantity(qty)
+                                .build()));
+        return ResponseEntity.ok(out);
+    }
+
+    /** Marca pieza cortada (solo piezas existentes; no inventa filas). */
+    @PostMapping("/parts/mark-cortada")
+    public ResponseEntity<Map<String, Object>> markCortada(
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+            @RequestHeader(value = BiesseInternalAuth.HEADER_INTERNAL, required = false) String internalToken,
+            @RequestBody MarkCortadaRequest body) {
+        internalAuth.requireWrite(authorization, internalToken);
+        schemaAligner.ensureReady();
+        if (body == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Body requerido");
+        }
+
+        Long partId = body.partId();
+        Integer pieceNumber = body.pieceNumber();
+        if (partId == null && body.orderId() != null && body.osiPart() != null) {
+            Map<String, Object> part = obrasRepository.findPartForOsi(body.orderId(), body.osiPart());
+            if (part != null) {
+                partId = ((Number) part.get("partid")).longValue();
+                if (pieceNumber == null) {
+                    pieceNumber = obrasRepository.nextPieceNumber(partId);
+                }
+            }
+        }
+        if (partId == null || pieceNumber == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST, "partId+pieceNumber u orderId+osiPart requeridos");
+        }
+        Map<String, Object> result =
+                obrasRepository.markPiezaCortada(partId, pieceNumber, body.machineName());
+        if (result == null) {
+            Map<String, Object> missing = new LinkedHashMap<>();
+            missing.put("found", false);
+            missing.put("partId", partId);
+            missing.put("pieceNumber", pieceNumber);
+            return ResponseEntity.ok(missing);
+        }
+        Map<String, Object> out = new LinkedHashMap<>(result);
+        out.put("found", true);
         return ResponseEntity.ok(out);
     }
 
@@ -181,5 +330,27 @@ public class BiesseIntegrationController {
 
     private static int intOrZero(Object o) {
         return o instanceof Number n ? n.intValue() : 0;
+    }
+
+    private static int numberInt(Object o) {
+        return o instanceof Number n ? n.intValue() : 0;
+    }
+
+    private static double toDouble(Object o) {
+        if (o instanceof Number n) {
+            return n.doubleValue();
+        }
+        if (o instanceof String s) {
+            String t = s.trim().replace(',', '.');
+            if (t.isEmpty()) {
+                return 0;
+            }
+            try {
+                return Double.parseDouble(t);
+            } catch (NumberFormatException e) {
+                return 0;
+            }
+        }
+        return 0;
     }
 }

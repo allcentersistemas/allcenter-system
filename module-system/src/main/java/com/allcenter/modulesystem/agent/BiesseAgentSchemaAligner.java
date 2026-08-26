@@ -13,7 +13,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
-/** Tablas del agente CNC en app_db + bootstrap opcional de máquina/token. */
+/** Tablas del agente seccionador en app_db + bootstrap opcional de máquina/token. */
 @Component
 @RequiredArgsConstructor
 public class BiesseAgentSchemaAligner {
@@ -106,6 +106,7 @@ public class BiesseAgentSchemaAligner {
                     event_uid VARCHAR(64) NOT NULL UNIQUE,
                     machine_id INTEGER NOT NULL,
                     order_id INTEGER,
+                    order_name TEXT,
                     part_id INTEGER,
                     osi_part_id TEXT,
                     unit_code TEXT,
@@ -117,6 +118,10 @@ public class BiesseAgentSchemaAligner {
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
                 """);
+        jdbc.execute(
+                "ALTER TABLE biesse_agent_cut_piece ADD COLUMN IF NOT EXISTS order_name TEXT");
+        jdbc.execute(
+                "ALTER TABLE biesse_agent_machine ADD COLUMN IF NOT EXISTS machine_type VARCHAR(40) DEFAULT 'SECCIONADOR'");
         jdbc.execute(
                 "CREATE INDEX IF NOT EXISTS idx_biesse_agent_event_machine "
                         + "ON biesse_agent_event(machine_id, created_at DESC)");

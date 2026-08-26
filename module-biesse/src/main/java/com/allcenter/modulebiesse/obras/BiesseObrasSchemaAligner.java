@@ -9,7 +9,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
-/** Schema de OP / trazabilidad en BD obras (sin tablas de agente CNC). */
+/** Schema de OP / trazabilidad / piezas.cortada en BD obras (sin tablas de agente). */
 @Component
 @RequiredArgsConstructor
 public class BiesseObrasSchemaAligner {
@@ -31,7 +31,21 @@ public class BiesseObrasSchemaAligner {
     public synchronized void ensureReady() {
         ensureOpCodigo();
         ensureOpTrazabilidad();
+        ensurePiezasCortada();
         backfillOpCodigos();
+    }
+
+    /** Marca de corte vía agente (solo eventos nuevos; sin backfill histórico). */
+    private void ensurePiezasCortada() {
+        try {
+            jdbc.execute("ALTER TABLE piezas ADD COLUMN IF NOT EXISTS cortada BOOLEAN DEFAULT FALSE");
+            jdbc.execute("ALTER TABLE piezas ADD COLUMN IF NOT EXISTS cortada_at TIMESTAMP");
+            jdbc.execute("ALTER TABLE piezas ADD COLUMN IF NOT EXISTS cortada_por VARCHAR(120)");
+            jdbc.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_piezas_partid_cortada ON piezas(partid, cortada)");
+        } catch (Exception e) {
+            log.debug("ensure piezas.cortada (tabla ausente?): {}", e.getMessage());
+        }
     }
 
     private void ensureOpCodigo() {

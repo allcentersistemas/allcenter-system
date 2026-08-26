@@ -3,7 +3,8 @@ package com.allcenter.modulesystem.agent;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpEntity;
@@ -19,8 +20,9 @@ import org.springframework.web.util.UriComponentsBuilder;
 
 /** Cliente HTTP hacia module-biesse (obras/XML) con token interno. */
 @Component
-@Slf4j
 public class BiesseObrasClient {
+
+    private static final Logger log = LoggerFactory.getLogger(BiesseObrasClient.class);
 
     private final RestTemplate restTemplate;
     private final String biesseBaseUrl;
@@ -36,6 +38,70 @@ public class BiesseObrasClient {
         this.biesseBaseUrl =
                 biesseBaseUrl == null ? "http://localhost:8086" : biesseBaseUrl.replaceAll("/+$", "");
         this.internalToken = internalToken != null ? internalToken.trim() : "";
+    }
+
+    public Map<String, Object> findOrderById(long orderId) {
+        try {
+            String url = biesseBaseUrl + "/api/biesse/scan/integration/orders/" + orderId;
+            ResponseEntity<Map<String, Object>> res =
+                    restTemplate.exchange(
+                            url,
+                            HttpMethod.GET,
+                            new HttpEntity<>(headers()),
+                            new ParameterizedTypeReference<>() {});
+            return res.getBody();
+        } catch (HttpClientErrorException.NotFound e) {
+            return null;
+        } catch (Exception e) {
+            log.warn("biesse findOrderById({}): {}", orderId, e.getMessage());
+            return null;
+        }
+    }
+
+    public Map<String, Object> listOrders(String q, int limit, int offset) {
+        try {
+            UriComponentsBuilder b =
+                    UriComponentsBuilder.fromUriString(biesseBaseUrl + "/api/biesse/scan/integration/orders")
+                            .queryParam("limit", limit)
+                            .queryParam("offset", offset);
+            if (q != null && !q.isBlank()) {
+                b.queryParam("q", q.trim());
+            }
+            ResponseEntity<Map<String, Object>> res =
+                    restTemplate.exchange(
+                            b.toUriString(),
+                            HttpMethod.GET,
+                            new HttpEntity<>(headers()),
+                            new ParameterizedTypeReference<>() {});
+            return res.getBody() != null ? res.getBody() : Map.of("items", List.of(), "totalCount", 0);
+        } catch (Exception e) {
+            log.warn("biesse listOrders: {}", e.getMessage());
+            return Map.of("items", List.of(), "totalCount", 0);
+        }
+    }
+
+    public Map<String, Object> getOpSummary(String opCodigo) {
+        if (opCodigo == null || opCodigo.isBlank()) {
+            return null;
+        }
+        try {
+            String encoded =
+                    org.springframework.web.util.UriUtils.encodePathSegment(
+                            opCodigo.trim(), java.nio.charset.StandardCharsets.UTF_8);
+            String url = biesseBaseUrl + "/api/biesse/scan/integration/ops/" + encoded;
+            ResponseEntity<Map<String, Object>> res =
+                    restTemplate.exchange(
+                            url,
+                            HttpMethod.GET,
+                            new HttpEntity<>(headers()),
+                            new ParameterizedTypeReference<>() {});
+            return res.getBody();
+        } catch (HttpClientErrorException.NotFound e) {
+            return null;
+        } catch (Exception e) {
+            log.warn("biesse getOpSummary('{}'): {}", opCodigo, e.getMessage());
+            return null;
+        }
     }
 
     public Map<String, Object> findOrderForJob(String jobName) {

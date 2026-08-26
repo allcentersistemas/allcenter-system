@@ -646,7 +646,7 @@ public class BiesseScanRepository {
         StringBuilder sql =
                 new StringBuilder(
                         """
-                        SELECT o.orderid, o.ordername, o.bookingcode, o.fechacreacion,
+                        SELECT o.orderid, o.ordername, o.bookingcode, o.op_codigo, o.fechacreacion,
                                st.estado_escaneo,
                                NULL::timestamp AS fecha_completado,
                                st.partes_escaneadas,
@@ -689,7 +689,7 @@ public class BiesseScanRepository {
             StringBuilder sqlWithoutPiezas =
                     new StringBuilder(
                             """
-                            SELECT o.orderid, o.ordername, o.bookingcode, o.fechacreacion,
+                            SELECT o.orderid, o.ordername, o.bookingcode, o.op_codigo, o.fechacreacion,
                                    st.estado_escaneo,
                                    NULL::timestamp AS fecha_completado,
                                    st.partes_escaneadas,

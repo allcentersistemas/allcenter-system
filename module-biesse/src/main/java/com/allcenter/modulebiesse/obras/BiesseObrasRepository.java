@@ -8,7 +8,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
-/** Acceso a órdenes/partes/trazabilidad en BD {@code obras} (sin tablas de agente CNC). */
+/** Acceso a órdenes/partes/trazabilidad en BD {@code obras} (sin tablas de agente). */
 @Repository
 @RequiredArgsConstructor
 public class BiesseObrasRepository {
@@ -147,7 +147,7 @@ public class BiesseObrasRepository {
                 jdbc.queryForList(
                         """
                         SELECT partid, orderid, partcode, partnumber, cantidad, material,
-                               descripcion, descripcion1, escaneado
+                               descripcion, descripcion1, longitud, ancho, escaneado
                         FROM partes
                         WHERE orderid = ?
                           AND (partnumber = ? OR UPPER(TRIM(partcode)) = UPPER(?) OR UPPER(TRIM(partcode)) = UPPER(?))
@@ -161,19 +161,82 @@ public class BiesseObrasRepository {
         return rows.isEmpty() ? null : rows.getFirst();
     }
 
+    /**
+     * Siguiente número de pieza aún no cortada por el agente. No inventa filas al marcar:
+     * si todas están cortadas, devuelve max+1 (el mark fallará sin crear pieza).
+     */
     public Integer nextPieceNumber(long partId) {
+        List<Map<String, Object>> pending =
+                jdbc.queryForList(
+                        """
+                        SELECT MIN(numero_pieza) AS n
+                        FROM piezas
+                        WHERE partid = ?
+                          AND COALESCE(cortada, FALSE) = FALSE
+                        """,
+                        partId);
+        if (!pending.isEmpty() && pending.getFirst().get("n") != null) {
+            return ((Number) pending.getFirst().get("n")).intValue();
+        }
+        List<Map<String, Object>> maxRows =
+                jdbc.queryForList(
+                        """
+                        SELECT COALESCE(MAX(numero_pieza), 0) AS n
+                        FROM piezas
+                        WHERE partid = ?
+                        """,
+                        partId);
+        int max = 0;
+        if (!maxRows.isEmpty() && maxRows.getFirst().get("n") != null) {
+            max = ((Number) maxRows.getFirst().get("n")).intValue();
+        }
+        return max + 1;
+    }
+
+    /**
+     * Marca pieza cortada por el seccionador (solo filas existentes; idempotente).
+     *
+     * @return mapa con piezaid / already / updated, o null si no hay pieza
+     */
+    public Map<String, Object> markPiezaCortada(long partId, int pieceNumber, String machineName) {
         List<Map<String, Object>> rows =
                 jdbc.queryForList(
                         """
-                        SELECT COALESCE(MIN(numero_pieza), 1) AS n
+                        SELECT piezaid, numero_pieza, COALESCE(cortada, FALSE) AS cortada
                         FROM piezas
-                        WHERE partid = ? AND escaneado = FALSE
+                        WHERE partid = ? AND numero_pieza = ?
+                        LIMIT 1
                         """,
-                        partId);
-        if (rows.isEmpty() || rows.getFirst().get("n") == null) {
-            return 1;
+                        partId,
+                        pieceNumber);
+        if (rows.isEmpty()) {
+            return null;
         }
-        return ((Number) rows.getFirst().get("n")).intValue();
+        Map<String, Object> piece = rows.getFirst();
+        boolean already = Boolean.TRUE.equals(piece.get("cortada"))
+                || "t".equalsIgnoreCase(String.valueOf(piece.get("cortada")))
+                || "true".equalsIgnoreCase(String.valueOf(piece.get("cortada")));
+        if (!already) {
+            jdbc.update(
+                    """
+                    UPDATE piezas
+                    SET cortada = TRUE,
+                        cortada_at = CURRENT_TIMESTAMP,
+                        cortada_por = ?
+                    WHERE piezaid = ?
+                      AND COALESCE(cortada, FALSE) = FALSE
+                    """,
+                    machineName != null && !machineName.isBlank() ? machineName.trim() : null,
+                    ((Number) piece.get("piezaid")).longValue());
+        }
+        java.util.LinkedHashMap<String, Object> out = new java.util.LinkedHashMap<>();
+        out.put("piezaId", ((Number) piece.get("piezaid")).longValue());
+        out.put("numeroPieza", pieceNumber);
+        out.put("partId", partId);
+        out.put("already", already);
+        out.put("updated", !already);
+        out.put("cortada", true);
+        return out;
     }
 
     public List<Map<String, Object>> listTrazabilidad(String opCodigo, Long orderId, int limit) {
