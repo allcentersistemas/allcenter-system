@@ -24,11 +24,20 @@ Al `Start program` o status `RUN` con `job_name` que matchea una obra:
 
 Match de job: `ordername` / `bookingcode` / `op_codigo` / prefijo fuzzy.
 
-## Bootstrap local
+## Frontend (portal empleados)
 
-Si no hay máquinas en BD, al arrancar se crea una con:
+Inventario → pestaña **Monitor CNC**:
+- Tarjetas de máquina (online, RUN/IDLE, job, tiempo de corte)
+- Eventos OSI recientes
+- Piezas cortadas / stickers
 
-- token: `dev-biesse-agent-token` (`BIESSE_AGENT_BOOTSTRAP_TOKEN`)
-- nombre: `BIESSE-OSI`
+Inventario → **Órdenes Biesse**:
+- Estados **Optimizado** / **Producción**
+- En el detalle: panel **Trazabilidad OP** (CORTE_INICIO, CORTE_FIN, PIEZA_CORTADA, XML_SUBIDO)
 
-En el agente Win10 configurar URL `http://IP:8086` y ese token.
+APIs JWT (mismo permiso que órdenes):
+- `GET /api/biesse/scan/agent/machines`
+- `GET /api/biesse/scan/agent/events`
+- `GET /api/biesse/scan/agent/cut-pieces`
+- `GET /api/biesse/scan/agent/trazabilidad?orderId=`
+

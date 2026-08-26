@@ -34,9 +34,7 @@ public class BiesseAgentSchemaAligner {
     @PostConstruct
     public void align() {
         try {
-            ensureOpCodigo();
-            ensureOpTrazabilidad();
-            ensureAgentTables();
+            ensureReady();
             bootstrapMachineIfNeeded();
             log.info("Biesse agent schema OK");
         } catch (Exception e) {
@@ -44,9 +42,42 @@ public class BiesseAgentSchemaAligner {
         }
     }
 
+    /** Idempotente: crear tablas/columnas si faltan (útil tras deploy sin reinicio limpio). */
+    public synchronized void ensureReady() {
+        ensureOpCodigo();
+        ensureOpTrazabilidad();
+        ensureAgentTables();
+        backfillOpCodigos();
+    }
+
     private void ensureOpCodigo() {
         jdbc.execute("ALTER TABLE ordenes ADD COLUMN IF NOT EXISTS op_codigo VARCHAR(40)");
         jdbc.execute("CREATE INDEX IF NOT EXISTS idx_ordenes_op_codigo ON ordenes(op_codigo)");
+    }
+
+    private void backfillOpCodigos() {
+        try {
+            List<Map<String, Object>> rows =
+                    jdbc.queryForList(
+                            """
+                            SELECT orderid, ordername FROM ordenes
+                            WHERE op_codigo IS NULL OR TRIM(op_codigo) = ''
+                            LIMIT 5000
+                            """);
+            for (Map<String, Object> row : rows) {
+                String name = row.get("ordername") != null ? String.valueOf(row.get("ordername")) : "";
+                String op = BiesseAgentRepository.extractOp(name);
+                if (op == null) {
+                    continue;
+                }
+                jdbc.update(
+                        "UPDATE ordenes SET op_codigo = ? WHERE orderid = ?",
+                        op,
+                        ((Number) row.get("orderid")).longValue());
+            }
+        } catch (Exception e) {
+            log.debug("backfill op_codigo: {}", e.getMessage());
+        }
     }
 
     private void ensureOpTrazabilidad() {

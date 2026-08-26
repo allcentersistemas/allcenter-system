@@ -434,4 +434,152 @@ public class BiesseAgentRepository {
             }
         }
     }
+
+    public List<Map<String, Object>> listMachines() {
+        return jdbc.queryForList(
+                """
+                SELECT machine_id, machine_name, company_id, online, state, job_name, pattern_name,
+                       last_part, boards_done, pieces_produced, osi_session_id,
+                       printer_name, printer_enabled, plant_name, hostname,
+                       health_status, last_error, agent_version, compatible_profile,
+                       current_order_id, job_started_at, last_heartbeat_at, last_status_at, created_at
+                FROM biesse_agent_machine
+                ORDER BY online DESC NULLS LAST, last_heartbeat_at DESC NULLS LAST, machine_id
+                """);
+    }
+
+    public Map<String, Object> createMachine(String machineName, String plantName, String tokenHash) {
+        KeyHolder keys = new GeneratedKeyHolder();
+        jdbc.update(
+                con -> {
+                    var ps =
+                            con.prepareStatement(
+                                    """
+                                    INSERT INTO biesse_agent_machine
+                                        (machine_name, token_hash, plant_name, online, health_status)
+                                    VALUES (?, ?, ?, FALSE, 'OK')
+                                    RETURNING machine_id
+                                    """,
+                                    new String[] {"machine_id"});
+                    ps.setString(1, machineName);
+                    ps.setString(2, tokenHash);
+                    ps.setString(3, plantName);
+                    return ps;
+                },
+                keys);
+        Number id = keys.getKey();
+        long machineId = id != null ? id.longValue() : 0L;
+        Map<String, Object> row = findMachineById((int) machineId);
+        return row;
+    }
+
+    public boolean rotateToken(int machineId, String tokenHash) {
+        int n =
+                jdbc.update(
+                        "UPDATE biesse_agent_machine SET token_hash = ? WHERE machine_id = ?",
+                        tokenHash,
+                        machineId);
+        return n > 0;
+    }
+
+    public List<Map<String, Object>> listRecentEvents(int limit) {
+        int safe = Math.max(1, Math.min(limit, 500));
+        return jdbc.queryForList(
+                """
+                SELECT e.id, e.event_uid, e.machine_id, m.machine_name, e.event_type, e.code,
+                       e.description, e.severity, e.event_time, e.order_id, e.processed_action,
+                       e.created_at, o.ordername
+                FROM biesse_agent_event e
+                LEFT JOIN biesse_agent_machine m ON m.machine_id = e.machine_id
+                LEFT JOIN ordenes o ON o.orderid = e.order_id
+                ORDER BY e.created_at DESC, e.id DESC
+                LIMIT ?
+                """,
+                safe);
+    }
+
+    public List<Map<String, Object>> listTrazabilidad(String opCodigo, Long orderId, int limit) {
+        int safe = Math.max(1, Math.min(limit, 500));
+        String op = opCodigo;
+        if ((op == null || op.isBlank()) && orderId != null) {
+            List<Map<String, Object>> ord =
+                    jdbc.queryForList(
+                            "SELECT ordername, op_codigo FROM ordenes WHERE orderid = ?", orderId);
+            if (!ord.isEmpty()) {
+                op = str(ord.getFirst().get("op_codigo"));
+                if (op == null || op.isBlank()) {
+                    op = extractOp(str(ord.getFirst().get("ordername")));
+                }
+            }
+        }
+        if (orderId != null && op != null && !op.isBlank()) {
+            return jdbc.queryForList(
+                    """
+                    SELECT id, op_codigo, orderid, ordername, estado, accion, detalle,
+                           xml_file, piezas_totales, partes_totales, usuario, usuario_id, fecha
+                    FROM op_trazabilidad
+                    WHERE orderid = ? OR UPPER(TRIM(op_codigo)) = UPPER(TRIM(?))
+                    ORDER BY fecha DESC, id DESC
+                    LIMIT ?
+                    """,
+                    orderId,
+                    op,
+                    safe);
+        }
+        if (orderId != null) {
+            return jdbc.queryForList(
+                    """
+                    SELECT id, op_codigo, orderid, ordername, estado, accion, detalle,
+                           xml_file, piezas_totales, partes_totales, usuario, usuario_id, fecha
+                    FROM op_trazabilidad
+                    WHERE orderid = ?
+                    ORDER BY fecha DESC, id DESC
+                    LIMIT ?
+                    """,
+                    orderId,
+                    safe);
+        }
+        if (op != null && !op.isBlank()) {
+            return jdbc.queryForList(
+                    """
+                    SELECT id, op_codigo, orderid, ordername, estado, accion, detalle,
+                           xml_file, piezas_totales, partes_totales, usuario, usuario_id, fecha
+                    FROM op_trazabilidad
+                    WHERE UPPER(TRIM(op_codigo)) = UPPER(TRIM(?))
+                    ORDER BY fecha DESC, id DESC
+                    LIMIT ?
+                    """,
+                    op.trim(),
+                    safe);
+        }
+        return jdbc.queryForList(
+                """
+                SELECT id, op_codigo, orderid, ordername, estado, accion, detalle,
+                       xml_file, piezas_totales, partes_totales, usuario, usuario_id, fecha
+                FROM op_trazabilidad
+                ORDER BY fecha DESC, id DESC
+                LIMIT ?
+                """,
+                safe);
+    }
+
+    private static String str(Object o) {
+        return o == null ? null : String.valueOf(o);
+    }
+
+    public List<Map<String, Object>> listRecentCutPieces(int limit) {
+        int safe = Math.max(1, Math.min(limit, 200));
+        return jdbc.queryForList(
+                """
+                SELECT c.cut_piece_id, c.event_uid, c.machine_id, c.order_id, c.part_id,
+                       c.osi_part_id, c.unit_code, c.map_status, c.printed, c.print_error,
+                       c.printed_at, c.created_at, o.ordername, m.machine_name
+                FROM biesse_agent_cut_piece c
+                LEFT JOIN ordenes o ON o.orderid = c.order_id
+                LEFT JOIN biesse_agent_machine m ON m.machine_id = c.machine_id
+                ORDER BY c.created_at DESC
+                LIMIT ?
+                """,
+                safe);
+    }
 }

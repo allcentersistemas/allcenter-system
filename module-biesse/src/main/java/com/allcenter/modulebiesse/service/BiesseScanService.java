@@ -178,6 +178,17 @@ public class BiesseScanService {
         return repository.findOrders(orderId, state, query, fromDate, toDate, safeLimit, safeOffset);
     }
 
+    public Map<String, Object> getOpsPage(String query, int limit, int offset) {
+        int safeLimit = Math.max(1, Math.min(limit, 200));
+        int safeOffset = Math.max(0, offset);
+        int total = repository.countOps(query);
+        List<Map<String, Object>> items = repository.findOpsPage(query, safeLimit, safeOffset);
+        Map<String, Object> out = new HashMap<>();
+        out.put("items", items);
+        out.put("totalCount", total);
+        return out;
+    }
+
     public List<Map<String, Object>> getAudit(
             Long orderId, Long partId, String orderQ, String partQ, String action, int limit, int offset) {
         int safeLimit = Math.max(1, Math.min(limit, 500));

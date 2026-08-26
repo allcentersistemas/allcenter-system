@@ -662,12 +662,15 @@ public class BiesseScanRepository {
                                         ELSE ROUND(
                                             100.0 * COUNT(*) FILTER (WHERE COALESCE(p.escaneado, FALSE)) / COUNT(*), 2)
                                    END AS porcentaje_completado,
-                                   CASE WHEN COUNT(*) = 0 THEN 'PENDIENTE'
-                                        WHEN COUNT(*) FILTER (WHERE NOT COALESCE(p.escaneado, FALSE)) = 0
+                                   CASE
+                                        WHEN COUNT(*) > 0
+                                             AND COUNT(*) FILTER (WHERE NOT COALESCE(p.escaneado, FALSE)) = 0
                                             THEN 'COMPLETADA'
                                         WHEN COUNT(*) FILTER (WHERE COALESCE(p.escaneado, FALSE)) > 0
                                             THEN 'EN_PROCESO'
-                                        ELSE 'PENDIENTE'
+                                        WHEN UPPER(COALESCE(o.estado_escaneo, '')) IN ('PRODUCCION', 'OPTIMIZADO')
+                                            THEN UPPER(o.estado_escaneo)
+                                        ELSE COALESCE(NULLIF(UPPER(TRIM(o.estado_escaneo)), ''), 'PENDIENTE')
                                    END AS estado_escaneo
                             FROM partes p
                             WHERE p.orderid = o.orderid
@@ -702,12 +705,15 @@ public class BiesseScanRepository {
                                             ELSE ROUND(
                                                 100.0 * COUNT(*) FILTER (WHERE COALESCE(p.escaneado, FALSE)) / COUNT(*), 2)
                                        END AS porcentaje_completado,
-                                       CASE WHEN COUNT(*) = 0 THEN 'PENDIENTE'
-                                            WHEN COUNT(*) FILTER (WHERE NOT COALESCE(p.escaneado, FALSE)) = 0
+                                       CASE
+                                            WHEN COUNT(*) > 0
+                                                 AND COUNT(*) FILTER (WHERE NOT COALESCE(p.escaneado, FALSE)) = 0
                                                 THEN 'COMPLETADA'
                                             WHEN COUNT(*) FILTER (WHERE COALESCE(p.escaneado, FALSE)) > 0
                                                 THEN 'EN_PROCESO'
-                                            ELSE 'PENDIENTE'
+                                            WHEN UPPER(COALESCE(o.estado_escaneo, '')) IN ('PRODUCCION', 'OPTIMIZADO')
+                                                THEN UPPER(o.estado_escaneo)
+                                            ELSE COALESCE(NULLIF(UPPER(TRIM(o.estado_escaneo)), ''), 'PENDIENTE')
                                        END AS estado_escaneo
                                 FROM partes p
                                 WHERE p.orderid = o.orderid
@@ -1042,14 +1048,26 @@ public class BiesseScanRepository {
     }
 
     public Map<String, Object> findOrderById(Long orderId) {
-        List<Map<String, Object>> rows =
-                jdbcTemplate.queryForList(
-                        """
-                        SELECT orderid, ordername, bookingcode, fechacreacion
-                        FROM ordenes
-                        WHERE orderid = ?
-                        """,
-                        orderId);
+        List<Map<String, Object>> rows;
+        try {
+            rows =
+                    jdbcTemplate.queryForList(
+                            """
+                            SELECT orderid, ordername, bookingcode, fechacreacion, estado_escaneo, op_codigo
+                            FROM ordenes
+                            WHERE orderid = ?
+                            """,
+                            orderId);
+        } catch (DataAccessException ex) {
+            rows =
+                    jdbcTemplate.queryForList(
+                            """
+                            SELECT orderid, ordername, bookingcode, fechacreacion, estado_escaneo
+                            FROM ordenes
+                            WHERE orderid = ?
+                            """,
+                            orderId);
+        }
         if (rows.isEmpty()) {
             return null;
         }
@@ -1063,13 +1081,19 @@ public class BiesseScanRepository {
         long total = ((Number) stats.getOrDefault("total", 0)).longValue();
         long escaneadas = ((Number) stats.getOrDefault("escaneadas", 0)).longValue();
         double pct = total == 0 ? 0.0 : Math.min(100.0, (escaneadas * 100.0) / total);
+        String stored =
+                order.get("estado_escaneo") != null
+                        ? String.valueOf(order.get("estado_escaneo")).trim().toUpperCase()
+                        : "";
         String estado;
-        if (total == 0) {
-            estado = "PENDIENTE";
-        } else if (escaneadas >= total) {
+        if (total > 0 && escaneadas >= total) {
             estado = "COMPLETADA";
         } else if (escaneadas > 0) {
             estado = "EN_PROCESO";
+        } else if ("PRODUCCION".equals(stored) || "OPTIMIZADO".equals(stored)) {
+            estado = stored;
+        } else if (!stored.isBlank()) {
+            estado = stored;
         } else {
             estado = "PENDIENTE";
         }
@@ -1570,5 +1594,221 @@ public class BiesseScanRepository {
         }
         int space = tail.indexOf(' ');
         return space > 0 ? tail.substring(0, space).trim() : tail.trim();
+    }
+
+    public void ensureOpCodigoColumn() {
+        try {
+            jdbcTemplate.execute("ALTER TABLE ordenes ADD COLUMN IF NOT EXISTS op_codigo VARCHAR(40)");
+            jdbcTemplate.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_ordenes_op_codigo ON ordenes(op_codigo)");
+        } catch (Exception ignored) {
+            // no-op
+        }
+    }
+
+    public int backfillOpCodigos(int limit) {
+        ensureOpCodigoColumn();
+        int safe = Math.max(1, Math.min(limit, 5000));
+        List<Map<String, Object>> rows =
+                jdbcTemplate.queryForList(
+                        """
+                        SELECT orderid, ordername FROM ordenes
+                        WHERE op_codigo IS NULL OR TRIM(op_codigo) = ''
+                        LIMIT ?
+                        """,
+                        safe);
+        int updated = 0;
+        java.util.regex.Pattern p = java.util.regex.Pattern.compile("^([A-Za-z]?\\d{3,})\\b");
+        for (Map<String, Object> row : rows) {
+            String name = row.get("ordername") != null ? String.valueOf(row.get("ordername")) : "";
+            java.util.regex.Matcher m = p.matcher(name.trim());
+            if (!m.find()) {
+                continue;
+            }
+            String op = m.group(1).toUpperCase();
+            jdbcTemplate.update(
+                    "UPDATE ordenes SET op_codigo = ? WHERE orderid = ?",
+                    op,
+                    ((Number) row.get("orderid")).longValue());
+            updated++;
+        }
+        return updated;
+    }
+
+    public int countOps(String searchText) {
+        ensureOpCodigoColumn();
+        backfillOpCodigos(2000);
+        if (searchText != null && !searchText.isBlank()) {
+            String like = "%" + searchText.trim() + "%";
+            Number n =
+                    jdbcTemplate.queryForObject(
+                            """
+                            SELECT COUNT(DISTINCT COALESCE(NULLIF(TRIM(op_codigo), ''), ordername))
+                            FROM ordenes
+                            WHERE ordername ILIKE ?
+                               OR COALESCE(bookingcode, '') ILIKE ?
+                               OR COALESCE(op_codigo, '') ILIKE ?
+                            """,
+                            Number.class,
+                            like,
+                            like,
+                            like);
+            return n == null ? 0 : n.intValue();
+        }
+        Number n =
+                jdbcTemplate.queryForObject(
+                        """
+                        SELECT COUNT(DISTINCT COALESCE(NULLIF(TRIM(op_codigo), ''), ordername))
+                        FROM ordenes
+                        """,
+                        Number.class);
+        return n == null ? 0 : n.intValue();
+    }
+
+    public List<Map<String, Object>> findOpsPage(String searchText, int limit, int offset) {
+        ensureOpCodigoColumn();
+        backfillOpCodigos(2000);
+        int safeLimit = Math.max(1, Math.min(limit, 200));
+        int safeOffset = Math.max(0, offset);
+        List<Map<String, Object>> opKeys;
+        if (searchText != null && !searchText.isBlank()) {
+            String like = "%" + searchText.trim() + "%";
+            opKeys =
+                    jdbcTemplate.queryForList(
+                            """
+                            SELECT COALESCE(NULLIF(TRIM(o.op_codigo), ''), o.ordername) AS op_key
+                            FROM ordenes o
+                            WHERE o.ordername ILIKE ?
+                               OR COALESCE(o.bookingcode, '') ILIKE ?
+                               OR COALESCE(o.op_codigo, '') ILIKE ?
+                            GROUP BY COALESCE(NULLIF(TRIM(o.op_codigo), ''), o.ordername)
+                            ORDER BY MAX(o.fechacreacion) DESC NULLS LAST
+                            LIMIT ? OFFSET ?
+                            """,
+                            like,
+                            like,
+                            like,
+                            safeLimit,
+                            safeOffset);
+        } else {
+            opKeys =
+                    jdbcTemplate.queryForList(
+                            """
+                            SELECT COALESCE(NULLIF(TRIM(o.op_codigo), ''), o.ordername) AS op_key
+                            FROM ordenes o
+                            GROUP BY COALESCE(NULLIF(TRIM(o.op_codigo), ''), o.ordername)
+                            ORDER BY MAX(o.fechacreacion) DESC NULLS LAST
+                            LIMIT ? OFFSET ?
+                            """,
+                            safeLimit,
+                            safeOffset);
+        }
+        List<Map<String, Object>> result = new java.util.ArrayList<>();
+        for (Map<String, Object> keyRow : opKeys) {
+            String opKey = String.valueOf(keyRow.get("op_key"));
+            List<Map<String, Object>> obras = findObrasByOp(opKey);
+            int piezasTot = 0;
+            int piezasEsc = 0;
+            int partesTot = 0;
+            int partesEsc = 0;
+            for (Map<String, Object> o : obras) {
+                piezasTot += ((Number) o.getOrDefault("piezas_totales", 0)).intValue();
+                piezasEsc += ((Number) o.getOrDefault("piezas_escaneadas", 0)).intValue();
+                partesTot += ((Number) o.getOrDefault("total_partes", 0)).intValue();
+                partesEsc += ((Number) o.getOrDefault("partes_escaneadas", 0)).intValue();
+            }
+            double pct;
+            String avance;
+            if (piezasTot > 0) {
+                pct = Math.round(piezasEsc * 1000.0 / piezasTot) / 10.0;
+                avance = piezasEsc + "/" + piezasTot + " piezas";
+            } else if (partesTot > 0) {
+                pct = Math.round(partesEsc * 1000.0 / partesTot) / 10.0;
+                avance = partesEsc + "/" + partesTot + " partes";
+            } else {
+                pct = 0;
+                avance = "0/0";
+            }
+            Map<String, Object> op = new java.util.LinkedHashMap<>();
+            op.put("op_codigo", opKey);
+            op.put("total_obras", obras.size());
+            op.put("porcentaje", pct);
+            op.put("avance_label", avance);
+            op.put("obras", obras);
+            result.add(op);
+        }
+        return result;
+    }
+
+    public List<Map<String, Object>> findObrasByOp(String opCodigo) {
+        if (opCodigo == null || opCodigo.isBlank()) {
+            return List.of();
+        }
+        List<Map<String, Object>> rows =
+                jdbcTemplate.queryForList(
+                        """
+                        SELECT o.orderid, o.ordername, o.bookingcode, o.fechacreacion, o.op_codigo,
+                               o.estado_escaneo,
+                               (SELECT COUNT(*) FROM partes p WHERE p.orderid = o.orderid) AS total_partes,
+                               (SELECT COUNT(*) FROM partes p WHERE p.orderid = o.orderid AND p.escaneado = TRUE) AS partes_escaneadas,
+                               (SELECT COUNT(*) FROM piezas z JOIN partes p ON p.partid = z.partid WHERE p.orderid = o.orderid) AS piezas_totales,
+                               (SELECT COUNT(*) FROM piezas z JOIN partes p ON p.partid = z.partid WHERE p.orderid = o.orderid AND z.escaneado = TRUE) AS piezas_escaneadas
+                        FROM ordenes o
+                        WHERE COALESCE(NULLIF(TRIM(o.op_codigo), ''), o.ordername) = ?
+                        ORDER BY o.fechacreacion DESC NULLS LAST, o.orderid DESC
+                        """,
+                        opCodigo);
+        List<Map<String, Object>> obras = new java.util.ArrayList<>();
+        for (Map<String, Object> row : rows) {
+            int totalPartes = ((Number) row.getOrDefault("total_partes", 0)).intValue();
+            int partesEsc = ((Number) row.getOrDefault("partes_escaneadas", 0)).intValue();
+            int piezasTot = ((Number) row.getOrDefault("piezas_totales", 0)).intValue();
+            int piezasEsc = ((Number) row.getOrDefault("piezas_escaneadas", 0)).intValue();
+            String stored =
+                    row.get("estado_escaneo") != null
+                            ? String.valueOf(row.get("estado_escaneo")).trim().toUpperCase()
+                            : "";
+            String estado;
+            if (piezasTot > 0 && piezasEsc >= piezasTot) {
+                estado = "COMPLETADA";
+            } else if (totalPartes > 0 && partesEsc >= totalPartes && piezasTot == 0) {
+                estado = "COMPLETADA";
+            } else if (piezasEsc > 0 || partesEsc > 0) {
+                estado = "EN_PROCESO";
+            } else if ("PRODUCCION".equals(stored) || "OPTIMIZADO".equals(stored)) {
+                estado = stored;
+            } else if (!stored.isBlank()) {
+                estado = stored;
+            } else {
+                estado = "PENDIENTE";
+            }
+            double pct;
+            String avance;
+            if (piezasTot > 0) {
+                pct = Math.round(piezasEsc * 1000.0 / piezasTot) / 10.0;
+                avance = piezasEsc + "/" + piezasTot + " piezas";
+            } else if (totalPartes > 0) {
+                pct = Math.round(partesEsc * 1000.0 / totalPartes) / 10.0;
+                avance = partesEsc + "/" + totalPartes + " partes";
+            } else {
+                pct = 0;
+                avance = "0/0";
+            }
+            Map<String, Object> obra = new java.util.LinkedHashMap<>();
+            obra.put("orderid", row.get("orderid"));
+            obra.put("ordername", row.get("ordername"));
+            obra.put("bookingcode", row.get("bookingcode"));
+            obra.put("fechacreacion", row.get("fechacreacion"));
+            obra.put("op_codigo", row.get("op_codigo") != null ? row.get("op_codigo") : opCodigo);
+            obra.put("estado_escaneo", estado);
+            obra.put("total_partes", totalPartes);
+            obra.put("partes_escaneadas", partesEsc);
+            obra.put("piezas_totales", piezasTot);
+            obra.put("piezas_escaneadas", piezasEsc);
+            obra.put("porcentaje", pct);
+            obra.put("avance_label", avance);
+            obras.add(obra);
+        }
+        return obras;
     }
 }

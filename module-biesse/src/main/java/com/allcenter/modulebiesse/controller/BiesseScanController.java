@@ -119,6 +119,16 @@ public class BiesseScanController {
         return ResponseEntity.ok(scanService.getOrders(orderId, state, q, fromDate, toDate, limit, offset));
     }
 
+    @GetMapping("/ops")
+    public ResponseEntity<Map<String, Object>> getOps(
+            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
+            @RequestParam(required = false) String q,
+            @RequestParam(defaultValue = "20") int limit,
+            @RequestParam(defaultValue = "0") int offset) {
+        portalAuth.requireRead(authorization);
+        return ResponseEntity.ok(scanService.getOpsPage(q, limit, offset));
+    }
+
     @GetMapping("/audit")
     public ResponseEntity<List<Map<String, Object>>> audit(
             @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
