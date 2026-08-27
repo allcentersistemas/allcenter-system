@@ -714,7 +714,12 @@ public class BiesseScanRepository {
                                st.partes_totales,
                                st.porcentaje_completado,
                                COALESCE(pz.total_piezas, 0) AS total_piezas,
-                               COALESCE(pz.piezas_escaneadas, 0) AS piezas_escaneadas
+                               CASE
+                                    WHEN st.partes_totales > 0
+                                         AND st.partes_escaneadas >= st.partes_totales
+                                        THEN COALESCE(pz.total_piezas, 0)
+                                    ELSE COALESCE(pz.piezas_escaneadas, 0)
+                               END AS piezas_escaneadas
                         FROM ordenes o
                         LEFT JOIN LATERAL (
                             SELECT COUNT(*)::int AS partes_totales,
@@ -1801,20 +1806,30 @@ public class BiesseScanRepository {
             int piezasEsc = 0;
             int partesTot = 0;
             int partesEsc = 0;
+            double pctSum = 0;
             for (Map<String, Object> o : obras) {
                 piezasTot += ((Number) o.getOrDefault("piezas_totales", 0)).intValue();
                 piezasEsc += ((Number) o.getOrDefault("piezas_escaneadas", 0)).intValue();
                 partesTot += ((Number) o.getOrDefault("total_partes", 0)).intValue();
                 partesEsc += ((Number) o.getOrDefault("partes_escaneadas", 0)).intValue();
+                pctSum += ((Number) o.getOrDefault("porcentaje", 0)).doubleValue();
             }
             double pct;
             String avance;
-            if (piezasTot > 0) {
-                pct = Math.round(piezasEsc * 1000.0 / piezasTot) / 10.0;
-                avance = piezasEsc + "/" + piezasTot + " piezas";
-            } else if (partesTot > 0) {
-                pct = Math.round(partesEsc * 1000.0 / partesTot) / 10.0;
-                avance = partesEsc + "/" + partesTot + " partes";
+            if (!obras.isEmpty()) {
+                // Promedio de cada obra (ya alineado con detalle: partes 100% = listo).
+                pct = Math.round((pctSum / obras.size()) * 10.0) / 10.0;
+                if (piezasTot > 0 && piezasEsc >= piezasTot) {
+                    avance = piezasEsc + "/" + piezasTot + " piezas";
+                } else if (partesTot > 0 && partesEsc >= partesTot) {
+                    avance = partesEsc + "/" + partesTot + " partes";
+                } else if (piezasTot > 0) {
+                    avance = piezasEsc + "/" + piezasTot + " piezas";
+                } else if (partesTot > 0) {
+                    avance = partesEsc + "/" + partesTot + " partes";
+                } else {
+                    avance = "0/0";
+                }
             } else {
                 pct = 0;
                 avance = "0/0";
@@ -1858,14 +1873,18 @@ public class BiesseScanRepository {
                     row.get("estado_escaneo") != null
                             ? String.valueOf(row.get("estado_escaneo")).trim().toUpperCase()
                             : "";
+            boolean partesDone = totalPartes > 0 && partesEsc >= totalPartes;
+            boolean piezasDone = piezasTot > 0 && piezasEsc >= piezasTot;
             String estado;
             if ("ENTREGADO".equals(stored)) {
                 estado = BiesseObrasRepository.ESTADO_ENTREGADO;
-            } else if ((piezasTot > 0 && piezasEsc >= piezasTot)
-                    || (totalPartes > 0 && partesEsc >= totalPartes && piezasTot == 0)
+            } else if (piezasDone
+                    || partesDone
                     || "LISTO_PARA_ENTREGAR".equals(stored)
                     || "COMPLETADA".equals(stored)
                     || "COMPLETADO".equals(stored)) {
+                // Misma regla que detalle / findOrders: partes al 100% = listo
+                // (aunque queden filas piezas.escaneado desfasadas).
                 estado = BiesseObrasRepository.ESTADO_LISTO;
             } else if (piezasEsc > 0 || partesEsc > 0 || "DESPACHO".equals(stored)) {
                 estado = BiesseObrasRepository.ESTADO_DESPACHO;
@@ -1878,7 +1897,18 @@ public class BiesseScanRepository {
             }
             double pct;
             String avance;
-            if (piezasTot > 0) {
+            if (partesDone || piezasDone) {
+                if (piezasTot > 0) {
+                    // Si las partes están al 100%, la UI muestra piezas completas
+                    // (alineado con detalle web por cantidad_escaneada).
+                    int showEsc = piezasDone ? piezasEsc : piezasTot;
+                    pct = Math.round(showEsc * 1000.0 / piezasTot) / 10.0;
+                    avance = showEsc + "/" + piezasTot + " piezas";
+                } else {
+                    pct = Math.round(partesEsc * 1000.0 / totalPartes) / 10.0;
+                    avance = partesEsc + "/" + totalPartes + " partes";
+                }
+            } else if (piezasTot > 0) {
                 pct = Math.round(piezasEsc * 1000.0 / piezasTot) / 10.0;
                 avance = piezasEsc + "/" + piezasTot + " piezas";
             } else if (totalPartes > 0) {
@@ -1898,7 +1928,8 @@ public class BiesseScanRepository {
             obra.put("total_partes", totalPartes);
             obra.put("partes_escaneadas", partesEsc);
             obra.put("piezas_totales", piezasTot);
-            obra.put("piezas_escaneadas", piezasEsc);
+            // Si partes al 100%, reportar piezas completas para UI (web/teléfono).
+            obra.put("piezas_escaneadas", (partesDone && piezasTot > 0 && !piezasDone) ? piezasTot : piezasEsc);
             obra.put("porcentaje", pct);
             obra.put("avance_label", avance);
             obras.add(obra);

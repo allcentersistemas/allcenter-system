@@ -107,11 +107,13 @@ public class BiesseIntegrationController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "opCodigo requerido");
         }
         List<Map<String, Object>> obras = scanRepository.findObrasByOp(opCodigo.trim());
+        double pctSum = 0;
         int piezasTot = 0;
         int piezasEsc = 0;
         int partesTot = 0;
         int partesEsc = 0;
         for (Map<String, Object> o : obras) {
+            pctSum += toDouble(o.get("porcentaje"));
             piezasTot += numberInt(o.get("piezas_totales"));
             piezasEsc += numberInt(o.get("piezas_escaneadas"));
             partesTot += numberInt(o.get("total_partes"));
@@ -119,12 +121,15 @@ public class BiesseIntegrationController {
         }
         double pct;
         String avance;
-        if (piezasTot > 0) {
-            pct = Math.round(piezasEsc * 1000.0 / piezasTot) / 10.0;
-            avance = piezasEsc + "/" + piezasTot + " piezas";
-        } else if (partesTot > 0) {
-            pct = Math.round(partesEsc * 1000.0 / partesTot) / 10.0;
-            avance = partesEsc + "/" + partesTot + " partes";
+        if (!obras.isEmpty()) {
+            pct = Math.round((pctSum / obras.size()) * 10.0) / 10.0;
+            if (piezasTot > 0) {
+                avance = piezasEsc + "/" + piezasTot + " piezas";
+            } else if (partesTot > 0) {
+                avance = partesEsc + "/" + partesTot + " partes";
+            } else {
+                avance = "0/0";
+            }
         } else {
             pct = 0;
             avance = "0/0";
