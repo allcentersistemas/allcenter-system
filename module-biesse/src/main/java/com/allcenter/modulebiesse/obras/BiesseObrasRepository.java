@@ -838,6 +838,18 @@ public class BiesseObrasRepository {
         if (pieceNumber <= 0) {
             return false;
         }
+        try {
+            List<Map<String, Object>> partRows =
+                    jdbc.queryForList("SELECT cantidad FROM partes WHERE partid = ? LIMIT 1", partId);
+            if (!partRows.isEmpty() && partRows.getFirst().get("cantidad") instanceof Number n) {
+                int qty = n.intValue();
+                if (qty > 0 && pieceNumber > qty) {
+                    return false;
+                }
+            }
+        } catch (DataAccessException ignored) {
+            // sin cantidad
+        }
         List<Map<String, Object>> exists =
                 jdbc.queryForList(
                         """
@@ -902,11 +914,23 @@ public class BiesseObrasRepository {
     }
 
     /**
-     * Siguiente número de pieza aún no cortada por el agente. No inventa filas al marcar:
-     * si todas están cortadas, devuelve max+1 (el mark fallará sin crear pieza).
+     * Siguiente número de pieza aún no cortada, acotado a {@code partes.cantidad}.
+     * No inventa números por encima del plan (evita 1→7 fantasmas).
+     *
+     * @return número 1..cantidad, o {@code null} si ya no hay hueco dentro del plan
      */
     public Integer nextPieceNumber(long partId) {
-        // Si aún no hay filas, la primera pieza a cortar es 1 (se crea en ensurePiezaRow al marcar).
+        int qty = 0;
+        try {
+            List<Map<String, Object>> partRows =
+                    jdbc.queryForList("SELECT cantidad FROM partes WHERE partid = ? LIMIT 1", partId);
+            if (!partRows.isEmpty() && partRows.getFirst().get("cantidad") instanceof Number n) {
+                qty = Math.max(0, n.intValue());
+            }
+        } catch (DataAccessException ignored) {
+            qty = 0;
+        }
+
         List<Map<String, Object>> pending =
                 jdbc.queryForList(
                         """
@@ -914,23 +938,40 @@ public class BiesseObrasRepository {
                         FROM piezas
                         WHERE partid = ?
                           AND COALESCE(cortada, FALSE) = FALSE
+                          AND (? <= 0 OR numero_pieza <= ?)
                         """,
-                        partId);
+                        partId,
+                        qty,
+                        qty);
         if (!pending.isEmpty() && pending.getFirst().get("n") != null) {
-            return ((Number) pending.getFirst().get("n")).intValue();
+            int n = ((Number) pending.getFirst().get("n")).intValue();
+            if (qty <= 0 || n <= qty) {
+                return n;
+            }
         }
+
         List<Map<String, Object>> maxRows =
                 jdbc.queryForList(
                         """
                         SELECT COALESCE(MAX(numero_pieza), 0) AS n
                         FROM piezas
                         WHERE partid = ?
+                          AND (? <= 0 OR numero_pieza <= ?)
                         """,
-                        partId);
+                        partId,
+                        qty,
+                        qty);
         int max = 0;
         if (!maxRows.isEmpty() && maxRows.getFirst().get("n") != null) {
             max = ((Number) maxRows.getFirst().get("n")).intValue();
         }
+        if (qty > 0) {
+            if (max >= qty) {
+                return null;
+            }
+            return max + 1;
+        }
+        // Sin cantidad conocida: no inventar más allá de lo existente + 1 una sola vez.
         return max + 1;
     }
 

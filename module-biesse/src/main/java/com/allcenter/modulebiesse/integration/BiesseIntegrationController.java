@@ -321,22 +321,24 @@ public class BiesseIntegrationController {
             Integer parsed = BiesseObrasRepository.parsePartNumber(osiPart);
             partNumber = parsed != null ? parsed : 0;
         }
-        int pieceNum = obrasRepository.nextPieceNumber(partId);
-        String unitCode = orderName + "-P" + partNumber + "-" + pieceNum;
+        int qty = intOrZero(part.get("cantidad"));
+        Integer nextPiece = obrasRepository.nextPieceNumber(partId);
+        int pieceNum = nextPiece != null ? nextPiece : Math.max(qty, 1);
         String material = str(part.get("material"));
         String partCode = str(part.get("partcode"));
         String desc1 = str(part.get("descripcion"));
         String desc2 = str(part.get("descripcion1"));
         double length = toDouble(part.get("longitud"));
         double width = toDouble(part.get("ancho"));
-        int qty = intOrZero(part.get("cantidad"));
 
         Map<String, Object> cortadaInfo = null;
-        if (markCortada) {
+        if (markCortada && nextPiece != null && (qty <= 0 || nextPiece <= qty)) {
+            pieceNum = nextPiece;
             obrasRepository.ensurePiezaRow(partId, pieceNum);
             cortadaInfo = obrasRepository.markPiezaCortada(partId, pieceNum, machineName);
         }
 
+        String unitCode = orderName + "-P" + partNumber + "-" + pieceNum;
         out.put("mapStatus", "MAPPED");
         out.put("unitCode", unitCode);
         out.put("partId", partId);
