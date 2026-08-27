@@ -462,8 +462,11 @@ public class BiesseObrasRepository {
 
     /**
      * Tablero Seguimiento: obras en flujo post-XML (no kanban CRM).
-     * Solo incluye obras con {@code fechacreacion >= app.biesse.seguimiento-since} para no listar
-     * histórico anterior al arranque del tablero limpio.
+     *
+     * <p>Incluye obras con {@code fechacreacion} o {@code fecha_modificacion} >= cutoff
+     * ({@code app.biesse.seguimiento-since}). Así, al pasar a PRODUCCION por el agente
+     * (actualiza {@code fecha_modificacion}) la card aparece aunque el XML se haya
+     * importado antes del cutoff.
      */
     public List<Map<String, Object>> listSeguimientoObras(int limit) {
         int safe = Math.max(1, Math.min(limit, 500));
@@ -488,35 +491,63 @@ public class BiesseObrasRepository {
                             WHERE UPPER(TRIM(COALESCE(o.estado_escaneo, ''))) IN (
                                 'OPTIMIZADO', 'PRODUCCION', 'DESPACHO',
                                 'LISTO_PARA_ENTREGAR', 'ENTREGADO', 'COMPLETADA', 'COMPLETADO')
-                              AND o.fechacreacion IS NOT NULL
-                              AND DATE(o.fechacreacion) >= CAST(? AS DATE)
-                            ORDER BY o.fechacreacion DESC NULLS LAST, o.orderid DESC
+                              AND (
+                                    (o.fechacreacion IS NOT NULL AND DATE(o.fechacreacion) >= CAST(? AS DATE))
+                                 OR (o.fecha_modificacion IS NOT NULL AND DATE(o.fecha_modificacion) >= CAST(? AS DATE))
+                              )
+                            ORDER BY COALESCE(o.fecha_modificacion, o.fechacreacion) DESC NULLS LAST, o.orderid DESC
                             LIMIT ?
                             """,
+                            since,
                             since,
                             safe);
         } catch (DataAccessException ex) {
-            rows =
-                    jdbc.queryForList(
-                            """
-                            SELECT o.orderid, o.ordername, o.bookingcode, o.op_codigo, o.estado_escaneo,
-                                   o.fechacreacion,
-                                   (SELECT COUNT(*) FROM partes p WHERE p.orderid = o.orderid) AS total_partes,
-                                   (SELECT COUNT(*) FROM partes p WHERE p.orderid = o.orderid AND COALESCE(p.escaneado, FALSE)) AS partes_escaneadas,
-                                   0 AS piezas_totales,
-                                   0 AS piezas_escaneadas,
-                                   NULL AS seccionador
-                            FROM ordenes o
-                            WHERE UPPER(TRIM(COALESCE(o.estado_escaneo, ''))) IN (
-                                'OPTIMIZADO', 'PRODUCCION', 'DESPACHO',
-                                'LISTO_PARA_ENTREGAR', 'ENTREGADO', 'COMPLETADA', 'COMPLETADO')
-                              AND o.fechacreacion IS NOT NULL
-                              AND DATE(o.fechacreacion) >= CAST(? AS DATE)
-                            ORDER BY o.fechacreacion DESC NULLS LAST, o.orderid DESC
-                            LIMIT ?
-                            """,
-                            since,
-                            safe);
+            // Esquema sin fecha_modificacion: solo fechacreacion.
+            try {
+                rows =
+                        jdbc.queryForList(
+                                """
+                                SELECT o.orderid, o.ordername, o.bookingcode, o.op_codigo, o.estado_escaneo,
+                                       o.fechacreacion,
+                                       (SELECT COUNT(*) FROM partes p WHERE p.orderid = o.orderid) AS total_partes,
+                                       (SELECT COUNT(*) FROM partes p WHERE p.orderid = o.orderid AND COALESCE(p.escaneado, FALSE)) AS partes_escaneadas,
+                                       (SELECT COUNT(*) FROM piezas z JOIN partes p ON p.partid = z.partid WHERE p.orderid = o.orderid) AS piezas_totales,
+                                       (SELECT COUNT(*) FROM piezas z JOIN partes p ON p.partid = z.partid WHERE p.orderid = o.orderid AND COALESCE(z.escaneado, FALSE)) AS piezas_escaneadas,
+                                       NULL AS seccionador
+                                FROM ordenes o
+                                WHERE UPPER(TRIM(COALESCE(o.estado_escaneo, ''))) IN (
+                                    'OPTIMIZADO', 'PRODUCCION', 'DESPACHO',
+                                    'LISTO_PARA_ENTREGAR', 'ENTREGADO', 'COMPLETADA', 'COMPLETADO')
+                                  AND o.fechacreacion IS NOT NULL
+                                  AND DATE(o.fechacreacion) >= CAST(? AS DATE)
+                                ORDER BY o.fechacreacion DESC NULLS LAST, o.orderid DESC
+                                LIMIT ?
+                                """,
+                                since,
+                                safe);
+            } catch (DataAccessException ex2) {
+                rows =
+                        jdbc.queryForList(
+                                """
+                                SELECT o.orderid, o.ordername, o.bookingcode, o.op_codigo, o.estado_escaneo,
+                                       o.fechacreacion,
+                                       (SELECT COUNT(*) FROM partes p WHERE p.orderid = o.orderid) AS total_partes,
+                                       (SELECT COUNT(*) FROM partes p WHERE p.orderid = o.orderid AND COALESCE(p.escaneado, FALSE)) AS partes_escaneadas,
+                                       0 AS piezas_totales,
+                                       0 AS piezas_escaneadas,
+                                       NULL AS seccionador
+                                FROM ordenes o
+                                WHERE UPPER(TRIM(COALESCE(o.estado_escaneo, ''))) IN (
+                                    'OPTIMIZADO', 'PRODUCCION', 'DESPACHO',
+                                    'LISTO_PARA_ENTREGAR', 'ENTREGADO', 'COMPLETADA', 'COMPLETADO')
+                                  AND o.fechacreacion IS NOT NULL
+                                  AND DATE(o.fechacreacion) >= CAST(? AS DATE)
+                                ORDER BY o.fechacreacion DESC NULLS LAST, o.orderid DESC
+                                LIMIT ?
+                                """,
+                                since,
+                                safe);
+            }
         }
         List<Map<String, Object>> out = new ArrayList<>();
         for (Map<String, Object> row : rows) {

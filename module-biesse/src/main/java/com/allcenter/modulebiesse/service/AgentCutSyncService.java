@@ -83,8 +83,10 @@ public class AgentCutSyncService {
         }
 
         log.debug("syncAgentCuts orderId={} cuts={} marked={} skipped={}", orderId, cuts.size(), marked, skipped);
+        // Si hay cortes del monitor para esta orden, la obra debe estar en PRODUCCION
+        // (aunque no se haya podido marcar cada pieza.cortada).
         boolean produccion = false;
-        if (marked > 0) {
+        if (marked > 0 || !cuts.isEmpty()) {
             produccion = obrasRepository.markOrderProduccion(orderId);
         }
         return Map.of(
