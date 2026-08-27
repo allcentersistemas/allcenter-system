@@ -753,6 +753,7 @@ public class BiesseObrasRepository {
      * si todas están cortadas, devuelve max+1 (el mark fallará sin crear pieza).
      */
     public Integer nextPieceNumber(long partId) {
+        // Si aún no hay filas, la primera pieza a cortar es 1 (se crea en ensurePiezaRow al marcar).
         List<Map<String, Object>> pending =
                 jdbc.queryForList(
                         """
