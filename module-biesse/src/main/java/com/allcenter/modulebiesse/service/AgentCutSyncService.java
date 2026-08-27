@@ -68,12 +68,21 @@ public class AgentCutSyncService {
                 continue;
             }
             if (pieceNum == null || pieceNum <= 0) {
-                pieceNum = sequentialNext.getOrDefault(partId, 0) + 1;
+                Integer next = obrasRepository.nextPieceNumber(partId);
+                if (next == null) {
+                    skipped++;
+                    continue;
+                }
+                pieceNum = next;
             }
             sequentialNext.put(partId, Math.max(sequentialNext.getOrDefault(partId, 0), pieceNum));
 
             String machine = str(cut.get("machine_name"));
-            obrasRepository.ensurePiezaRow(partId, pieceNum);
+            // ensurePiezaRow rechaza numero > cantidad; no crear fantasmas del monitor.
+            if (!obrasRepository.ensurePiezaRow(partId, pieceNum)) {
+                skipped++;
+                continue;
+            }
             Map<String, Object> result = obrasRepository.markPiezaCortada(partId, pieceNum, machine);
             if (result != null) {
                 marked++;

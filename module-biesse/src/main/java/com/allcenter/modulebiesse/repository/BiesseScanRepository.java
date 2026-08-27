@@ -751,6 +751,7 @@ public class BiesseScanRepository {
                             FROM piezas z
                             INNER JOIN partes p ON p.partid = z.partid
                             WHERE p.orderid = o.orderid
+                              AND (COALESCE(p.cantidad, 0) <= 0 OR z.numero_pieza <= p.cantidad)
                         ) pz ON TRUE
                         """);
         try {
@@ -1551,6 +1552,7 @@ public class BiesseScanRepository {
                     FROM piezas z
                     JOIN partes p ON p.partid = z.partid
                     WHERE p.orderid = ?
+                      AND (COALESCE(p.cantidad, 0) <= 0 OR z.numero_pieza <= p.cantidad)
                     ORDER BY z.partid, z.numero_pieza
                     """,
                     orderId);
@@ -1564,6 +1566,7 @@ public class BiesseScanRepository {
                         FROM piezas z
                         JOIN partes p ON p.partid = z.partid
                         WHERE p.orderid = ?
+                          AND (COALESCE(p.cantidad, 0) <= 0 OR z.numero_pieza <= p.cantidad)
                         ORDER BY z.partid, z.numero_pieza
                         """,
                         orderId);
@@ -1856,8 +1859,13 @@ public class BiesseScanRepository {
                                o.estado_escaneo,
                                (SELECT COUNT(*) FROM partes p WHERE p.orderid = o.orderid) AS total_partes,
                                (SELECT COUNT(*) FROM partes p WHERE p.orderid = o.orderid AND p.escaneado = TRUE) AS partes_escaneadas,
-                               (SELECT COUNT(*) FROM piezas z JOIN partes p ON p.partid = z.partid WHERE p.orderid = o.orderid) AS piezas_totales,
-                               (SELECT COUNT(*) FROM piezas z JOIN partes p ON p.partid = z.partid WHERE p.orderid = o.orderid AND z.escaneado = TRUE) AS piezas_escaneadas
+                               (SELECT COUNT(*) FROM piezas z JOIN partes p ON p.partid = z.partid
+                                 WHERE p.orderid = o.orderid
+                                   AND (COALESCE(p.cantidad, 0) <= 0 OR z.numero_pieza <= p.cantidad)) AS piezas_totales,
+                               (SELECT COUNT(*) FROM piezas z JOIN partes p ON p.partid = z.partid
+                                 WHERE p.orderid = o.orderid
+                                   AND (COALESCE(p.cantidad, 0) <= 0 OR z.numero_pieza <= p.cantidad)
+                                   AND z.escaneado = TRUE) AS piezas_escaneadas
                         FROM ordenes o
                         WHERE COALESCE(NULLIF(TRIM(o.op_codigo), ''), o.ordername) = ?
                         ORDER BY o.fechacreacion DESC NULLS LAST, o.orderid DESC

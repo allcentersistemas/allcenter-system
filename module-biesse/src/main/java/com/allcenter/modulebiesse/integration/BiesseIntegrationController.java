@@ -399,7 +399,14 @@ public class BiesseIntegrationController {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST, "partId+pieceNumber u orderId+osiPart requeridos");
         }
-        obrasRepository.ensurePiezaRow(partId, pieceNumber);
+        if (!obrasRepository.ensurePiezaRow(partId, pieceNumber)) {
+            Map<String, Object> missing = new LinkedHashMap<>();
+            missing.put("found", false);
+            missing.put("partId", partId);
+            missing.put("pieceNumber", pieceNumber);
+            missing.put("reason", "pieza fuera de cantidad o parte inexistente");
+            return ResponseEntity.ok(missing);
+        }
         Map<String, Object> result =
                 obrasRepository.markPiezaCortada(partId, pieceNumber, body.machineName());
         if (result == null) {

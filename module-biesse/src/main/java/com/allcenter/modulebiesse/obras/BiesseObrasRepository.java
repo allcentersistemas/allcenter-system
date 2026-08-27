@@ -486,8 +486,13 @@ public class BiesseObrasRepository {
                                    o.fechacreacion,
                                    (SELECT COUNT(*) FROM partes p WHERE p.orderid = o.orderid) AS total_partes,
                                    (SELECT COUNT(*) FROM partes p WHERE p.orderid = o.orderid AND COALESCE(p.escaneado, FALSE)) AS partes_escaneadas,
-                                   (SELECT COUNT(*) FROM piezas z JOIN partes p ON p.partid = z.partid WHERE p.orderid = o.orderid) AS piezas_totales,
-                                   (SELECT COUNT(*) FROM piezas z JOIN partes p ON p.partid = z.partid WHERE p.orderid = o.orderid AND COALESCE(z.escaneado, FALSE)) AS piezas_escaneadas,
+                                   (SELECT COUNT(*) FROM piezas z JOIN partes p ON p.partid = z.partid
+                                      WHERE p.orderid = o.orderid
+                                        AND (COALESCE(p.cantidad, 0) <= 0 OR z.numero_pieza <= p.cantidad)) AS piezas_totales,
+                                   (SELECT COUNT(*) FROM piezas z JOIN partes p ON p.partid = z.partid
+                                      WHERE p.orderid = o.orderid
+                                        AND (COALESCE(p.cantidad, 0) <= 0 OR z.numero_pieza <= p.cantidad)
+                                        AND COALESCE(z.escaneado, FALSE)) AS piezas_escaneadas,
                                    (SELECT z.cortada_por FROM piezas z
                                       JOIN partes p ON p.partid = z.partid
                                      WHERE p.orderid = o.orderid AND z.cortada_por IS NOT NULL AND TRIM(z.cortada_por) <> ''
@@ -517,8 +522,13 @@ public class BiesseObrasRepository {
                                        o.fechacreacion,
                                        (SELECT COUNT(*) FROM partes p WHERE p.orderid = o.orderid) AS total_partes,
                                        (SELECT COUNT(*) FROM partes p WHERE p.orderid = o.orderid AND COALESCE(p.escaneado, FALSE)) AS partes_escaneadas,
-                                       (SELECT COUNT(*) FROM piezas z JOIN partes p ON p.partid = z.partid WHERE p.orderid = o.orderid) AS piezas_totales,
-                                       (SELECT COUNT(*) FROM piezas z JOIN partes p ON p.partid = z.partid WHERE p.orderid = o.orderid AND COALESCE(z.escaneado, FALSE)) AS piezas_escaneadas,
+                                   (SELECT COUNT(*) FROM piezas z JOIN partes p ON p.partid = z.partid
+                                      WHERE p.orderid = o.orderid
+                                        AND (COALESCE(p.cantidad, 0) <= 0 OR z.numero_pieza <= p.cantidad)) AS piezas_totales,
+                                   (SELECT COUNT(*) FROM piezas z JOIN partes p ON p.partid = z.partid
+                                      WHERE p.orderid = o.orderid
+                                        AND (COALESCE(p.cantidad, 0) <= 0 OR z.numero_pieza <= p.cantidad)
+                                        AND COALESCE(z.escaneado, FALSE)) AS piezas_escaneadas,
                                        NULL AS seccionador
                                 FROM ordenes o
                                 WHERE UPPER(TRIM(COALESCE(o.estado_escaneo, ''))) IN (
