@@ -312,9 +312,10 @@ public class BiesseAgentRepository {
 
     /**
      * Segundos sin heartbeat/status para considerar la máquina offline.
-     * El agente Win10 late cada 5–10s; 30s ≈ 3 heartbeats perdidos.
+     * El agente late cada 5–10s, pero al subir eventos/status (timeouts ~8s) o con
+     * backoff de red puede pasar de 30s sin señal aunque siga conectado.
      */
-    public static final int ONLINE_STALE_SECONDS = 30;
+    public static final int ONLINE_STALE_SECONDS = 90;
 
     /** Última señal de vida: el más reciente entre heartbeat y status. */
     private static final String LAST_SEEN_SQL =
