@@ -80,8 +80,12 @@ public class BiesseObrasRepository {
         if (jobName == null || jobName.isBlank()) {
             return null;
         }
-        String token = jobName.trim();
+        String token = normalizeJobToken(jobName);
+        if (token.isBlank()) {
+            return null;
+        }
         String op = extractOp(token);
+        String compact = compactName(token);
 
         List<Map<String, Object>> exact =
                 jdbc.queryForList(
@@ -89,19 +93,23 @@ public class BiesseObrasRepository {
                         SELECT orderid, ordername, bookingcode, op_codigo, estado_escaneo,
                                nparts, partes_totales
                         FROM ordenes
-                        WHERE UPPER(TRIM(ordername)) = UPPER(TRIM(?))
-                           OR (bookingcode IS NOT NULL AND UPPER(TRIM(bookingcode)) = UPPER(TRIM(?)))
+                        WHERE UPPER(TRIM(ordername)) = UPPER(?)
+                           OR UPPER(REPLACE(TRIM(ordername), ' ', '')) = UPPER(?)
+                           OR (bookingcode IS NOT NULL AND UPPER(TRIM(bookingcode)) = UPPER(?))
                         ORDER BY fechacreacion DESC
-                        LIMIT 1
+                        LIMIT 5
                         """,
                         token,
+                        compact,
                         token);
-        if (!exact.isEmpty()) {
-            return exact.getFirst();
+        Map<String, Object> bestExact = pickBestOrderMatch(exact, token, op);
+        if (bestExact != null) {
+            return bestExact;
         }
 
+        List<Map<String, Object>> candidates = new ArrayList<>();
         if (op != null) {
-            List<Map<String, Object>> byOp =
+            candidates.addAll(
                     jdbc.queryForList(
                             """
                             SELECT orderid, ordername, bookingcode, op_codigo, estado_escaneo,
@@ -109,35 +117,143 @@ public class BiesseObrasRepository {
                             FROM ordenes
                             WHERE UPPER(TRIM(COALESCE(op_codigo, ''))) = UPPER(?)
                                OR UPPER(TRIM(ordername)) LIKE UPPER(?) || ' %'
-                               OR UPPER(REPLACE(ordername, ' ', '')) LIKE UPPER(REPLACE(?, ' ', '')) || '%'
+                               OR UPPER(TRIM(ordername)) LIKE UPPER(?) || '%'
                             ORDER BY fechacreacion DESC
-                            LIMIT 1
+                            LIMIT 40
                             """,
                             op,
                             op,
-                            token);
-            if (!byOp.isEmpty()) {
-                return byOp.getFirst();
+                            op));
+        }
+        if (candidates.isEmpty()) {
+            candidates.addAll(
+                    jdbc.queryForList(
+                            """
+                            SELECT orderid, ordername, bookingcode, op_codigo, estado_escaneo,
+                                   nparts, partes_totales
+                            FROM ordenes
+                            WHERE UPPER(REPLACE(ordername, ' ', '')) = UPPER(?)
+                               OR UPPER(REPLACE(ordername, ' ', '')) LIKE UPPER(?) || '%'
+                               OR UPPER(?) LIKE UPPER(REPLACE(ordername, ' ', '')) || '%'
+                            ORDER BY fechacreacion DESC
+                            LIMIT 40
+                            """,
+                            compact,
+                            compact,
+                            compact));
+        }
+        return pickBestOrderMatch(candidates, token, op);
+    }
+
+    /**
+     * Con varias obras bajo la misma OP (p.ej. TAUPE vs PANELA), elige la que mejor
+     * coincide con el job del Event.log — no la más reciente a ciegas.
+     */
+    private static Map<String, Object> pickBestOrderMatch(
+            List<Map<String, Object>> candidates, String jobToken, String op) {
+        if (candidates == null || candidates.isEmpty()) {
+            return null;
+        }
+        if (candidates.size() == 1) {
+            return candidates.getFirst();
+        }
+        String job = jobToken != null ? jobToken.trim().toUpperCase(Locale.ROOT) : "";
+        String jobCompact = compactName(job);
+        Map<String, Object> best = null;
+        int bestScore = Integer.MIN_VALUE;
+        for (Map<String, Object> row : candidates) {
+            String name = str(row.get("ordername"));
+            if (name == null || name.isBlank()) {
+                continue;
+            }
+            String nameU = name.trim().toUpperCase(Locale.ROOT);
+            String nameCompact = compactName(nameU);
+            int score = 0;
+            if (nameU.equals(job) || nameCompact.equals(jobCompact)) {
+                score += 1000;
+            }
+            if (!job.isBlank() && (job.contains(nameU) || nameU.contains(job))) {
+                score += 400;
+            }
+            if (!jobCompact.isBlank()
+                    && (jobCompact.contains(nameCompact) || nameCompact.contains(jobCompact))) {
+                score += 300;
+            }
+            // Discriminante típico: color/material al final (TAUPE / PANELA).
+            String jobTail = lastWord(job);
+            String nameTail = lastWord(nameU);
+            if (jobTail.length() >= 3 && jobTail.equals(nameTail)) {
+                score += 500;
+            } else if (jobTail.length() >= 3
+                    && (job.contains(nameTail) || nameU.contains(jobTail))) {
+                score += 250;
+            }
+            if (op != null && nameU.startsWith(op.toUpperCase(Locale.ROOT))) {
+                score += 50;
+            }
+            // Preferir overlap de tokens (INNOVA, SHALOM, TAUPE…).
+            score += tokenOverlapScore(job, nameU) * 20;
+            if (score > bestScore) {
+                bestScore = score;
+                best = row;
             }
         }
+        if (best == null) {
+            return null;
+        }
+        // Varias obras bajo la misma OP: exigir señal clara (color/nombre), no solo OP.
+        if (candidates.size() > 1 && bestScore < 200) {
+            return null;
+        }
+        return best;
+    }
 
-        String noSpaces = token.replaceAll("\\s+", "");
-        List<Map<String, Object>> fuzzy =
-                jdbc.queryForList(
-                        """
-                        SELECT orderid, ordername, bookingcode, op_codigo, estado_escaneo,
-                               nparts, partes_totales
-                        FROM ordenes
-                        WHERE UPPER(REPLACE(ordername, ' ', '')) = UPPER(?)
-                           OR UPPER(REPLACE(ordername, ' ', '')) LIKE UPPER(?) || '%'
-                           OR UPPER(?) LIKE UPPER(REPLACE(ordername, ' ', '')) || '%'
-                        ORDER BY fechacreacion DESC
-                        LIMIT 1
-                        """,
-                        noSpaces,
-                        noSpaces,
-                        noSpaces);
-        return fuzzy.isEmpty() ? null : fuzzy.getFirst();
+    private static String normalizeJobToken(String jobName) {
+        String t = jobName.trim().replaceAll("\\s+", " ");
+        // Quitar sufijo de patrón tipo ".001" pegado al nombre.
+        Matcher suffix = PATTERN_SUFFIX.matcher(t);
+        if (suffix.find()) {
+            t = t.substring(0, t.length() - suffix.group().length()).trim();
+        }
+        return t;
+    }
+
+    private static final Pattern PATTERN_SUFFIX = Pattern.compile("\\.(\\d{3})$");
+
+    private static String compactName(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.replaceAll("\\s+", "").toUpperCase(Locale.ROOT);
+    }
+
+    private static String lastWord(String value) {
+        if (value == null || value.isBlank()) {
+            return "";
+        }
+        String[] parts = value.trim().split("\\s+");
+        return parts[parts.length - 1].replaceAll("[^A-Z0-9]", "");
+    }
+
+    private static int tokenOverlapScore(String a, String b) {
+        if (a == null || b == null || a.isBlank() || b.isBlank()) {
+            return 0;
+        }
+        Set<String> left = new java.util.HashSet<>();
+        for (String p : a.split("\\s+")) {
+            String t = p.replaceAll("[^A-Z0-9]", "");
+            if (t.length() >= 3) {
+                left.add(t);
+            }
+        }
+        int n = 0;
+        for (String p : b.split("\\s+")) {
+            String t = p.replaceAll("[^A-Z0-9]", "");
+            if (t.length() >= 3 && left.contains(t)) {
+                n++;
+            }
+        }
+        return n;
     }
 
     /**

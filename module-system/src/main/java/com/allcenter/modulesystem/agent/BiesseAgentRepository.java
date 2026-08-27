@@ -138,6 +138,40 @@ public class BiesseAgentRepository {
         return n != null && n > 0;
     }
 
+    /** Evita doble corte status+evento para la misma pieza OSI reciente. */
+    public boolean hasRecentCutForOsi(int machineId, Long orderId, String osiPart, int withinSeconds) {
+        if (osiPart == null || osiPart.isBlank()) {
+            return false;
+        }
+        String token = osiPart.trim();
+        // Normalizar a "Part P7" / "Part 7" para comparar prefijo.
+        int cut = token.indexOf(' ');
+        if (cut > 0) {
+            int second = token.indexOf(' ', cut + 1);
+            if (second > 0) {
+                token = token.substring(0, second).trim(); // "Part P7"
+            }
+        }
+        int safeSecs = Math.max(30, Math.min(withinSeconds, 3600));
+        Integer n =
+                jdbc.queryForObject(
+                        """
+                        SELECT COUNT(*) FROM biesse_agent_cut_piece
+                        WHERE machine_id = ?
+                          AND (?::bigint IS NULL OR order_id = ?)
+                          AND osi_part_id IS NOT NULL
+                          AND UPPER(TRIM(osi_part_id)) LIKE UPPER(?) || '%'
+                          AND created_at >= CURRENT_TIMESTAMP - (? || ' seconds')::interval
+                        """,
+                        Integer.class,
+                        machineId,
+                        orderId,
+                        orderId,
+                        token,
+                        String.valueOf(safeSecs));
+        return n != null && n > 0;
+    }
+
     public void insertEvent(
             String eventUid,
             int machineId,

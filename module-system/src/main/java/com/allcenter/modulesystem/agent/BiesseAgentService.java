@@ -62,28 +62,43 @@ public class BiesseAgentService {
             return OkResponse.success();
         }
         int machineId = ((Number) machine.get("machine_id")).intValue();
+        String machineName = str(machine.get("machine_name"));
         String jobName = status.jobName();
         Map<String, Object> order = obrasClient.findOrderForJob(jobName);
         Long orderId = order != null ? ((Number) order.get("orderid")).longValue() : null;
 
         Integer previousBoards = intOrNull(machine.get("boards_done"));
+        String previousLastPart = str(machine.get("last_part"));
+        Integer previousPieces = intOrNull(machine.get("pieces_produced"));
         // Si el status llegó tras un evento reciente, machine puede estar desactualizado: releer.
         Map<String, Object> before = repository.findMachineById(machineId);
         if (before != null) {
             previousBoards = intOrNull(before.get("boards_done"));
+            previousLastPart = str(before.get("last_part"));
+            previousPieces = intOrNull(before.get("pieces_produced"));
             if (jobName == null || jobName.isBlank()) {
                 jobName = str(before.get("job_name"));
+                if (order == null && jobName != null && !jobName.isBlank()) {
+                    order = obrasClient.findOrderForJob(jobName);
+                    orderId = order != null ? ((Number) order.get("orderid")).longValue() : null;
+                }
             }
             if (orderId == null && before.get("current_order_id") instanceof Number n) {
                 orderId = n.longValue();
             }
+        }
+        if (order == null && orderId != null) {
+            order = obrasClient.findOrderById(orderId);
+        }
+        if (order == null && jobName != null && !jobName.isBlank()) {
+            log.warn("Status job sin obra en ERP: job='{}' machine={}", jobName, machineId);
         }
 
         repository.updateStatus(machineId, status, orderId);
 
         recordBoardsFromStatusDelta(
                 machineId,
-                str(machine.get("machine_name")),
+                machineName,
                 jobName,
                 orderId,
                 previousBoards,
@@ -104,11 +119,96 @@ public class BiesseAgentService {
             markProduccionAndTrace(live, order, status.eventTime(), "STATUS_RUN");
         }
 
+        // Respaldo: si llega last_part nueva por status (y el evento PRODUCT INFO no se procesó),
+        // registrar corte / sticker igual que con el Event.log.
+        processCutFromStatus(
+                machineId,
+                machineName,
+                bool(machine.get("printer_enabled")),
+                live,
+                order,
+                previousLastPart,
+                previousPieces,
+                status);
+
         if (("IDLE".equals(state) || "UNKNOWN".equals(state)) && live.get("job_started_at") != null) {
             closeCuttingWindow(live, order, status.eventTime(), "STATUS_IDLE");
         }
 
         return OkResponse.success();
+    }
+
+    /**
+     * Cuando {@code last_part} / piezas de sesión avanzan en el status, genera corte MAPPED.
+     * Idempotente por event_uid sintético ({@code status-cut-…}).
+     */
+    private void processCutFromStatus(
+            int machineId,
+            String machineName,
+            boolean printLocal,
+            Map<String, Object> machineCtx,
+            Map<String, Object> order,
+            String previousLastPart,
+            Integer previousPieces,
+            StatusPayload status) {
+        if (order == null || status == null) {
+            return;
+        }
+        String lastPart = status.lastPart() != null ? status.lastPart().trim() : "";
+        if (lastPart.isBlank() || !lastPart.regionMatches(true, 0, "Part", 0, 4)) {
+            return;
+        }
+        Integer pieces = status.piecesProduced();
+        boolean partChanged =
+                previousLastPart == null
+                        || previousLastPart.isBlank()
+                        || !lastPart.equalsIgnoreCase(previousLastPart.trim());
+        boolean piecesAdvanced =
+                pieces != null && (previousPieces == null || pieces > previousPieces);
+        if (!partChanged && !piecesAdvanced) {
+            return;
+        }
+
+        long orderId = ((Number) order.get("orderid")).longValue();
+        String pieceKey =
+                pieces != null && pieces > 0
+                        ? String.valueOf(pieces)
+                        : Integer.toHexString(lastPart.toLowerCase(Locale.ROOT).hashCode());
+        String eventUid = "status-cut-" + machineId + "-" + orderId + "-" + pieceKey;
+        if (repository.eventExists(eventUid)
+                || repository.hasRecentCutForOsi(machineId, orderId, lastPart, 180)) {
+            return;
+        }
+
+        markProduccionAndTrace(machineCtx, order, status.eventTime(), "STATUS_LAST_PART");
+
+        LabelDto label =
+                buildLabelForPart(machineId, machineName, order, lastPart, eventUid, printLocal);
+        Instant eventTime = BiesseAgentRepository.parseEventTime(status.eventTime());
+        repository.insertEvent(
+                eventUid,
+                machineId,
+                "PRODUCT INFO",
+                "",
+                lastPart,
+                "INFO",
+                eventTime,
+                orderId,
+                label != null ? "LABEL" : "PART_UNMAPPED");
+        if (label != null) {
+            log.info(
+                    "Corte desde status: machine={} order={} part={} uid={}",
+                    machineId,
+                    orderId,
+                    lastPart,
+                    eventUid);
+        } else {
+            log.warn(
+                    "Status last_part sin mapa: machine={} order={} part='{}'",
+                    machineId,
+                    orderId,
+                    lastPart);
+        }
     }
 
     @Transactional
