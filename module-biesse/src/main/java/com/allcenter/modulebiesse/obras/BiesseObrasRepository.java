@@ -463,14 +463,20 @@ public class BiesseObrasRepository {
     /**
      * Tablero Seguimiento: obras en flujo post-XML (no kanban CRM).
      *
-     * <p>Incluye obras con {@code fechacreacion} o {@code fecha_modificacion} >= cutoff
-     * ({@code app.biesse.seguimiento-since}). Así, al pasar a PRODUCCION por el agente
-     * (actualiza {@code fecha_modificacion}) la card aparece aunque el XML se haya
-     * importado antes del cutoff.
+     * <p>Incluye obras con {@code fechacreacion} o {@code fecha_modificacion} >= cutoff.
+     * El cutoff es {@code sinceOverride} si viene informado; si no,
+     * {@code app.biesse.seguimiento-since}.
      */
     public List<Map<String, Object>> listSeguimientoObras(int limit) {
+        return listSeguimientoObras(limit, null);
+    }
+
+    public List<Map<String, Object>> listSeguimientoObras(int limit, LocalDate sinceOverride) {
         int safe = Math.max(1, Math.min(limit, 500));
-        LocalDate since = seguimientoSince != null ? seguimientoSince : LocalDate.of(2026, 8, 26);
+        LocalDate since =
+                sinceOverride != null
+                        ? sinceOverride
+                        : (seguimientoSince != null ? seguimientoSince : LocalDate.of(2026, 8, 26));
         List<Map<String, Object>> rows;
         try {
             rows =

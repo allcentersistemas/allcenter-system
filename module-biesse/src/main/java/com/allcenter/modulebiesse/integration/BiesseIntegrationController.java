@@ -157,10 +157,20 @@ public class BiesseIntegrationController {
     public ResponseEntity<List<Map<String, Object>>> listSeguimiento(
             @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
             @RequestHeader(value = BiesseInternalAuth.HEADER_INTERNAL, required = false) String internalToken,
-            @RequestParam(defaultValue = "300") int limit) {
+            @RequestParam(defaultValue = "300") int limit,
+            @RequestParam(required = false) String since) {
         internalAuth.requireRead(authorization, internalToken);
         schemaAligner.ensureReady();
-        return ResponseEntity.ok(obrasRepository.listSeguimientoObras(limit));
+        java.time.LocalDate sinceDate = null;
+        if (since != null && !since.isBlank()) {
+            try {
+                sinceDate = java.time.LocalDate.parse(since.trim());
+            } catch (Exception ex) {
+                throw new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST, "since debe ser yyyy-MM-dd");
+            }
+        }
+        return ResponseEntity.ok(obrasRepository.listSeguimientoObras(limit, sinceDate));
     }
 
     @PostMapping("/orders/{orderId}/entregado")

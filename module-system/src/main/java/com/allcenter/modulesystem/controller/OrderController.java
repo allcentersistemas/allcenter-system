@@ -124,10 +124,11 @@ public class OrderController {
     }
 
     /** Tablero Resumen → Seguimiento: una card por XML/obra (estado_escaneo).
-     * El histórico se filtra en module-biesse ({@code app.biesse.seguimiento-since}). */
+     * @param since fecha mínima yyyy-MM-dd (opcional; default en module-biesse). */
     @GetMapping("/obras/seguimiento")
-    public java.util.List<OrderDtos.SeguimientoObraResponse> listSeguimientoObras() {
-        return service.listSeguimientoObras();
+    public java.util.List<OrderDtos.SeguimientoObraResponse> listSeguimientoObras(
+            @RequestParam(required = false) String since) {
+        return service.listSeguimientoObras(since);
     }
 
     @PostMapping("/obras/{biesseOrderId}/entregado")

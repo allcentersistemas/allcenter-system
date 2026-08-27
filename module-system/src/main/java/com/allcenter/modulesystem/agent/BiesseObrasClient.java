@@ -146,11 +146,18 @@ public class BiesseObrasClient {
     }
 
     public List<Map<String, Object>> listSeguimientoObras(int limit) {
+        return listSeguimientoObras(limit, null);
+    }
+
+    public List<Map<String, Object>> listSeguimientoObras(int limit, String since) {
         try {
             UriComponentsBuilder b =
                     UriComponentsBuilder.fromUriString(
                                     biesseBaseUrl + "/api/biesse/scan/integration/seguimiento")
                             .queryParam("limit", Math.max(1, Math.min(limit, 500)));
+            if (since != null && !since.isBlank()) {
+                b.queryParam("since", since.trim());
+            }
             ResponseEntity<List<Map<String, Object>>> res =
                     restTemplate.exchange(
                             b.toUriString(),

@@ -301,7 +301,11 @@ public class OrderPersistenceService {
 
     @Transactional(readOnly = true)
     public List<OrderDtos.SeguimientoObraResponse> listSeguimientoObras() {
-        List<Map<String, Object>> raw = biesseObrasClient.listSeguimientoObras(300);
+        return listSeguimientoObras(null);
+    }
+
+    public List<OrderDtos.SeguimientoObraResponse> listSeguimientoObras(String since) {
+        List<Map<String, Object>> raw = biesseObrasClient.listSeguimientoObras(300, since);
         List<OrderDtos.SeguimientoObraResponse> out = new ArrayList<>();
         for (Map<String, Object> row : raw) {
             Long orderId = toLong(row.get("orderId"));
