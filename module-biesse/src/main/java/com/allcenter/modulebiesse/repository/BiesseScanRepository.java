@@ -1543,6 +1543,27 @@ public class BiesseScanRepository {
         }
     }
 
+    /** Máximo numero_pieza ya marcada cortada para una parte (sync contador agente). */
+    public int maxCortadaPieceNumber(long partId) {
+        try {
+            List<Map<String, Object>> rows =
+                    jdbcTemplate.queryForList(
+                            """
+                            SELECT COALESCE(MAX(numero_pieza), 0) AS n
+                            FROM piezas
+                            WHERE partid = ?
+                              AND COALESCE(cortada, FALSE) = TRUE
+                            """,
+                            partId);
+            if (rows.isEmpty() || rows.getFirst().get("n") == null) {
+                return 0;
+            }
+            return ((Number) rows.getFirst().get("n")).intValue();
+        } catch (DataAccessException ex) {
+            return 0;
+        }
+    }
+
     public List<Map<String, Object>> findOrderPieces(Long orderId) {
         try {
             return jdbcTemplate.queryForList(

@@ -54,12 +54,33 @@ public class BiesseAgentService {
             throw new org.springframework.web.server.ResponseStatusException(
                     org.springframework.http.HttpStatus.BAD_REQUEST, "job requerido");
         }
+        Map<String, Object> resolve = obrasClient.resolveOrderForJob(jobName.trim());
+        if (Boolean.TRUE.equals(resolve.get("ambiguous"))) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.CONFLICT,
+                    "Obra ambigua para job «" + jobName.trim() + "»");
+        }
         Map<String, Object> manifest = obrasClient.orderManifest(jobName.trim());
         if (manifest == null || manifest.isEmpty()) {
             throw new org.springframework.web.server.ResponseStatusException(
                     org.springframework.http.HttpStatus.NOT_FOUND, "Manifiesto no encontrado para job");
         }
         return manifest;
+    }
+
+    public Map<String, Object> labelZpl(
+            Map<String, Object> machine,
+            String jobName,
+            String osiPart,
+            int pieceNumber,
+            String unitCode) {
+        String machineName = str(machine.get("machine_name"));
+        String zpl = obrasClient.labelZpl(jobName, osiPart, pieceNumber, unitCode, machineName);
+        if (zpl == null || zpl.isBlank()) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.NOT_FOUND, "ZPL no disponible");
+        }
+        return Map.of("zpl", zpl);
     }
 
     @Transactional
@@ -255,15 +276,29 @@ public class BiesseAgentService {
 
             if (isStartProgram(type, desc)) {
                 String job = parseJobName(desc);
-                Map<String, Object> order = obrasClient.findOrderForJob(job);
-                if (order != null) {
-                    orderId = ((Number) order.get("orderid")).longValue();
-                    markProduccionAndTrace(machine, order, ev.eventTime(), "START_PROGRAM");
-                    action = "PRODUCCION";
+                Map<String, Object> resolve = obrasClient.resolveOrderForJob(job);
+                if (Boolean.TRUE.equals(resolve.get("ambiguous"))) {
+                    action = "START_AMBIGUOUS";
+                    log.warn("Start program ambiguo: job='{}' machine={}", job, machineId);
                 } else {
-                    action = "START_NO_MATCH";
-                    log.info("Start program sin obra: job='{}' machine={}", job, machineId);
+                    Object orderObj = resolve.get("order");
+                    Map<String, Object> order =
+                            orderObj instanceof Map<?, ?> m
+                                    ? (Map<String, Object>) m
+                                    : obrasClient.findOrderForJob(job);
+                    if (order != null) {
+                        orderId = ((Number) order.get("orderid")).longValue();
+                        markProduccionAndTrace(machine, order, ev.eventTime(), "START_PROGRAM");
+                        action = "PRODUCCION";
+                    } else {
+                        action = "START_NO_MATCH";
+                        log.info("Start program sin obra: job='{}' machine={}", job, machineId);
+                    }
                 }
+            }
+
+            if ("Message".equalsIgnoreCase(type)) {
+                action = "OSI_ALARM";
             }
 
             if (isProductInfoPart(type, desc, code)) {

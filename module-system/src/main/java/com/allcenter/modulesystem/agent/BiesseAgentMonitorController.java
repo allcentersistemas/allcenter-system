@@ -109,6 +109,33 @@ public class BiesseAgentMonitorController {
         return ResponseEntity.ok(out);
     }
 
+    @GetMapping("/config")
+    @PreAuthorize("@portalAuth.canRead()")
+    public ResponseEntity<Map<String, Object>> monitorConfig() {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("onlineStaleSeconds", BiesseAgentRepository.ONLINE_STALE_SECONDS);
+        out.put("minAgentVersion", "1.7.0");
+        out.put("machinesPollMs", 2000);
+        out.put("eventsPollMs", 10000);
+        return ResponseEntity.ok(out);
+    }
+
+    @GetMapping("/events/summary")
+    @PreAuthorize("@portalAuth.canRead()")
+    public ResponseEntity<List<Map<String, Object>>> eventsSummary(
+            @RequestParam(defaultValue = "24") int hours) {
+        schemaAligner.ensureReady();
+        return ResponseEntity.ok(agentRepository.eventActionSummary(hours));
+    }
+
+    @GetMapping("/alarms")
+    @PreAuthorize("@portalAuth.canRead()")
+    public ResponseEntity<List<Map<String, Object>>> alarms(
+            @RequestParam(defaultValue = "40") int limit) {
+        schemaAligner.ensureReady();
+        return ResponseEntity.ok(agentRepository.listRecentAlarms(limit));
+    }
+
     @GetMapping("/events")
     @PreAuthorize("@portalAuth.canRead()")
     public ResponseEntity<List<Map<String, Object>>> events(

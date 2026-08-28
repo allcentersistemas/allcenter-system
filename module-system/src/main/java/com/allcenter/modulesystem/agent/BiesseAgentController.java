@@ -64,6 +64,16 @@ public class BiesseAgentController {
         return agentService.orderManifest(requireMachine(request), jobName);
     }
 
+    @GetMapping("/label-zpl")
+    public Map<String, Object> labelZpl(
+            HttpServletRequest request,
+            @RequestParam("job") String jobName,
+            @RequestParam("osiPart") String osiPart,
+            @RequestParam("pieceNumber") int pieceNumber,
+            @RequestParam("unitCode") String unitCode) {
+        return agentService.labelZpl(requireMachine(request), jobName, osiPart, pieceNumber, unitCode);
+    }
+
     @SuppressWarnings("unchecked")
     private Map<String, Object> requireMachine(HttpServletRequest request) {
         Object attr = request.getAttribute(ATTR_MACHINE);

@@ -8,6 +8,7 @@ import com.allcenter.modulebiesse.service.BiesseScanService;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
@@ -76,11 +77,26 @@ public class BiesseIntegrationController {
             @RequestParam String jobName) {
         internalAuth.requireRead(authorization, internalToken);
         schemaAligner.ensureReady();
-        Map<String, Object> order = obrasRepository.findOrderForJob(jobName);
-        if (order == null) {
+        BiesseObrasRepository.OrderJobMatch match = obrasRepository.resolveOrderForJob(jobName);
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("ambiguous", match.ambiguous());
+        out.put("order", match.order());
+        out.put(
+                "candidates",
+                match.candidates().stream()
+                        .map(
+                                row -> {
+                                    Map<String, Object> c = new LinkedHashMap<>();
+                                    c.put("orderId", row.get("orderid"));
+                                    c.put("orderName", row.get("ordername"));
+                                    c.put("opCodigo", row.get("op_codigo"));
+                                    return c;
+                                })
+                        .toList());
+        if (match.order() == null && !match.ambiguous()) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Orden no encontrada para job");
         }
-        return ResponseEntity.ok(order);
+        return ResponseEntity.ok(out);
     }
 
     /**
@@ -93,7 +109,26 @@ public class BiesseIntegrationController {
             @RequestParam String jobName) {
         internalAuth.requireRead(authorization, internalToken);
         schemaAligner.ensureReady();
-        Map<String, Object> order = obrasRepository.findOrderForJob(jobName);
+        BiesseObrasRepository.OrderJobMatch match = obrasRepository.resolveOrderForJob(jobName);
+        if (match.ambiguous()) {
+            Map<String, Object> conflict = new LinkedHashMap<>();
+            conflict.put("ambiguous", true);
+            conflict.put(
+                    "candidates",
+                    match.candidates().stream()
+                            .map(
+                                    row -> {
+                                        Map<String, Object> c = new LinkedHashMap<>();
+                                        c.put("orderId", row.get("orderid"));
+                                        c.put("orderName", row.get("ordername"));
+                                        c.put("opCodigo", row.get("op_codigo"));
+                                        return c;
+                                    })
+                            .toList());
+            conflict.put("message", "Varias obras coinciden con el job OSI — corrija el nombre en ERP o en OSI.");
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(conflict);
+        }
+        Map<String, Object> order = match.order();
         if (order == null) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Orden no encontrada para job");
         }
@@ -110,7 +145,13 @@ public class BiesseIntegrationController {
             String partCode = str(part.get("partcode"));
             List<String> osiKeys = new ArrayList<>();
             if (partCode != null && !partCode.isBlank()) {
-                osiKeys.add(partCode.trim().toUpperCase());
+                String pc = partCode.trim().toUpperCase(Locale.ROOT);
+                osiKeys.add(pc);
+                if (pc.startsWith("P") && pc.length() > 1) {
+                    osiKeys.add(pc.substring(1));
+                } else if (!pc.isEmpty()) {
+                    osiKeys.add("P" + pc);
+                }
             }
             osiKeys.add("P" + partNumber);
             osiKeys.add(String.valueOf(partNumber));
@@ -125,6 +166,12 @@ public class BiesseIntegrationController {
             row.put("descripcion1", str(part.get("descripcion1")));
             row.put("longitud", toDouble(part.get("longitud")));
             row.put("ancho", toDouble(part.get("ancho")));
+            row.put("edgeUp", str(part.get("matedgeup")));
+            row.put("edgeLo", str(part.get("matedgelo")));
+            row.put("edgeL", str(part.get("matedgel")));
+            row.put("edgeR", str(part.get("matedger")));
+            long partId = ((Number) part.get("partid")).longValue();
+            row.put("cortadasMax", scanRepository.maxCortadaPieceNumber(partId));
             manifestParts.add(row);
         }
         Map<String, Object> out = new LinkedHashMap<>();
@@ -434,6 +481,79 @@ public class BiesseIntegrationController {
                                 .partNumber(partNumber)
                                 .pieceNumber(pieceNum)
                                 .quantity(qty)
+                                .build()));
+        return ResponseEntity.ok(out);
+    }
+
+    /**
+     * ZPL de etiqueta (fuente única ERP) para impresión local del agente sin marcar cortada.
+     */
+    @GetMapping("/labels/zpl")
+    public ResponseEntity<Map<String, Object>> labelZpl(
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+            @RequestHeader(value = BiesseInternalAuth.HEADER_INTERNAL, required = false) String internalToken,
+            @RequestParam String jobName,
+            @RequestParam String osiPart,
+            @RequestParam int pieceNumber,
+            @RequestParam String unitCode,
+            @RequestParam(required = false) String machineName) {
+        internalAuth.requireRead(authorization, internalToken);
+        schemaAligner.ensureReady();
+        BiesseObrasRepository.OrderJobMatch match = obrasRepository.resolveOrderForJob(jobName);
+        if (match.ambiguous()) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT, "Obra ambigua para job «" + jobName + "»");
+        }
+        Map<String, Object> order = match.order();
+        if (order == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Orden no encontrada para job");
+        }
+        long orderId = ((Number) order.get("orderid")).longValue();
+        String orderName = str(order.get("ordername"));
+        String booking = str(order.get("bookingcode"));
+        Map<String, Object> part = obrasRepository.findPartForOsi(orderId, osiPart);
+        Map<String, Object> out = new LinkedHashMap<>();
+        if (part == null) {
+            out.put("zpl", SimpleZplBuilder.build(
+                    SimpleZplBuilder.LabelData.builder()
+                            .orderName(orderName)
+                            .bookingCode(booking)
+                            .partCode(osiPart)
+                            .osiPart(osiPart)
+                            .unitCode(unitCode)
+                            .machineName(machineName)
+                            .pieceNumber(pieceNumber)
+                            .build()));
+            return ResponseEntity.ok(out);
+        }
+        int partNumber = intOrZero(part.get("partnumber"));
+        int qty = intOrZero(part.get("cantidad"));
+        String edge =
+                EdgeLabelFormatter.format(
+                        str(part.get("matedgeup")),
+                        str(part.get("matedgelo")),
+                        str(part.get("matedgel")),
+                        str(part.get("matedger")));
+        out.put(
+                "zpl",
+                SimpleZplBuilder.build(
+                        SimpleZplBuilder.LabelData.builder()
+                                .orderName(orderName)
+                                .bookingCode(booking)
+                                .partCode(str(part.get("partcode")))
+                                .material(str(part.get("material")))
+                                .unitCode(unitCode)
+                                .machineName(machineName)
+                                .desc1(str(part.get("descripcion")))
+                                .desc2(str(part.get("descripcion1")))
+                                .edgeLabel(edge)
+                                .osiPart(osiPart)
+                                .partLabel("P" + partNumber)
+                                .length(toDouble(part.get("longitud")))
+                                .width(toDouble(part.get("ancho")))
+                                .partNumber(partNumber)
+                                .pieceNumber(pieceNumber)
+                                .quantity(qty > 0 ? qty : 1)
                                 .build()));
         return ResponseEntity.ok(out);
     }

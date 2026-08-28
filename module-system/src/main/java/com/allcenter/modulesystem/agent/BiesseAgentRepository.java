@@ -370,6 +370,7 @@ public class BiesseAgentRepository {
                        last_part, boards_done, pieces_produced, osi_session_id,
                        printer_name, printer_enabled, plant_name, hostname, machine_type,
                        health_status, last_error, agent_version, compatible_profile,
+                       pending_queue_size, log_byte_offset,
                        current_order_id, job_started_at, last_heartbeat_at, last_status_at, created_at
                 FROM biesse_agent_machine
                 ORDER BY machine_id ASC
@@ -437,6 +438,36 @@ public class BiesseAgentRepository {
                 LIMIT ?
                 """,
                 safe);
+    }
+
+    public List<Map<String, Object>> listRecentAlarms(int limit) {
+        int safe = Math.max(1, Math.min(limit, 200));
+        return jdbc.queryForList(
+                """
+                SELECT e.id, e.event_uid, e.machine_id, m.machine_name, e.event_type, e.code,
+                       e.description, e.severity, e.event_time, e.processed_action, e.created_at
+                FROM biesse_agent_event e
+                LEFT JOIN biesse_agent_machine m ON m.machine_id = e.machine_id
+                WHERE e.processed_action = 'OSI_ALARM'
+                   OR UPPER(COALESCE(e.event_type, '')) = 'MESSAGE'
+                ORDER BY e.created_at DESC, e.id DESC
+                LIMIT ?
+                """,
+                safe);
+    }
+
+    /** Conteo por processed_action en las últimas N horas (KPIs monitor). */
+    public List<Map<String, Object>> eventActionSummary(int hours) {
+        int safeHours = Math.max(1, Math.min(hours, 168));
+        return jdbc.queryForList(
+                """
+                SELECT COALESCE(processed_action, 'UNKNOWN') AS action, COUNT(*) AS total
+                FROM biesse_agent_event
+                WHERE created_at >= CURRENT_TIMESTAMP - (? * INTERVAL '1 hour')
+                GROUP BY COALESCE(processed_action, 'UNKNOWN')
+                ORDER BY total DESC
+                """,
+                safeHours);
     }
 
     public List<Map<String, Object>> listRecentCutPieces(int limit) {

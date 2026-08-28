@@ -76,13 +76,17 @@ public class BiesseObrasRepository {
         return rows.isEmpty() ? null : rows.getFirst();
     }
 
-    public Map<String, Object> findOrderForJob(String jobName) {
+    public record OrderJobMatch(
+            Map<String, Object> order, boolean ambiguous, List<Map<String, Object>> candidates) {}
+
+    /** Resuelve job OSI → obra ERP; {@code ambiguous=true} si hay empate o señal débil. */
+    public OrderJobMatch resolveOrderForJob(String jobName) {
         if (jobName == null || jobName.isBlank()) {
-            return null;
+            return new OrderJobMatch(null, false, List.of());
         }
         String token = normalizeJobToken(jobName);
         if (token.isBlank()) {
-            return null;
+            return new OrderJobMatch(null, false, List.of());
         }
         String op = extractOp(token);
         String compact = compactName(token);
@@ -102,9 +106,12 @@ public class BiesseObrasRepository {
                         token,
                         compact,
                         token);
-        Map<String, Object> bestExact = pickBestOrderMatch(exact, token, op);
-        if (bestExact != null) {
-            return bestExact;
+        MatchPick pickExact = pickBestOrderMatchDetailed(exact, token, op);
+        if (pickExact.order() != null && !pickExact.ambiguous()) {
+            return new OrderJobMatch(pickExact.order(), false, exact);
+        }
+        if (pickExact.ambiguous()) {
+            return new OrderJobMatch(null, true, exact);
         }
 
         List<Map<String, Object>> candidates = new ArrayList<>();
@@ -142,25 +149,37 @@ public class BiesseObrasRepository {
                             compact,
                             compact));
         }
-        return pickBestOrderMatch(candidates, token, op);
+        MatchPick pick = pickBestOrderMatchDetailed(candidates, token, op);
+        return new OrderJobMatch(pick.order(), pick.ambiguous(), candidates);
     }
+
+    public Map<String, Object> findOrderForJob(String jobName) {
+        OrderJobMatch match = resolveOrderForJob(jobName);
+        if (match.ambiguous() || match.order() == null) {
+            return null;
+        }
+        return match.order();
+    }
+
+    private record MatchPick(Map<String, Object> order, int score, boolean ambiguous) {}
 
     /**
      * Con varias obras bajo la misma OP (p.ej. TAUPE vs PANELA), elige la que mejor
      * coincide con el job del Event.log — no la más reciente a ciegas.
      */
-    private static Map<String, Object> pickBestOrderMatch(
+    private static MatchPick pickBestOrderMatchDetailed(
             List<Map<String, Object>> candidates, String jobToken, String op) {
         if (candidates == null || candidates.isEmpty()) {
-            return null;
+            return new MatchPick(null, Integer.MIN_VALUE, false);
         }
         if (candidates.size() == 1) {
-            return candidates.getFirst();
+            return new MatchPick(candidates.getFirst(), 1000, false);
         }
         String job = jobToken != null ? jobToken.trim().toUpperCase(Locale.ROOT) : "";
         String jobCompact = compactName(job);
         Map<String, Object> best = null;
         int bestScore = Integer.MIN_VALUE;
+        int tiedAtBest = 0;
         for (Map<String, Object> row : candidates) {
             String name = str(row.get("ordername"));
             if (name == null || name.isBlank()) {
@@ -179,7 +198,6 @@ public class BiesseObrasRepository {
                     && (jobCompact.contains(nameCompact) || nameCompact.contains(jobCompact))) {
                 score += 300;
             }
-            // Discriminante típico: color/material al final (TAUPE / PANELA).
             String jobTail = lastWord(job);
             String nameTail = lastWord(nameU);
             if (jobTail.length() >= 3 && jobTail.equals(nameTail)) {
@@ -191,21 +209,25 @@ public class BiesseObrasRepository {
             if (op != null && nameU.startsWith(op.toUpperCase(Locale.ROOT))) {
                 score += 50;
             }
-            // Preferir overlap de tokens (INNOVA, SHALOM, TAUPE…).
             score += tokenOverlapScore(job, nameU) * 20;
             if (score > bestScore) {
                 bestScore = score;
                 best = row;
+                tiedAtBest = 1;
+            } else if (score == bestScore && score > Integer.MIN_VALUE) {
+                tiedAtBest++;
             }
         }
         if (best == null) {
-            return null;
+            return new MatchPick(null, Integer.MIN_VALUE, false);
         }
-        // Varias obras bajo la misma OP: exigir señal clara (color/nombre), no solo OP.
-        if (candidates.size() > 1 && bestScore < 200) {
-            return null;
+        boolean weak = candidates.size() > 1 && bestScore < 200;
+        boolean tied = tiedAtBest > 1;
+        boolean ambiguous = weak || tied;
+        if (ambiguous) {
+            return new MatchPick(null, bestScore, true);
         }
-        return best;
+        return new MatchPick(best, bestScore, false);
     }
 
     private static String normalizeJobToken(String jobName) {

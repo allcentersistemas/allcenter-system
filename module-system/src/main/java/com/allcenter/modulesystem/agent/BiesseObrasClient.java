@@ -119,13 +119,84 @@ public class BiesseObrasClient {
                             HttpMethod.GET,
                             new HttpEntity<>(headers()),
                             new ParameterizedTypeReference<>() {});
-            return res.getBody();
+            Map<String, Object> body = res.getBody();
+            if (body == null) {
+                return null;
+            }
+            if (Boolean.TRUE.equals(body.get("ambiguous"))) {
+                return null;
+            }
+            Object order = body.get("order");
+            if (order instanceof Map<?, ?> map) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> typed = (Map<String, Object>) map;
+                return typed;
+            }
+            return null;
         } catch (HttpClientErrorException.NotFound e) {
             return null;
         } catch (Exception e) {
             log.warn("biesse findOrderForJob('{}'): {}", jobName, e.getMessage());
             return null;
         }
+    }
+
+    public Map<String, Object> resolveOrderForJob(String jobName) {
+        if (jobName == null || jobName.isBlank()) {
+            return Map.of("ambiguous", false, "order", null, "candidates", List.of());
+        }
+        try {
+            String url =
+                    UriComponentsBuilder.fromUriString(biesseBaseUrl + "/api/biesse/scan/integration/orders/by-job")
+                            .queryParam("jobName", jobName)
+                            .toUriString();
+            ResponseEntity<Map<String, Object>> res =
+                    restTemplate.exchange(
+                            url,
+                            HttpMethod.GET,
+                            new HttpEntity<>(headers()),
+                            new ParameterizedTypeReference<>() {});
+            return res.getBody() != null ? res.getBody() : Map.of("ambiguous", false);
+        } catch (HttpClientErrorException.NotFound e) {
+            return Map.of("ambiguous", false, "order", null, "candidates", List.of());
+        } catch (Exception e) {
+            log.warn("biesse resolveOrderForJob('{}'): {}", jobName, e.getMessage());
+            return Map.of("ambiguous", false, "order", null, "candidates", List.of());
+        }
+    }
+
+    public String labelZpl(
+            String jobName, String osiPart, int pieceNumber, String unitCode, String machineName) {
+        if (jobName == null || jobName.isBlank() || osiPart == null || osiPart.isBlank()) {
+            return null;
+        }
+        try {
+            UriComponentsBuilder b =
+                    UriComponentsBuilder.fromUriString(
+                                    biesseBaseUrl + "/api/biesse/scan/integration/labels/zpl")
+                            .queryParam("jobName", jobName.trim())
+                            .queryParam("osiPart", osiPart.trim())
+                            .queryParam("pieceNumber", pieceNumber)
+                            .queryParam("unitCode", unitCode != null ? unitCode : "");
+            if (machineName != null && !machineName.isBlank()) {
+                b.queryParam("machineName", machineName.trim());
+            }
+            ResponseEntity<Map<String, Object>> res =
+                    restTemplate.exchange(
+                            b.toUriString(),
+                            HttpMethod.GET,
+                            new HttpEntity<>(headers()),
+                            new ParameterizedTypeReference<>() {});
+            Map<String, Object> body = res.getBody();
+            return body != null ? str(body.get("zpl")) : null;
+        } catch (Exception e) {
+            log.warn("biesse labelZpl('{}' {}): {}", jobName, osiPart, e.getMessage());
+            return null;
+        }
+    }
+
+    private static String str(Object value) {
+        return value == null ? null : String.valueOf(value);
     }
 
     public Map<String, Object> orderManifest(String jobName) {
