@@ -363,7 +363,8 @@ public class BiesseObrasClient {
                     UriComponentsBuilder.fromUriString(biesseBaseUrl + "/api/biesse/scan/integration/parts/for-osi")
                             .queryParam("orderId", orderId)
                             .queryParam("osiPart", osiPart)
-                            .queryParam("machineName", machineName != null ? machineName : "");
+                            .queryParam("machineName", machineName != null ? machineName : "")
+                            .queryParam("markCortada", true);
             if (pieceNumber != null && pieceNumber > 0) {
                 b.queryParam("pieceNumber", pieceNumber);
             }
@@ -380,6 +381,33 @@ public class BiesseObrasClient {
             return res.getBody();
         } catch (Exception e) {
             log.warn("biesse partForOsi({}, {}): {}", orderId, osiPart, e.getMessage());
+            return null;
+        }
+    }
+
+    /** Marca pieza cortada (POST) — respaldo si GET for-osi falló o no pintó. */
+    public Map<String, Object> markCortada(
+            long orderId, String osiPart, String machineName, Integer pieceNumber) {
+        try {
+            Map<String, Object> body = new HashMap<>();
+            body.put("orderId", orderId);
+            body.put("osiPart", osiPart != null ? osiPart : "");
+            if (machineName != null && !machineName.isBlank()) {
+                body.put("machineName", machineName.trim());
+            }
+            if (pieceNumber != null && pieceNumber > 0) {
+                body.put("pieceNumber", pieceNumber);
+            }
+            String url = biesseBaseUrl + "/api/biesse/scan/integration/parts/mark-cortada";
+            ResponseEntity<Map<String, Object>> res =
+                    restTemplate.exchange(
+                            url,
+                            HttpMethod.POST,
+                            new HttpEntity<>(body, headers()),
+                            new ParameterizedTypeReference<>() {});
+            return res.getBody();
+        } catch (Exception e) {
+            log.warn("biesse markCortada({}, {}): {}", orderId, osiPart, e.getMessage());
             return null;
         }
     }

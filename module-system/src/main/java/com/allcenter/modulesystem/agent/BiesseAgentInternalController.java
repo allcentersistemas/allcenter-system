@@ -35,6 +35,19 @@ public class BiesseAgentInternalController {
         return ResponseEntity.ok(agentRepository.listCutPieces(orderId, limit));
     }
 
+    /**
+     * Máquinas cuyo job/orden actual coincide con la obra — para pintar cortes desde {@code last_part}.
+     */
+    @GetMapping("/machines-for-order")
+    public ResponseEntity<List<Map<String, Object>>> machinesForOrder(
+            @RequestHeader(value = "X-Internal-Token", required = false) String token,
+            @RequestParam long orderId,
+            @RequestParam(required = false) String orderName) {
+        requireInternal(token);
+        schemaAligner.ensureReady();
+        return ResponseEntity.ok(agentRepository.listMachinesForOrder(orderId, orderName));
+    }
+
     private void requireInternal(String token) {
         String expected = internalToken != null ? internalToken.trim() : "";
         String got = token != null ? token.trim() : "";

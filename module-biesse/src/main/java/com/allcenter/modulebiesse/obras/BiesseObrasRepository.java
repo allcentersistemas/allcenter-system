@@ -52,6 +52,8 @@ public class BiesseObrasRepository {
     private static final Pattern OP_PATTERN = Pattern.compile("^([A-Za-z]?\\d{3,})\\b");
     private static final Pattern PART_PATTERN =
             Pattern.compile("(?i)^Part\\s*(P?\\d+)", Pattern.CASE_INSENSITIVE);
+    private static final Pattern DIM_PATTERN =
+            Pattern.compile("(\\d+(?:[.,]\\d+)?)\\s*[x×]\\s*(\\d+(?:[.,]\\d+)?)", Pattern.CASE_INSENSITIVE);
 
     private final JdbcTemplate jdbc;
 
@@ -740,27 +742,103 @@ public class BiesseObrasRepository {
         return v.length() <= max ? v : v.substring(0, max);
     }
 
+    /**
+     * Mapea línea OSI ({@code Part P146 599.00x329.00 Q:1}) a una parte ERP.
+     * 1) por partnumber/partcode; 2) por medidas L×W (el id OSI del patrón suele ≠ P# del XML).
+     */
     public Map<String, Object> findPartForOsi(long orderId, String osiPartText) {
         Integer partNumber = parsePartNumber(osiPartText);
-        if (partNumber == null) {
+        if (partNumber != null) {
+            List<Map<String, Object>> rows =
+                    jdbc.queryForList(
+                            """
+                            SELECT partid, orderid, partcode, partnumber, cantidad, material,
+                                   descripcion, descripcion1, longitud, ancho, escaneado
+                            FROM partes
+                            WHERE orderid = ?
+                              AND (partnumber = ? OR UPPER(TRIM(partcode)) = UPPER(?) OR UPPER(TRIM(partcode)) = UPPER(?))
+                            ORDER BY partid
+                            LIMIT 1
+                            """,
+                            orderId,
+                            partNumber,
+                            "P" + partNumber,
+                            String.valueOf(partNumber));
+            if (!rows.isEmpty()) {
+                return rows.getFirst();
+            }
+        }
+        double[] dims = parseDimensions(osiPartText);
+        if (dims == null) {
             return null;
         }
+        return findPartByDimensions(orderId, dims[0], dims[1]);
+    }
+
+    /**
+     * Empareja por longitud×ancho (±0.6 mm; también L↔W).
+     * Si hay varias iguales, prefiere la que aún tenga piezas sin cortar.
+     */
+    public Map<String, Object> findPartByDimensions(long orderId, double length, double width) {
+        if (length <= 0 || width <= 0) {
+            return null;
+        }
+        final double tol = 0.6;
         List<Map<String, Object>> rows =
                 jdbc.queryForList(
                         """
-                        SELECT partid, orderid, partcode, partnumber, cantidad, material,
-                               descripcion, descripcion1, longitud, ancho, escaneado
-                        FROM partes
-                        WHERE orderid = ?
-                          AND (partnumber = ? OR UPPER(TRIM(partcode)) = UPPER(?) OR UPPER(TRIM(partcode)) = UPPER(?))
-                        ORDER BY partid
+                        SELECT p.partid, p.orderid, p.partcode, p.partnumber, p.cantidad, p.material,
+                               p.descripcion, p.descripcion1, p.longitud, p.ancho, p.escaneado,
+                               (SELECT COUNT(*) FROM piezas z
+                                  WHERE z.partid = p.partid AND COALESCE(z.cortada, FALSE) = TRUE) AS cortadas
+                        FROM partes p
+                        WHERE p.orderid = ?
+                          AND p.longitud IS NOT NULL AND p.ancho IS NOT NULL
+                          AND (
+                                (ABS(p.longitud - ?) <= ? AND ABS(p.ancho - ?) <= ?)
+                             OR (ABS(p.longitud - ?) <= ? AND ABS(p.ancho - ?) <= ?)
+                          )
+                        ORDER BY
+                          CASE WHEN COALESCE(p.cantidad, 0) > 0
+                                    AND (SELECT COUNT(*) FROM piezas z
+                                           WHERE z.partid = p.partid AND COALESCE(z.cortada, FALSE) = TRUE)
+                                         < p.cantidad
+                               THEN 0 ELSE 1 END,
+                          p.partnumber NULLS LAST,
+                          p.partid
                         LIMIT 1
                         """,
                         orderId,
-                        partNumber,
-                        "P" + partNumber,
-                        String.valueOf(partNumber));
+                        length,
+                        tol,
+                        width,
+                        tol,
+                        width,
+                        tol,
+                        length,
+                        tol);
         return rows.isEmpty() ? null : rows.getFirst();
+    }
+
+    /** Extrae L×W de textos OSI {@code Part P10 440.00x155.00 Q:2}. */
+    public static double[] parseDimensions(String osiPartText) {
+        if (osiPartText == null || osiPartText.isBlank()) {
+            return null;
+        }
+        Matcher m = DIM_PATTERN.matcher(osiPartText.trim());
+        if (!m.find()) {
+            return null;
+        }
+        try {
+            double a = Double.parseDouble(m.group(1).replace(',', '.'));
+            double b = Double.parseDouble(m.group(2).replace(',', '.'));
+            if (a <= 0 || b <= 0) {
+                return null;
+            }
+            return new double[] {a, b};
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     /**

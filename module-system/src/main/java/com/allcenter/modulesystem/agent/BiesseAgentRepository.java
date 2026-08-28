@@ -138,6 +138,18 @@ public class BiesseAgentRepository {
         return n != null && n > 0;
     }
 
+    public boolean cutExistsForEventUid(String eventUid) {
+        if (eventUid == null || eventUid.isBlank()) {
+            return false;
+        }
+        Integer n =
+                jdbc.queryForObject(
+                        "SELECT COUNT(*) FROM biesse_agent_cut_piece WHERE event_uid = ?",
+                        Integer.class,
+                        eventUid);
+        return n != null && n > 0;
+    }
+
     /** Evita doble corte status+evento para la misma pieza OSI reciente. */
     public boolean hasRecentCutForOsi(int machineId, Long orderId, String osiPart, int withinSeconds) {
         if (osiPart == null || osiPart.isBlank()) {
@@ -376,6 +388,47 @@ public class BiesseAgentRepository {
                 ORDER BY machine_id ASC
                 """,
                 ONLINE_STALE_SECONDS);
+    }
+
+    /**
+     * Máquinas activas en una obra (por {@code current_order_id} o nombre de job).
+     */
+    public List<Map<String, Object>> listMachinesForOrder(long orderId, String orderName) {
+        markStaleMachinesOffline();
+        String name = orderName != null ? orderName.trim() : "";
+        return jdbc.queryForList(
+                """
+                SELECT machine_id, machine_name, state, job_name, last_part, pieces_produced,
+                       current_order_id, last_status_at,
+                       (
+                         ("""
+                        + LAST_SEEN_SQL
+                        + """
+                         ) IS NOT NULL
+                         AND ("""
+                        + LAST_SEEN_SQL
+                        + """
+                         ) > CURRENT_TIMESTAMP - (? * INTERVAL '1 second')
+                       ) AS online
+                FROM biesse_agent_machine
+                WHERE current_order_id = ?
+                   OR (
+                        ? <> ''
+                        AND job_name IS NOT NULL
+                        AND (
+                              UPPER(TRIM(job_name)) = UPPER(TRIM(?))
+                           OR UPPER(TRIM(job_name)) LIKE UPPER(TRIM(?)) || '%'
+                           OR UPPER(TRIM(?)) LIKE UPPER(TRIM(job_name)) || '%'
+                        )
+                   )
+                ORDER BY last_status_at DESC NULLS LAST
+                """,
+                ONLINE_STALE_SECONDS,
+                orderId,
+                name,
+                name,
+                name,
+                name);
     }
 
     public Map<String, Object> createMachine(String machineName, String plantName, String tokenHash) {

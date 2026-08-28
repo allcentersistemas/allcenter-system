@@ -168,6 +168,16 @@ public class BiesseAgentService {
                 previousPieces,
                 status);
 
+        // Si last_part ya estaba guardado pero el corte nunca se registró (fallo previo),
+        // reintentar en cada status mientras la máquina sigue en esa pieza.
+        reconcileMissingCutFromLastPart(
+                machineId,
+                machineName,
+                bool(machine.get("printer_enabled")),
+                live,
+                order,
+                status);
+
         if (("IDLE".equals(state) || "UNKNOWN".equals(state)) && live.get("job_started_at") != null) {
             closeCuttingWindow(live, order, status.eventTime(), "STATUS_IDLE");
         }
@@ -178,6 +188,7 @@ public class BiesseAgentService {
     /**
      * Cuando {@code last_part} / piezas de sesión avanzan en el status, genera corte MAPPED.
      * Idempotente por event_uid sintético ({@code status-cut-…}).
+     * Si un intento previo dejó el evento sin cut_piece, reintenta (no bloquea para siempre).
      */
     private void processCutFromStatus(
             int machineId,
@@ -214,10 +225,13 @@ public class BiesseAgentService {
                         : Integer.toHexString(lastPart.toLowerCase(Locale.ROOT).hashCode());
         // Incluir parte OSI en el uid: evita colisión cuando varias piezas comparten el mismo contador de sesión.
         String eventUid = "status-cut-" + machineId + "-" + orderId + "-" + partKey + "-s" + sessionKey;
-        if (repository.eventExists(eventUid)) {
+        boolean eventAlready = repository.eventExists(eventUid);
+        boolean cutAlready = repository.cutExistsForEventUid(eventUid);
+        if (eventAlready && cutAlready) {
             return;
         }
-        if (repository.hasRecentCutForOsi(machineId, orderId, lastPart, 180)) {
+        // Solo dedupe contra cortes reales recientes (no bloquear si el intento previo falló sin cut).
+        if (!cutAlready && repository.hasRecentCutForOsi(machineId, orderId, lastPart, 90)) {
             return;
         }
 
@@ -225,30 +239,111 @@ public class BiesseAgentService {
 
         LabelDto label =
                 buildLabelForPart(machineId, machineName, order, lastPart, eventUid, printLocal);
+        // Respaldo: si for-osi no marcó cortada (UNMAPPED / ERP caído), intentar POST mark-cortada.
+        if (label == null || !"MAPPED".equalsIgnoreCase(str(label.mapStatus()))) {
+            Map<String, Object> marked =
+                    obrasClient.markCortada(orderId, lastPart, machineName, null);
+            if (marked != null && Boolean.TRUE.equals(marked.get("found"))) {
+                log.info(
+                        "Cortada vía mark-cortada (status): machine={} order={} part={}",
+                        machineId,
+                        orderId,
+                        lastPart);
+            }
+        }
         Instant eventTime = BiesseAgentRepository.parseEventTime(status.eventTime());
-        repository.insertEvent(
-                eventUid,
-                machineId,
-                "PRODUCT INFO",
-                "",
-                lastPart,
-                "INFO",
-                eventTime,
-                orderId,
-                label != null ? "LABEL" : "PART_UNMAPPED");
+        if (!eventAlready) {
+            String action =
+                    label != null && "MAPPED".equalsIgnoreCase(str(label.mapStatus()))
+                            ? "LABEL"
+                            : "PART_UNMAPPED";
+            repository.insertEvent(
+                    eventUid,
+                    machineId,
+                    "PRODUCT INFO",
+                    "",
+                    lastPart,
+                    "INFO",
+                    eventTime,
+                    orderId,
+                    action);
+        }
         if (label != null) {
             log.info(
-                    "Corte desde status: machine={} order={} part={} uid={}",
+                    "Corte desde status: machine={} order={} part={} uid={} map={}",
                     machineId,
                     orderId,
                     lastPart,
-                    eventUid);
+                    eventUid,
+                    label.mapStatus());
         } else {
             log.warn(
                     "Status last_part sin mapa: machine={} order={} part='{}'",
                     machineId,
                     orderId,
                     lastPart);
+        }
+    }
+
+    /**
+     * Repara cortes perdidos: el monitor ya muestra {@code last_part} pero no hay cut_piece
+     * reciente (p.ej. partForOsi falló y el evento bloqueó el reintento).
+     */
+    private void reconcileMissingCutFromLastPart(
+            int machineId,
+            String machineName,
+            boolean printLocal,
+            Map<String, Object> machineCtx,
+            Map<String, Object> order,
+            StatusPayload status) {
+        if (order == null || status == null) {
+            return;
+        }
+        String lastPart = status.lastPart() != null ? status.lastPart().trim() : "";
+        if (lastPart.isBlank() || !lastPart.regionMatches(true, 0, "Part", 0, 4)) {
+            return;
+        }
+        long orderId = ((Number) order.get("orderid")).longValue();
+        if (repository.hasRecentCutForOsi(machineId, orderId, lastPart, 3600)) {
+            // Ya hay corte en monitor; el detalle se pinta vía syncOrderFromMonitor / applyAgentCuts.
+            return;
+        }
+        // Sin cut_piece: forzar el mismo camino que un cambio de last_part.
+        Integer pieces = status.piecesProduced();
+        String partKey = osiPartKey(lastPart);
+        String sessionKey =
+                pieces != null && pieces > 0
+                        ? String.valueOf(pieces)
+                        : Integer.toHexString(lastPart.toLowerCase(Locale.ROOT).hashCode());
+        String eventUid = "status-cut-" + machineId + "-" + orderId + "-" + partKey + "-s" + sessionKey;
+        if (repository.cutExistsForEventUid(eventUid)) {
+            return;
+        }
+        log.info(
+                "Reconcile cut ausente: machine={} order={} part='{}'",
+                machineId,
+                orderId,
+                lastPart);
+        markProduccionAndTrace(machineCtx, order, status.eventTime(), "STATUS_RECONCILE");
+        LabelDto label =
+                buildLabelForPart(machineId, machineName, order, lastPart, eventUid, printLocal);
+        if (label == null || !"MAPPED".equalsIgnoreCase(str(label.mapStatus()))) {
+            obrasClient.markCortada(orderId, lastPart, machineName, null);
+        }
+        if (!repository.eventExists(eventUid)) {
+            Instant eventTime = BiesseAgentRepository.parseEventTime(status.eventTime());
+            repository.insertEvent(
+                    eventUid,
+                    machineId,
+                    "PRODUCT INFO",
+                    "",
+                    lastPart,
+                    "INFO",
+                    eventTime,
+                    orderId,
+                    label != null && "MAPPED".equalsIgnoreCase(str(label.mapStatus()))
+                            ? "LABEL"
+                            : "PART_UNMAPPED");
         }
     }
 
@@ -315,6 +410,9 @@ public class BiesseAgentService {
                 Map<String, Object> order =
                         obrasClient.findOrderForJob(
                                 live != null ? str(live.get("job_name")) : str(machine.get("job_name")));
+                if (order == null && live != null && live.get("current_order_id") instanceof Number n) {
+                    order = obrasClient.findOrderById(n.longValue());
+                }
                 if (order != null) {
                     orderId = ((Number) order.get("orderid")).longValue();
                     markProduccionAndTrace(machineCtx, order, ev.eventTime(), "PIEZA_CORTADA");
@@ -329,13 +427,23 @@ public class BiesseAgentService {
                                     printLocal && !printedLocally,
                                     ev.pieceNumber(),
                                     ev.unitCode());
+                    boolean mapped =
+                            label != null && "MAPPED".equalsIgnoreCase(str(label.mapStatus()));
+                    if (!mapped) {
+                        Map<String, Object> marked =
+                                obrasClient.markCortada(
+                                        orderId, osiPart, machineName, ev.pieceNumber());
+                        if (marked != null && Boolean.TRUE.equals(marked.get("found"))) {
+                            mapped = true;
+                        }
+                    }
                     if (label != null && printLocal && !printedLocally) {
                         labels.add(label);
-                        action = "LABEL";
+                        action = mapped ? "LABEL" : "PART_UNMAPPED";
                     } else if (label != null) {
-                        action = printedLocally ? "LABEL_LOCAL" : "PART_UNMAPPED";
+                        action = printedLocally ? "LABEL_LOCAL" : (mapped ? "LABEL" : "PART_UNMAPPED");
                     } else {
-                        action = "PART_UNMAPPED";
+                        action = mapped ? "LABEL" : "PART_UNMAPPED";
                     }
                     obrasClient.registrarTrazabilidad(
                             opOf(order),

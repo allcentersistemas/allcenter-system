@@ -4,6 +4,7 @@ import com.allcenter.modulebiesse.obras.BiesseObrasRepository;
 import com.allcenter.modulebiesse.repository.BiesseScanRepository;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -17,6 +18,12 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Sincroniza cortes del monitor del agente → {@code piezas.cortada} (idempotente).
  * No modifica {@code escaneado}; independiente del flujo de escaneo Android/palés.
+ *
+ * <p>Fuentes:
+ * <ul>
+ *   <li>{@code biesse_agent_cut_piece} (eventos / status procesados)
+ *   <li>{@code last_part} vivo en máquinas con este job (si el evento falló pero el monitor sí lo ve)
+ * </ul>
  */
 @Service
 @RequiredArgsConstructor
@@ -34,9 +41,6 @@ public class AgentCutSyncService {
     public Map<String, Object> syncOrderFromMonitor(long orderId) {
         List<Map<String, Object>> parts = scanRepository.findOrderParts(orderId);
         List<Map<String, Object>> cuts = agentCutsClient.listCutPieces(orderId, 500);
-        if (cuts.isEmpty()) {
-            return Map.of("orderId", orderId, "cuts", 0, "marked", 0, "skipped", 0);
-        }
 
         Map<Integer, Long> partIdByNumber = new LinkedHashMap<>();
         for (Map<String, Object> part : parts) {
@@ -48,14 +52,13 @@ public class AgentCutSyncService {
             }
         }
 
+        int marked = 0;
+        int skipped = 0;
+
         List<Map<String, Object>> sorted = new ArrayList<>(cuts);
         sorted.sort(
                 Comparator.comparingLong(this::cutSortKey)
                         .thenComparingLong(c -> longVal(c.get("cut_piece_id"), 0L)));
-
-        Map<Long, Integer> sequentialNext = new LinkedHashMap<>();
-        int marked = 0;
-        int skipped = 0;
 
         for (Map<String, Object> cut : sorted) {
             Long partId = cut.get("part_id") instanceof Number n ? n.longValue() : null;
@@ -75,10 +78,8 @@ public class AgentCutSyncService {
                 }
                 pieceNum = next;
             }
-            sequentialNext.put(partId, Math.max(sequentialNext.getOrDefault(partId, 0), pieceNum));
 
             String machine = str(cut.get("machine_name"));
-            // ensurePiezaRow rechaza numero > cantidad; no crear fantasmas del monitor.
             if (!obrasRepository.ensurePiezaRow(partId, pieceNum)) {
                 skipped++;
                 continue;
@@ -91,19 +92,89 @@ public class AgentCutSyncService {
             }
         }
 
-        log.debug("syncAgentCuts orderId={} cuts={} marked={} skipped={}", orderId, cuts.size(), marked, skipped);
-        // Si hay cortes del monitor para esta orden, la obra debe estar en PRODUCCION
-        // (aunque no se haya podido marcar cada pieza.cortada).
+        // Respaldo: last_part del monitor (aunque no haya filas en cut_piece).
+        int fromStatus = syncFromMachineLastParts(orderId, partIdByNumber);
+        marked += fromStatus;
+
+        log.debug(
+                "syncAgentCuts orderId={} cuts={} marked={} skipped={} fromStatus={}",
+                orderId,
+                cuts.size(),
+                marked,
+                skipped,
+                fromStatus);
+
         boolean produccion = false;
-        if (marked > 0 || !cuts.isEmpty()) {
+        if (marked > 0 || !cuts.isEmpty() || fromStatus > 0) {
             produccion = obrasRepository.markOrderProduccion(orderId);
         }
-        return Map.of(
-                "orderId", orderId,
-                "cuts", cuts.size(),
-                "marked", marked,
-                "skipped", skipped,
-                "produccion", produccion);
+        Map<String, Object> out = new HashMap<>();
+        out.put("orderId", orderId);
+        out.put("cuts", cuts.size());
+        out.put("marked", marked);
+        out.put("skipped", skipped);
+        out.put("fromStatus", fromStatus);
+        out.put("produccion", produccion);
+        return out;
+    }
+
+    /**
+     * Si el monitor muestra {@code Part P146 …} en una máquina de esta obra y la BD aún no tiene
+     * esa pieza cortada, la marca (siguiente número libre 1..cantidad).
+     */
+    private int syncFromMachineLastParts(long orderId, Map<Integer, Long> partIdByNumber) {
+        Map<String, Object> order = obrasRepository.findOrderById(orderId);
+        String orderName = order != null ? str(order.get("ordername")) : null;
+        List<Map<String, Object>> machines = agentCutsClient.listMachinesForOrder(orderId, orderName);
+        if (machines.isEmpty()) {
+            return 0;
+        }
+        int marked = 0;
+        for (Map<String, Object> machine : machines) {
+            String lastPart = str(machine.get("last_part"));
+            if (lastPart == null || !lastPart.regionMatches(true, 0, "Part", 0, 4)) {
+                continue;
+            }
+            Long partId = resolvePartIdFromOsi(orderId, lastPart, partIdByNumber);
+            if (partId == null) {
+                continue;
+            }
+            Integer pieceNum = obrasRepository.nextPieceNumber(partId);
+            // last_part solo prueba que esa parte se cortó al menos una vez;
+            // no inventar pieza 2+ (eso viene de cut_piece / events).
+            if (pieceNum == null || pieceNum != 1) {
+                continue;
+            }
+            String machineName = str(machine.get("machine_name"));
+            if (!obrasRepository.ensurePiezaRow(partId, pieceNum)) {
+                continue;
+            }
+            Map<String, Object> result = obrasRepository.markPiezaCortada(partId, pieceNum, machineName);
+            if (result != null && Boolean.TRUE.equals(result.get("updated"))) {
+                marked++;
+                log.info(
+                        "Cortada desde last_part monitor: order={} partId={} piece={} machine={} osi={}",
+                        orderId,
+                        partId,
+                        pieceNum,
+                        machineName,
+                        lastPart);
+            }
+        }
+        return marked;
+    }
+
+    private Long resolvePartIdFromOsi(
+            long orderId, String osiText, Map<Integer, Long> partIdByNumber) {
+        Integer partNum = BiesseObrasRepository.parsePartNumber(osiText);
+        if (partNum != null && partIdByNumber.containsKey(partNum)) {
+            return partIdByNumber.get(partNum);
+        }
+        Map<String, Object> part = obrasRepository.findPartForOsi(orderId, osiText);
+        if (part != null && part.get("partid") instanceof Number n) {
+            return n.longValue();
+        }
+        return null;
     }
 
     private long cutSortKey(Map<String, Object> cut) {

@@ -1,5 +1,7 @@
 package com.allcenter.modulebiesse.service;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -14,7 +16,7 @@ import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
-/** Cortes del agente (module-system) para sincronizar {@code piezas.cortada}. */
+/** Cortes / status del agente (module-system) para sincronizar {@code piezas.cortada}. */
 @Service
 @Slf4j
 public class SystemAgentCutsClient {
@@ -57,6 +59,38 @@ public class SystemAgentCutsClient {
             return res.getBody() != null ? res.getBody() : List.of();
         } catch (Exception ex) {
             log.warn("No se pudieron leer cortes del agente para orderId={}: {}", orderId, ex.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    /** Máquinas con job/orden actual = esta obra (incluye {@code last_part} vivo). */
+    public List<Map<String, Object>> listMachinesForOrder(long orderId, String orderName) {
+        if (internalToken.isBlank()) {
+            return List.of();
+        }
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("X-Internal-Token", internalToken);
+            StringBuilder url =
+                    new StringBuilder(systemBaseUrl)
+                            .append("/api/biesse/monitor/internal/machines-for-order?orderId=")
+                            .append(orderId);
+            if (orderName != null && !orderName.isBlank()) {
+                url.append("&orderName=")
+                        .append(URLEncoder.encode(orderName.trim(), StandardCharsets.UTF_8));
+            }
+            ResponseEntity<List<Map<String, Object>>> res =
+                    restTemplate.exchange(
+                            url.toString(),
+                            HttpMethod.GET,
+                            new HttpEntity<>(headers),
+                            new ParameterizedTypeReference<>() {});
+            return res.getBody() != null ? res.getBody() : List.of();
+        } catch (Exception ex) {
+            log.warn(
+                    "No se pudieron leer máquinas del agente para orderId={}: {}",
+                    orderId,
+                    ex.getMessage());
             return Collections.emptyList();
         }
     }
