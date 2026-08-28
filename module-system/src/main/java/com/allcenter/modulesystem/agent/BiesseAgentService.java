@@ -33,6 +33,9 @@ public class BiesseAgentService {
     private static final Pattern START_PROGRAM =
             Pattern.compile("^Start program;([^;]*);([^;]*)(?:;|$)", Pattern.CASE_INSENSITIVE);
     private static final Pattern PATTERN_SUFFIX = Pattern.compile("\\.(\\d{3})$");
+    /** Número OSI en líneas "Part P51 …" (misma lógica que module-biesse). */
+    private static final Pattern OSI_PART_KEY =
+            Pattern.compile("(?i)^Part\\s*(P?\\d+)");
 
     private final BiesseAgentRepository repository;
     private final BiesseObrasClient obrasClient;
@@ -204,13 +207,17 @@ public class BiesseAgentService {
         }
 
         long orderId = ((Number) order.get("orderid")).longValue();
-        String pieceKey =
+        String partKey = osiPartKey(lastPart);
+        String sessionKey =
                 pieces != null && pieces > 0
                         ? String.valueOf(pieces)
                         : Integer.toHexString(lastPart.toLowerCase(Locale.ROOT).hashCode());
-        String eventUid = "status-cut-" + machineId + "-" + orderId + "-" + pieceKey;
-        if (repository.eventExists(eventUid)
-                || repository.hasRecentCutForOsi(machineId, orderId, lastPart, 180)) {
+        // Incluir parte OSI en el uid: evita colisión cuando varias piezas comparten el mismo contador de sesión.
+        String eventUid = "status-cut-" + machineId + "-" + orderId + "-" + partKey + "-s" + sessionKey;
+        if (repository.eventExists(eventUid)) {
+            return;
+        }
+        if (repository.hasRecentCutForOsi(machineId, orderId, lastPart, 180)) {
             return;
         }
 
@@ -583,7 +590,25 @@ public class BiesseAgentService {
         Map<String, Object> mapped =
                 obrasClient.partForOsi(orderId, osiPart, machineName, pieceOverride, unitCodeOverride);
         if (mapped == null) {
-            return null;
+            // ERP caído: registrar corte UNMAPPED para sync/backfill y no perder el avance visual.
+            String fallbackUnit = orderName + "-" + osiPart.replaceAll("\\s+", "");
+            long cutId =
+                    repository.insertCutPiece(
+                            eventUid,
+                            machineId,
+                            orderId,
+                            orderName,
+                            null,
+                            osiPart,
+                            fallbackUnit,
+                            "UNMAPPED",
+                            null);
+            log.warn(
+                    "partForOsi sin respuesta — corte UNMAPPED machine={} order={} part='{}'",
+                    machineId,
+                    orderId,
+                    osiPart);
+            return new LabelDto(cutId, eventUid, osiPart, fallbackUnit, "UNMAPPED", null, printLocal);
         }
         String mapStatus = str(mapped.get("mapStatus"));
         String unitCode = str(mapped.get("unitCode"));
@@ -781,5 +806,17 @@ public class BiesseAgentService {
             return m + "m " + s + "s";
         }
         return s + "s";
+    }
+
+    /** Clave estable para uid/idempotencia: "P51" desde "Part P51 692×394 …". */
+    private static String osiPartKey(String lastPart) {
+        if (lastPart == null || lastPart.isBlank()) {
+            return "0";
+        }
+        Matcher m = OSI_PART_KEY.matcher(lastPart.trim());
+        if (m.find()) {
+            return m.group(1).toUpperCase(Locale.ROOT);
+        }
+        return Integer.toHexString(lastPart.toLowerCase(Locale.ROOT).hashCode());
     }
 }
