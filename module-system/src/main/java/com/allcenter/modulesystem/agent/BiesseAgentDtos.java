@@ -58,7 +58,10 @@ public final class BiesseAgentDtos {
             String code,
             String description,
             String severity,
-            @JsonProperty("event_time") String eventTime) {}
+            @JsonProperty("event_time") String eventTime,
+            @JsonProperty("unit_code") String unitCode,
+            @JsonProperty("piece_number") Integer pieceNumber,
+            @JsonProperty("printed_locally") Boolean printedLocally) {}
 
     public record EventsRequest(
             String cursor,

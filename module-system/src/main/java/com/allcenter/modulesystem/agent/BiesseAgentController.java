@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -55,6 +56,12 @@ public class BiesseAgentController {
     public OkResponse printAck(HttpServletRequest request, @RequestBody(required = false) PrintAckRequest body) {
         return agentService.printAck(
                 requireMachine(request), body != null ? body : new PrintAckRequest(null));
+    }
+
+    @GetMapping("/order-manifest")
+    public Map<String, Object> orderManifest(
+            HttpServletRequest request, @RequestParam("job") String jobName) {
+        return agentService.orderManifest(requireMachine(request), jobName);
     }
 
     @SuppressWarnings("unchecked")

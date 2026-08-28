@@ -5,6 +5,7 @@ import com.allcenter.modulebiesse.obras.BiesseObrasSchemaAligner;
 import com.allcenter.modulebiesse.repository.BiesseScanRepository;
 import com.allcenter.modulebiesse.service.AgentCutSyncService;
 import com.allcenter.modulebiesse.service.BiesseScanService;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -80,6 +81,59 @@ public class BiesseIntegrationController {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Orden no encontrada para job");
         }
         return ResponseEntity.ok(order);
+    }
+
+    /**
+     * Manifiesto de obra para impresión local del agente (mapeo OSI P10 → ERP P1, cantidades, textos).
+     */
+    @GetMapping("/orders/manifest")
+    public ResponseEntity<Map<String, Object>> orderManifest(
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+            @RequestHeader(value = BiesseInternalAuth.HEADER_INTERNAL, required = false) String internalToken,
+            @RequestParam String jobName) {
+        internalAuth.requireRead(authorization, internalToken);
+        schemaAligner.ensureReady();
+        Map<String, Object> order = obrasRepository.findOrderForJob(jobName);
+        if (order == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Orden no encontrada para job");
+        }
+        long orderId = ((Number) order.get("orderid")).longValue();
+        String orderName = str(order.get("ordername"));
+        String booking = str(order.get("bookingcode"));
+        List<Map<String, Object>> parts = scanRepository.findOrderParts(orderId);
+        List<Map<String, Object>> manifestParts = new ArrayList<>();
+        for (Map<String, Object> part : parts) {
+            int partNumber = intOrZero(part.get("partnumber"));
+            if (partNumber <= 0) {
+                continue;
+            }
+            String partCode = str(part.get("partcode"));
+            List<String> osiKeys = new ArrayList<>();
+            if (partCode != null && !partCode.isBlank()) {
+                osiKeys.add(partCode.trim().toUpperCase());
+            }
+            osiKeys.add("P" + partNumber);
+            osiKeys.add(String.valueOf(partNumber));
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("partId", part.get("partid"));
+            row.put("partNumber", partNumber);
+            row.put("partCode", partCode);
+            row.put("osiKeys", osiKeys.stream().distinct().toList());
+            row.put("cantidad", intOrZero(part.get("cantidad")));
+            row.put("material", str(part.get("material")));
+            row.put("descripcion", str(part.get("descripcion")));
+            row.put("descripcion1", str(part.get("descripcion1")));
+            row.put("longitud", toDouble(part.get("longitud")));
+            row.put("ancho", toDouble(part.get("ancho")));
+            manifestParts.add(row);
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("orderId", orderId);
+        out.put("orderName", orderName);
+        out.put("bookingCode", booking);
+        out.put("jobName", jobName.trim());
+        out.put("parts", manifestParts);
+        return ResponseEntity.ok(out);
     }
 
     @GetMapping("/orders/{orderId}")
@@ -282,6 +336,8 @@ public class BiesseIntegrationController {
             @RequestParam long orderId,
             @RequestParam String osiPart,
             @RequestParam(required = false) String machineName,
+            @RequestParam(required = false) Integer pieceNumber,
+            @RequestParam(required = false) String unitCode,
             @RequestParam(defaultValue = "true") boolean markCortada) {
         internalAuth.requireWrite(authorization, internalToken);
         schemaAligner.ensureReady();
@@ -322,8 +378,13 @@ public class BiesseIntegrationController {
             partNumber = parsed != null ? parsed : 0;
         }
         int qty = intOrZero(part.get("cantidad"));
-        Integer nextPiece = obrasRepository.nextPieceNumber(partId);
-        int pieceNum = nextPiece != null ? nextPiece : Math.max(qty, 1);
+        int pieceNum;
+        if (pieceNumber != null && pieceNumber > 0) {
+            pieceNum = pieceNumber;
+        } else {
+            Integer nextPiece = obrasRepository.nextPieceNumber(partId);
+            pieceNum = nextPiece != null ? nextPiece : Math.max(qty, 1);
+        }
         String material = str(part.get("material"));
         String partCode = str(part.get("partcode"));
         String desc1 = str(part.get("descripcion"));
@@ -332,15 +393,17 @@ public class BiesseIntegrationController {
         double width = toDouble(part.get("ancho"));
 
         Map<String, Object> cortadaInfo = null;
-        if (markCortada && nextPiece != null && (qty <= 0 || nextPiece <= qty)) {
-            pieceNum = nextPiece;
+        if (markCortada && pieceNum > 0 && (qty <= 0 || pieceNum <= qty)) {
             obrasRepository.ensurePiezaRow(partId, pieceNum);
             cortadaInfo = obrasRepository.markPiezaCortada(partId, pieceNum, machineName);
         }
 
-        String unitCode = orderName + "-P" + partNumber + "-" + pieceNum;
+        String resolvedUnitCode =
+                unitCode != null && !unitCode.isBlank()
+                        ? unitCode.trim()
+                        : orderName + "-P" + partNumber + "-" + pieceNum;
         out.put("mapStatus", "MAPPED");
-        out.put("unitCode", unitCode);
+        out.put("unitCode", resolvedUnitCode);
         out.put("partId", partId);
         out.put("pieceNumber", pieceNum);
         out.put("partCode", partCode);
@@ -357,7 +420,7 @@ public class BiesseIntegrationController {
                                 .bookingCode(booking)
                                 .partCode(partCode)
                                 .material(material)
-                                .unitCode(unitCode)
+                                .unitCode(resolvedUnitCode)
                                 .machineName(machineName)
                                 .desc1(desc1)
                                 .desc2(desc2)

@@ -49,6 +49,19 @@ public class BiesseAgentService {
                 "ok");
     }
 
+    public Map<String, Object> orderManifest(Map<String, Object> machine, String jobName) {
+        if (jobName == null || jobName.isBlank()) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.BAD_REQUEST, "job requerido");
+        }
+        Map<String, Object> manifest = obrasClient.orderManifest(jobName.trim());
+        if (manifest == null || manifest.isEmpty()) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.NOT_FOUND, "Manifiesto no encontrado para job");
+        }
+        return manifest;
+    }
+
     @Transactional
     public OkResponse heartbeat(Map<String, Object> machine, HeartbeatRequest req) {
         int machineId = ((Number) machine.get("machine_id")).intValue();
@@ -263,12 +276,22 @@ public class BiesseAgentService {
                 if (order != null) {
                     orderId = ((Number) order.get("orderid")).longValue();
                     markProduccionAndTrace(machineCtx, order, ev.eventTime(), "PIEZA_CORTADA");
+                    boolean printedLocally = Boolean.TRUE.equals(ev.printedLocally());
                     LabelDto label =
                             buildLabelForPart(
-                                    machineId, machineName, order, osiPart, ev.eventUid(), printLocal);
-                    if (label != null) {
+                                    machineId,
+                                    machineName,
+                                    order,
+                                    osiPart,
+                                    ev.eventUid(),
+                                    printLocal && !printedLocally,
+                                    ev.pieceNumber(),
+                                    ev.unitCode());
+                    if (label != null && printLocal && !printedLocally) {
                         labels.add(label);
                         action = "LABEL";
+                    } else if (label != null) {
+                        action = printedLocally ? "LABEL_LOCAL" : "PART_UNMAPPED";
                     } else {
                         action = "PART_UNMAPPED";
                     }
@@ -507,9 +530,23 @@ public class BiesseAgentService {
             String osiPart,
             String eventUid,
             boolean printLocal) {
+        return buildLabelForPart(
+                machineId, machineName, order, osiPart, eventUid, printLocal, null, null);
+    }
+
+    private LabelDto buildLabelForPart(
+            int machineId,
+            String machineName,
+            Map<String, Object> order,
+            String osiPart,
+            String eventUid,
+            boolean printLocal,
+            Integer pieceOverride,
+            String unitCodeOverride) {
         long orderId = ((Number) order.get("orderid")).longValue();
         String orderName = str(order.get("ordername"));
-        Map<String, Object> mapped = obrasClient.partForOsi(orderId, osiPart, machineName);
+        Map<String, Object> mapped =
+                obrasClient.partForOsi(orderId, osiPart, machineName, pieceOverride, unitCodeOverride);
         if (mapped == null) {
             return null;
         }

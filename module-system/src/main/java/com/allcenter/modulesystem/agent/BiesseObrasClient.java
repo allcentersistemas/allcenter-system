@@ -128,6 +128,31 @@ public class BiesseObrasClient {
         }
     }
 
+    public Map<String, Object> orderManifest(String jobName) {
+        if (jobName == null || jobName.isBlank()) {
+            return null;
+        }
+        try {
+            String url =
+                    UriComponentsBuilder.fromUriString(
+                                    biesseBaseUrl + "/api/biesse/scan/integration/orders/manifest")
+                            .queryParam("jobName", jobName)
+                            .toUriString();
+            ResponseEntity<Map<String, Object>> res =
+                    restTemplate.exchange(
+                            url,
+                            HttpMethod.GET,
+                            new HttpEntity<>(headers()),
+                            new ParameterizedTypeReference<>() {});
+            return res.getBody();
+        } catch (HttpClientErrorException.NotFound e) {
+            return null;
+        } catch (Exception e) {
+            log.warn("biesse orderManifest('{}'): {}", jobName, e.getMessage());
+            return null;
+        }
+    }
+
     public boolean markOrderProduccion(long orderId) {
         try {
             String url = biesseBaseUrl + "/api/biesse/scan/integration/orders/" + orderId + "/produccion";
@@ -257,13 +282,24 @@ public class BiesseObrasClient {
     }
 
     public Map<String, Object> partForOsi(long orderId, String osiPart, String machineName) {
+        return partForOsi(orderId, osiPart, machineName, null, null);
+    }
+
+    public Map<String, Object> partForOsi(
+            long orderId, String osiPart, String machineName, Integer pieceNumber, String unitCode) {
         try {
-            String url =
+            UriComponentsBuilder b =
                     UriComponentsBuilder.fromUriString(biesseBaseUrl + "/api/biesse/scan/integration/parts/for-osi")
                             .queryParam("orderId", orderId)
                             .queryParam("osiPart", osiPart)
-                            .queryParam("machineName", machineName != null ? machineName : "")
-                            .toUriString();
+                            .queryParam("machineName", machineName != null ? machineName : "");
+            if (pieceNumber != null && pieceNumber > 0) {
+                b.queryParam("pieceNumber", pieceNumber);
+            }
+            if (unitCode != null && !unitCode.isBlank()) {
+                b.queryParam("unitCode", unitCode.trim());
+            }
+            String url = b.toUriString();
             ResponseEntity<Map<String, Object>> res =
                     restTemplate.exchange(
                             url,
