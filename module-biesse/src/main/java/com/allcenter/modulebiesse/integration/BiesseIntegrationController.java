@@ -349,9 +349,12 @@ public class BiesseIntegrationController {
 
         Map<String, Object> out = new LinkedHashMap<>();
         if (part == null) {
-            String unitCode = orderName + "-" + osiPart.replaceAll("\\s+", "");
+            String fallbackUnitCode =
+                    unitCode != null && !unitCode.isBlank()
+                            ? unitCode.trim()
+                            : orderName + "-" + osiPart.replaceAll("\\s+", "");
             out.put("mapStatus", "UNMAPPED");
-            out.put("unitCode", unitCode);
+            out.put("unitCode", fallbackUnitCode);
             out.put("partId", null);
             out.put("pieceNumber", null);
             out.put("partCode", osiPart);
@@ -365,7 +368,7 @@ public class BiesseIntegrationController {
                                     .bookingCode(booking)
                                     .partCode(osiPart)
                                     .osiPart(osiPart)
-                                    .unitCode(unitCode)
+                                    .unitCode(fallbackUnitCode)
                                     .machineName(machineName)
                                     .build()));
             return ResponseEntity.ok(out);
