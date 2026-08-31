@@ -92,7 +92,7 @@ public class BiesseAgentRepository {
                     pending_queue_size = COALESCE(?, pending_queue_size),
                     log_byte_offset = COALESCE(?, log_byte_offset),
                     health_status = COALESCE(?, health_status),
-                    current_order_id = COALESCE(?, current_order_id),
+                    current_order_id = ?,
                     last_status_at = CURRENT_TIMESTAMP
                 WHERE machine_id = ?
                 """,

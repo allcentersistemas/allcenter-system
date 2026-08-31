@@ -100,33 +100,35 @@ public class BiesseAgentService {
         }
         int machineId = ((Number) machine.get("machine_id")).intValue();
         String machineName = str(machine.get("machine_name"));
-        String jobName = status.jobName();
-        Map<String, Object> order = obrasClient.findOrderForJob(jobName);
-        Long orderId = order != null ? ((Number) order.get("orderid")).longValue() : null;
 
         Integer previousBoards = intOrNull(machine.get("boards_done"));
         String previousLastPart = str(machine.get("last_part"));
         Integer previousPieces = intOrNull(machine.get("pieces_produced"));
-        // Si el status llegó tras un evento reciente, machine puede estar desactualizado: releer.
+        String previousJob = null;
+
         Map<String, Object> before = repository.findMachineById(machineId);
         if (before != null) {
             previousBoards = intOrNull(before.get("boards_done"));
             previousLastPart = str(before.get("last_part"));
             previousPieces = intOrNull(before.get("pieces_produced"));
-            if (jobName == null || jobName.isBlank()) {
-                jobName = str(before.get("job_name"));
-                if (order == null && jobName != null && !jobName.isBlank()) {
-                    order = obrasClient.findOrderForJob(jobName);
-                    orderId = order != null ? ((Number) order.get("orderid")).longValue() : null;
-                }
-            }
-            if (orderId == null && before.get("current_order_id") instanceof Number n) {
-                orderId = n.longValue();
-            }
+            previousJob = str(before.get("job_name"));
         }
-        if (order == null && orderId != null) {
-            order = obrasClient.findOrderById(orderId);
+
+        String jobName = status.jobName();
+        if ((jobName == null || jobName.isBlank()) && before != null) {
+            jobName = previousJob;
         }
+        boolean jobChanged =
+                jobName != null
+                        && !jobName.isBlank()
+                        && !"SINGLE".equalsIgnoreCase(jobName.trim())
+                        && (previousJob == null
+                                || previousJob.isBlank()
+                                || !jobName.equalsIgnoreCase(previousJob.trim()));
+
+        Map<String, Object> order = resolveOrderForStatus(jobName, before, jobChanged);
+        Long orderId = order != null ? ((Number) order.get("orderid")).longValue() : null;
+
         if (order == null && jobName != null && !jobName.isBlank()) {
             log.warn("Status job sin obra en ERP: job='{}' machine={}", jobName, machineId);
         }
@@ -148,12 +150,21 @@ public class BiesseAgentService {
         }
 
         String state = status.state() != null ? status.state().trim().toUpperCase(Locale.ROOT) : "";
-        boolean cutting = "RUN".equals(state)
-                || (status.activeCommand() != null
-                        && status.activeCommand().toLowerCase(Locale.ROOT).contains("start program"));
+        String activeCmd = status.activeCommand() != null ? status.activeCommand().trim() : "";
+        boolean startProgram =
+                activeCmd.regionMatches(true, 0, "Start program", 0, "Start program".length());
+        boolean cutting =
+                "RUN".equals(state) || startProgram || activeCmd.toLowerCase(Locale.ROOT).contains("start program");
+        boolean jobActive =
+                jobName != null && !jobName.isBlank() && !"SINGLE".equalsIgnoreCase(jobName.trim());
 
-        if (cutting && order != null) {
-            markProduccionAndTrace(live, order, status.eventTime(), "STATUS_RUN");
+        // Al cargar job/XML en OSI (Start program) u operar en RUN → PRODUCCION en ERP.
+        if (order != null && jobActive && (cutting || startProgram || jobChanged)) {
+            String source =
+                    jobChanged
+                            ? "STATUS_JOB"
+                            : (startProgram ? "STATUS_START" : "STATUS_RUN");
+            markProduccionAndTrace(live, order, status.eventTime(), source);
         }
 
         // Respaldo: si llega last_part nueva por status (y el evento PRODUCT INFO no se procesó),
@@ -183,6 +194,24 @@ public class BiesseAgentService {
         }
 
         return OkResponse.success();
+    }
+
+    /**
+     * Resuelve obra ERP para el job OSI. No reutiliza {@code current_order_id} si el job cambió
+     * (evita marcar PRODUCCION en la obra anterior).
+     */
+    private Map<String, Object> resolveOrderForStatus(
+            String jobName, Map<String, Object> before, boolean jobChanged) {
+        if (jobName != null && !jobName.isBlank() && !"SINGLE".equalsIgnoreCase(jobName.trim())) {
+            Map<String, Object> byJob = obrasClient.findOrderForJob(jobName.trim());
+            if (byJob != null) {
+                return byJob;
+            }
+        }
+        if (!jobChanged && before != null && before.get("current_order_id") instanceof Number n) {
+            return obrasClient.findOrderById(n.longValue());
+        }
+        return null;
     }
 
     /**
