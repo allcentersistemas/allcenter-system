@@ -1107,29 +1107,111 @@ public class BiesseObrasRepository {
     }
 
     /**
-     * Marca pieza cortada por el seccionador (solo filas existentes; idempotente).
-     *
-     * @return mapa con piezaid / already / updated, o null si no hay pieza
+     * Elige número de pieza para un corte nuevo.
+     * <ul>
+     *   <li>Si viene override del agente → ese número
+     *   <li>Si la misma parte se marcó hace ≤2s (evento duplicado mismo segundo) → misma pieza (recorte)
+     *   <li>Si no → siguiente libre 1..cantidad
+     *   <li>Si el plan está lleno → última pieza (recorte), nunca inventa fuera de cantidad
+     * </ul>
+     */
+    public Integer resolvePieceNumberForCut(long partId, Integer pieceOverride) {
+        if (pieceOverride != null && pieceOverride > 0) {
+            return pieceOverride;
+        }
+        Integer recent = lastCortadaPieceIfWithinSeconds(partId, 2);
+        if (recent != null) {
+            return recent;
+        }
+        Integer next = nextPieceNumber(partId);
+        if (next != null) {
+            return next;
+        }
+        Integer qty = partCantidad(partId);
+        return qty != null && qty > 0 ? qty : null;
+    }
+
+    /** Última pieza cortada de la parte si {@code cortada_at} está dentro de {@code withinSeconds}. */
+    public Integer lastCortadaPieceIfWithinSeconds(long partId, int withinSeconds) {
+        int safe = Math.max(1, Math.min(withinSeconds, 60));
+        try {
+            List<Map<String, Object>> rows =
+                    jdbc.queryForList(
+                            """
+                            SELECT numero_pieza
+                            FROM piezas
+                            WHERE partid = ?
+                              AND COALESCE(cortada, FALSE) = TRUE
+                              AND cortada_at IS NOT NULL
+                              AND cortada_at >= CURRENT_TIMESTAMP - (? || ' seconds')::interval
+                            ORDER BY cortada_at DESC, numero_pieza DESC
+                            LIMIT 1
+                            """,
+                            partId,
+                            String.valueOf(safe));
+            if (!rows.isEmpty() && rows.getFirst().get("numero_pieza") instanceof Number n) {
+                return n.intValue();
+            }
+        } catch (DataAccessException ignored) {
+            // columna ausente
+        }
+        return null;
+    }
+
+    /**
+     * Marca pieza cortada por el seccionador. Idempotente por defecto (sync/poll no infla contador).
+     * Con {@code allowRecorte=true}, un segundo corte sobre la misma pieza sube {@code corte_count} (morado).
      */
     public Map<String, Object> markPiezaCortada(long partId, int pieceNumber, String machineName) {
-        List<Map<String, Object>> rows =
-                jdbc.queryForList(
-                        """
-                        SELECT piezaid, numero_pieza, COALESCE(cortada, FALSE) AS cortada
-                        FROM piezas
-                        WHERE partid = ? AND numero_pieza = ?
-                        LIMIT 1
-                        """,
-                        partId,
-                        pieceNumber);
+        return markPiezaCortada(partId, pieceNumber, machineName, false);
+    }
+
+    public Map<String, Object> markPiezaCortada(
+            long partId, int pieceNumber, String machineName, boolean allowRecorte) {
+        List<Map<String, Object>> rows;
+        try {
+            rows =
+                    jdbc.queryForList(
+                            """
+                            SELECT piezaid, numero_pieza,
+                                   COALESCE(cortada, FALSE) AS cortada,
+                                   COALESCE(corte_count, 0) AS corte_count
+                            FROM piezas
+                            WHERE partid = ? AND numero_pieza = ?
+                            LIMIT 1
+                            """,
+                            partId,
+                            pieceNumber);
+        } catch (DataAccessException ex) {
+            rows =
+                    jdbc.queryForList(
+                            """
+                            SELECT piezaid, numero_pieza, COALESCE(cortada, FALSE) AS cortada
+                            FROM piezas
+                            WHERE partid = ? AND numero_pieza = ?
+                            LIMIT 1
+                            """,
+                            partId,
+                            pieceNumber);
+        }
         if (rows.isEmpty()) {
             return null;
         }
         Map<String, Object> piece = rows.getFirst();
+        long piezaId = ((Number) piece.get("piezaid")).longValue();
         boolean already = Boolean.TRUE.equals(piece.get("cortada"))
                 || "t".equalsIgnoreCase(String.valueOf(piece.get("cortada")))
                 || "true".equalsIgnoreCase(String.valueOf(piece.get("cortada")));
+        int prevCount = 0;
+        if (piece.get("corte_count") instanceof Number n) {
+            prevCount = Math.max(0, n.intValue());
+        } else if (already) {
+            prevCount = 1;
+        }
+        String por = machineName != null && !machineName.isBlank() ? machineName.trim() : null;
+        int newCount = already ? Math.max(prevCount, 1) : 0;
         if (!already) {
+            newCount = 1;
             try {
                 jdbc.update(
                         """
@@ -1137,35 +1219,73 @@ public class BiesseObrasRepository {
                         SET cortada = TRUE,
                             cortada_at = CURRENT_TIMESTAMP,
                             cortada_por = ?,
+                            corte_count = 1,
                             corte_error = FALSE,
                             corte_error_at = NULL,
                             corte_error_msg = NULL
                         WHERE piezaid = ?
                           AND COALESCE(cortada, FALSE) = FALSE
                         """,
-                        machineName != null && !machineName.isBlank() ? machineName.trim() : null,
-                        ((Number) piece.get("piezaid")).longValue());
+                        por,
+                        piezaId);
             } catch (DataAccessException ex) {
+                try {
+                    jdbc.update(
+                            """
+                            UPDATE piezas
+                            SET cortada = TRUE,
+                                cortada_at = CURRENT_TIMESTAMP,
+                                cortada_por = ?,
+                                corte_count = 1
+                            WHERE piezaid = ?
+                              AND COALESCE(cortada, FALSE) = FALSE
+                            """,
+                            por,
+                            piezaId);
+                } catch (DataAccessException ex2) {
+                    jdbc.update(
+                            """
+                            UPDATE piezas
+                            SET cortada = TRUE,
+                                cortada_at = CURRENT_TIMESTAMP,
+                                cortada_por = ?
+                            WHERE piezaid = ?
+                              AND COALESCE(cortada, FALSE) = FALSE
+                            """,
+                            por,
+                            piezaId);
+                }
+            }
+        } else if (allowRecorte) {
+            newCount = Math.max(prevCount, 1) + 1;
+            try {
                 jdbc.update(
                         """
                         UPDATE piezas
-                        SET cortada = TRUE,
+                        SET corte_count = ?,
                             cortada_at = CURRENT_TIMESTAMP,
-                            cortada_por = ?
+                            cortada_por = COALESCE(?, cortada_por),
+                            corte_error = FALSE,
+                            corte_error_at = NULL,
+                            corte_error_msg = NULL
                         WHERE piezaid = ?
-                          AND COALESCE(cortada, FALSE) = FALSE
                         """,
-                        machineName != null && !machineName.isBlank() ? machineName.trim() : null,
-                        ((Number) piece.get("piezaid")).longValue());
+                        newCount,
+                        por,
+                        piezaId);
+            } catch (DataAccessException ex) {
+                // sin columna corte_count
             }
         }
         java.util.LinkedHashMap<String, Object> out = new java.util.LinkedHashMap<>();
-        out.put("piezaId", ((Number) piece.get("piezaid")).longValue());
+        out.put("piezaId", piezaId);
         out.put("numeroPieza", pieceNumber);
         out.put("partId", partId);
         out.put("already", already);
         out.put("updated", !already);
+        out.put("recorte", already && allowRecorte);
         out.put("cortada", true);
+        out.put("corteCount", newCount > 0 ? newCount : 1);
         return out;
     }
 

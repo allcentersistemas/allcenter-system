@@ -47,6 +47,8 @@ public class BiesseObrasSchemaAligner {
             jdbc.execute("ALTER TABLE piezas ADD COLUMN IF NOT EXISTS corte_error BOOLEAN DEFAULT FALSE");
             jdbc.execute("ALTER TABLE piezas ADD COLUMN IF NOT EXISTS corte_error_at TIMESTAMP");
             jdbc.execute("ALTER TABLE piezas ADD COLUMN IF NOT EXISTS corte_error_msg VARCHAR(240)");
+            // Veces que el agente marcó esta pieza (2+ = recorte / morado en UI).
+            jdbc.execute("ALTER TABLE piezas ADD COLUMN IF NOT EXISTS corte_count INTEGER DEFAULT 0");
         } catch (Exception e) {
             log.debug("ensure piezas.cortada (tabla ausente?): {}", e.getMessage());
         }

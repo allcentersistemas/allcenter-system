@@ -272,20 +272,11 @@ public class BiesseAgentService {
 
         markProduccionAndTrace(machineCtx, order, status.eventTime(), "STATUS_LAST_PART");
 
+        // Solo monitor/cut_piece: no marcar piezas.cortada ni imprimir aquí (evita pintar 1..N
+        // de más y stickers sin N; los PRODUCT INFO /events son la fuente de verdad).
         LabelDto label =
-                buildLabelForPart(machineId, machineName, order, lastPart, eventUid, printLocal);
-        // Respaldo: si for-osi no marcó cortada (UNMAPPED / ERP caído), intentar POST mark-cortada.
-        if (label == null || !"MAPPED".equalsIgnoreCase(str(label.mapStatus()))) {
-            Map<String, Object> marked =
-                    obrasClient.markCortada(orderId, lastPart, machineName, null);
-            if (marked != null && Boolean.TRUE.equals(marked.get("found"))) {
-                log.info(
-                        "Cortada vía mark-cortada (status): machine={} order={} part={}",
-                        machineId,
-                        orderId,
-                        lastPart);
-            }
-        }
+                buildLabelForPart(
+                        machineId, machineName, order, lastPart, eventUid, false, null, null, false);
         Instant eventTime = BiesseAgentRepository.parseEventTime(status.eventTime());
         if (!eventAlready) {
             String action =
@@ -305,7 +296,7 @@ public class BiesseAgentService {
         }
         if (label != null) {
             log.info(
-                    "Corte desde status: machine={} order={} part={} uid={} map={}",
+                    "Corte desde status (sin marcar cortada): machine={} order={} part={} uid={} map={}",
                     machineId,
                     orderId,
                     lastPart,
@@ -807,7 +798,7 @@ public class BiesseAgentService {
             String eventUid,
             boolean printLocal) {
         return buildLabelForPart(
-                machineId, machineName, order, osiPart, eventUid, printLocal, null, null);
+                machineId, machineName, order, osiPart, eventUid, printLocal, null, null, true);
     }
 
     private LabelDto buildLabelForPart(
@@ -819,10 +810,33 @@ public class BiesseAgentService {
             boolean printLocal,
             Integer pieceOverride,
             String unitCodeOverride) {
+        return buildLabelForPart(
+                machineId,
+                machineName,
+                order,
+                osiPart,
+                eventUid,
+                printLocal,
+                pieceOverride,
+                unitCodeOverride,
+                true);
+    }
+
+    private LabelDto buildLabelForPart(
+            int machineId,
+            String machineName,
+            Map<String, Object> order,
+            String osiPart,
+            String eventUid,
+            boolean printLocal,
+            Integer pieceOverride,
+            String unitCodeOverride,
+            boolean markCortada) {
         long orderId = ((Number) order.get("orderid")).longValue();
         String orderName = str(order.get("ordername"));
         Map<String, Object> mapped =
-                obrasClient.partForOsi(orderId, osiPart, machineName, pieceOverride, unitCodeOverride);
+                obrasClient.partForOsi(
+                        orderId, osiPart, machineName, pieceOverride, unitCodeOverride, markCortada);
         if (mapped == null) {
             // ERP caído: registrar corte UNMAPPED para sync/backfill y no perder el avance visual.
             String fallbackUnit = orderName + "-" + osiPart.replaceAll("\\s+", "");

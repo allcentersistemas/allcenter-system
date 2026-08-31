@@ -353,18 +353,28 @@ public class BiesseObrasClient {
     }
 
     public Map<String, Object> partForOsi(long orderId, String osiPart, String machineName) {
-        return partForOsi(orderId, osiPart, machineName, null, null);
+        return partForOsi(orderId, osiPart, machineName, null, null, true);
     }
 
     public Map<String, Object> partForOsi(
             long orderId, String osiPart, String machineName, Integer pieceNumber, String unitCode) {
+        return partForOsi(orderId, osiPart, machineName, pieceNumber, unitCode, true);
+    }
+
+    public Map<String, Object> partForOsi(
+            long orderId,
+            String osiPart,
+            String machineName,
+            Integer pieceNumber,
+            String unitCode,
+            boolean markCortada) {
         try {
             UriComponentsBuilder b =
                     UriComponentsBuilder.fromUriString(biesseBaseUrl + "/api/biesse/scan/integration/parts/for-osi")
                             .queryParam("orderId", orderId)
                             .queryParam("osiPart", osiPart)
                             .queryParam("machineName", machineName != null ? machineName : "")
-                            .queryParam("markCortada", true);
+                            .queryParam("markCortada", markCortada);
             if (pieceNumber != null && pieceNumber > 0) {
                 b.queryParam("pieceNumber", pieceNumber);
             }

@@ -63,6 +63,7 @@ public class AgentCutSyncService {
         for (Map<String, Object> cut : sorted) {
             Long partId = cut.get("part_id") instanceof Number n ? n.longValue() : null;
             Integer pieceNum = pieceNumberFromCut(cut);
+            String eventUid = str(cut.get("event_uid"));
             if (partId == null || partId <= 0) {
                 partId = resolvePartId(orderId, cut, partIdByNumber);
             }
@@ -70,8 +71,15 @@ public class AgentCutSyncService {
                 skipped++;
                 continue;
             }
+            // Cortes sintéticos del status sin N de pieza: no avanzar 1..cantidad (events mandan).
+            if ((pieceNum == null || pieceNum <= 0)
+                    && eventUid != null
+                    && eventUid.regionMatches(true, 0, "status-cut-", 0, "status-cut-".length())) {
+                skipped++;
+                continue;
+            }
             if (pieceNum == null || pieceNum <= 0) {
-                Integer next = obrasRepository.nextPieceNumber(partId);
+                Integer next = obrasRepository.resolvePieceNumberForCut(partId, null);
                 if (next == null) {
                     skipped++;
                     continue;
@@ -81,7 +89,6 @@ public class AgentCutSyncService {
 
             String machine = str(cut.get("machine_name"));
             if (!obrasRepository.ensurePiezaRow(partId, pieceNum)) {
-                // Fuera de cantidad: error visual en la última pieza del plan (no inventa filas).
                 Integer qty = obrasRepository.partCantidad(partId);
                 if (qty != null && qty > 0) {
                     obrasRepository.markPiezaCorteError(
@@ -92,9 +99,12 @@ public class AgentCutSyncService {
                 skipped++;
                 continue;
             }
-            Map<String, Object> result = obrasRepository.markPiezaCortada(partId, pieceNum, machine);
+            // Idempotente: no inflar corte_count en cada poll.
+            Map<String, Object> result = obrasRepository.markPiezaCortada(partId, pieceNum, machine, false);
             if (result != null) {
-                marked++;
+                if (Boolean.TRUE.equals(result.get("updated"))) {
+                    marked++;
+                }
             } else {
                 obrasRepository.markPiezaCorteError(
                         partId, pieceNum, "Sync monitor: no se pudo marcar cortada");

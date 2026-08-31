@@ -428,13 +428,30 @@ public class BiesseIntegrationController {
             partNumber = parsed != null ? parsed : 0;
         }
         int qty = intOrZero(part.get("cantidad"));
-        int pieceNum;
+        Integer resolvedPiece = null;
+        boolean allowRecorte = false;
         if (pieceNumber != null && pieceNumber > 0) {
-            pieceNum = pieceNumber;
-        } else {
-            Integer nextPiece = obrasRepository.nextPieceNumber(partId);
-            pieceNum = nextPiece != null ? nextPiece : Math.max(qty, 1);
+            resolvedPiece = pieceNumber;
+            // Si el agente repite el mismo N ya cortado → recorte (morado).
+            allowRecorte = true;
+        } else if (markCortada) {
+            Integer recent = obrasRepository.lastCortadaPieceIfWithinSeconds(partId, 2);
+            if (recent != null) {
+                // Evento duplicado casi inmediato: misma pieza, no avanzar 1..N.
+                resolvedPiece = recent;
+                allowRecorte = true;
+            } else {
+                Integer next = obrasRepository.nextPieceNumber(partId);
+                if (next != null) {
+                    resolvedPiece = next;
+                } else if (qty > 0) {
+                    resolvedPiece = qty;
+                    allowRecorte = true;
+                }
+            }
         }
+        int pieceNum = resolvedPiece != null ? resolvedPiece : 0;
+
         String material = str(part.get("material"));
         String partCode = str(part.get("partcode"));
         String desc1 = str(part.get("descripcion"));
@@ -454,7 +471,8 @@ public class BiesseIntegrationController {
                                 "Captura fuera de cantidad del plan (" + pieceNum + ">" + qty + ")");
             } else {
                 obrasRepository.ensurePiezaRow(partId, pieceNum);
-                cortadaInfo = obrasRepository.markPiezaCortada(partId, pieceNum, machineName);
+                cortadaInfo =
+                        obrasRepository.markPiezaCortada(partId, pieceNum, machineName, allowRecorte);
                 if (cortadaInfo == null) {
                     errorInfo =
                             obrasRepository.markPiezaCorteError(
@@ -466,7 +484,9 @@ public class BiesseIntegrationController {
         String resolvedUnitCode =
                 unitCode != null && !unitCode.isBlank()
                         ? unitCode.trim()
-                        : orderName + "-P" + partNumber + "-" + pieceNum;
+                        : (pieceNum > 0
+                                ? orderName + "-P" + partNumber + "-" + pieceNum
+                                : orderName + "-P" + partNumber);
         out.put("mapStatus", "MAPPED");
         out.put("unitCode", resolvedUnitCode);
         out.put("partId", partId);
@@ -594,7 +614,7 @@ public class BiesseIntegrationController {
             if (part != null) {
                 partId = ((Number) part.get("partid")).longValue();
                 if (pieceNumber == null) {
-                    pieceNumber = obrasRepository.nextPieceNumber(partId);
+                    pieceNumber = obrasRepository.resolvePieceNumberForCut(partId, null);
                 }
             }
         }

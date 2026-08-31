@@ -1570,7 +1570,8 @@ public class BiesseScanRepository {
                     """
                     SELECT z.piezaid, z.partid, p.orderid, z.numero_pieza, z.escaneado, z.fecha_escaneo,
                            COALESCE(z.cortada, FALSE) AS cortada, z.cortada_at, z.cortada_por,
-                           COALESCE(z.corte_error, FALSE) AS corte_error, z.corte_error_at, z.corte_error_msg
+                           COALESCE(z.corte_error, FALSE) AS corte_error, z.corte_error_at, z.corte_error_msg,
+                           COALESCE(z.corte_count, CASE WHEN COALESCE(z.cortada, FALSE) THEN 1 ELSE 0 END) AS corte_count
                     FROM piezas z
                     JOIN partes p ON p.partid = z.partid
                     WHERE p.orderid = ?
@@ -1579,13 +1580,13 @@ public class BiesseScanRepository {
                     """,
                     orderId);
         } catch (DataAccessException ex) {
-            // BD sin columnas cortada / corte_error (schema antiguo): devolver sin corte/error.
             try {
                 return jdbcTemplate.queryForList(
                         """
                         SELECT z.piezaid, z.partid, p.orderid, z.numero_pieza, z.escaneado, z.fecha_escaneo,
-                               FALSE AS cortada, NULL::timestamp AS cortada_at, NULL::varchar AS cortada_por,
-                               FALSE AS corte_error, NULL::timestamp AS corte_error_at, NULL::varchar AS corte_error_msg
+                               COALESCE(z.cortada, FALSE) AS cortada, z.cortada_at, z.cortada_por,
+                               COALESCE(z.corte_error, FALSE) AS corte_error, z.corte_error_at, z.corte_error_msg,
+                               CASE WHEN COALESCE(z.cortada, FALSE) THEN 1 ELSE 0 END AS corte_count
                         FROM piezas z
                         JOIN partes p ON p.partid = z.partid
                         WHERE p.orderid = ?
@@ -1593,8 +1594,24 @@ public class BiesseScanRepository {
                         ORDER BY z.partid, z.numero_pieza
                         """,
                         orderId);
-            } catch (DataAccessException ignored) {
-                return List.of();
+            } catch (DataAccessException ex2) {
+                try {
+                    return jdbcTemplate.queryForList(
+                            """
+                            SELECT z.piezaid, z.partid, p.orderid, z.numero_pieza, z.escaneado, z.fecha_escaneo,
+                                   FALSE AS cortada, NULL::timestamp AS cortada_at, NULL::varchar AS cortada_por,
+                                   FALSE AS corte_error, NULL::timestamp AS corte_error_at, NULL::varchar AS corte_error_msg,
+                                   0 AS corte_count
+                            FROM piezas z
+                            JOIN partes p ON p.partid = z.partid
+                            WHERE p.orderid = ?
+                              AND (COALESCE(p.cantidad, 0) <= 0 OR z.numero_pieza <= p.cantidad)
+                            ORDER BY z.partid, z.numero_pieza
+                            """,
+                            orderId);
+                } catch (DataAccessException ignored) {
+                    return List.of();
+                }
             }
         }
     }
