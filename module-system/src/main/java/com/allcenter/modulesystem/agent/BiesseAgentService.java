@@ -17,13 +17,18 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 @RequiredArgsConstructor
@@ -40,6 +45,7 @@ public class BiesseAgentService {
     private final BiesseAgentRepository repository;
     private final BiesseObrasClient obrasClient;
     private final FulfillmentService fulfillmentService;
+    private final PlatformTransactionManager transactionManager;
 
     public MeResponse me(Map<String, Object> machine) {
         return new MeResponse(
@@ -376,18 +382,25 @@ public class BiesseAgentService {
         }
     }
 
-    @Transactional
+    /**
+     * Ingesta eventos del agente. Cada evento va en transacción propia (REQUIRES_NEW) para que
+     * un fallo (PostgreSQL aborta el TX) no trabe toda la cola del agente con HTTP 500.
+     */
     public EventsResponse events(Map<String, Object> machine, EventsRequest request) {
         int machineId = ((Number) machine.get("machine_id")).intValue();
         boolean printLocal = bool(machine.get("printer_enabled"));
         String machineName = str(machine.get("machine_name"));
 
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        tx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+
         int accepted = 0;
         int duplicates = 0;
+        int errors = 0;
         List<LabelDto> labels = new ArrayList<>();
         // Cursor de planchas dentro del batch (varios "Boards done" antes del status).
-        int boardsSessionTotal = -1;
-        boolean boardsJobRestart = false;
+        final AtomicInteger boardsSessionTotal = new AtomicInteger(-1);
+        final AtomicReference<Boolean> boardsJobRestart = new AtomicReference<>(false);
 
         for (AgentEventDto ev : request.eventsOrEmpty()) {
             if (ev == null || ev.eventUid() == null || ev.eventUid().isBlank()) {
@@ -398,206 +411,290 @@ public class BiesseAgentService {
                 continue;
             }
 
-            Instant eventTime = BiesseAgentRepository.parseEventTime(ev.eventTime());
-            String type = ev.eventType() != null ? ev.eventType().trim() : "";
-            String desc = ev.description() != null ? ev.description().trim() : "";
-            String code = ev.code() != null ? ev.code().trim() : "";
-            String action = "INGESTED";
-            Long orderId = null;
-
-            if (isStartProgram(type, desc)) {
-                String job = parseJobName(desc);
-                Map<String, Object> resolve = obrasClient.resolveOrderForJob(job);
-                if (Boolean.TRUE.equals(resolve.get("ambiguous"))) {
-                    action = "START_AMBIGUOUS";
-                    log.warn("Start program ambiguo: job='{}' machine={}", job, machineId);
-                } else {
-                    Object orderObj = resolve.get("order");
-                    Map<String, Object> order =
-                            orderObj instanceof Map<?, ?> m
-                                    ? (Map<String, Object>) m
-                                    : obrasClient.findOrderForJob(job);
-                    if (order != null) {
-                        orderId = ((Number) order.get("orderid")).longValue();
-                        markProduccionAndTrace(machine, order, ev.eventTime(), "START_PROGRAM");
-                        action = "PRODUCCION";
-                    } else {
-                        action = "START_NO_MATCH";
-                        log.info("Start program sin obra: job='{}' machine={}", job, machineId);
-                    }
-                }
-            }
-
-            if ("Message".equalsIgnoreCase(type)) {
-                action = "OSI_ALARM";
-            }
-
-            if (isProductInfoPart(type, desc, code)) {
-                String osiPart = !desc.isBlank() ? desc : code;
-                Map<String, Object> live = repository.findMachineById(machineId);
-                Map<String, Object> machineCtx = live != null ? live : machine;
-                Map<String, Object> order =
-                        obrasClient.findOrderForJob(
-                                live != null ? str(live.get("job_name")) : str(machine.get("job_name")));
-                if (order == null && live != null && live.get("current_order_id") instanceof Number n) {
-                    order = obrasClient.findOrderById(n.longValue());
-                }
-                if (order != null) {
-                    orderId = ((Number) order.get("orderid")).longValue();
-                    markProduccionAndTrace(machineCtx, order, ev.eventTime(), "PIEZA_CORTADA");
-                    boolean printedLocally = Boolean.TRUE.equals(ev.printedLocally());
-                    LabelDto label =
-                            buildLabelForPart(
-                                    machineId,
-                                    machineName,
-                                    order,
-                                    osiPart,
-                                    ev.eventUid(),
-                                    printLocal && !printedLocally,
-                                    ev.pieceNumber(),
-                                    ev.unitCode());
-                    boolean mapped =
-                            label != null && "MAPPED".equalsIgnoreCase(str(label.mapStatus()));
-                    if (!mapped) {
-                        Map<String, Object> marked =
-                                obrasClient.markCortada(
-                                        orderId, osiPart, machineName, ev.pieceNumber());
-                        if (marked != null && Boolean.TRUE.equals(marked.get("found"))) {
-                            mapped = true;
-                        }
-                    }
-                    if (label != null && printLocal && !printedLocally) {
-                        labels.add(label);
-                        action = mapped ? "LABEL" : "PART_UNMAPPED";
-                    } else if (label != null) {
-                        action = printedLocally ? "LABEL_LOCAL" : (mapped ? "LABEL" : "PART_UNMAPPED");
-                    } else {
-                        action = mapped ? "LABEL" : "PART_UNMAPPED";
-                    }
-                    obrasClient.registrarTrazabilidad(
-                            opOf(order),
-                            orderId,
-                            str(order.get("ordername")),
-                            "PRODUCCION",
-                            "PIEZA_CORTADA",
-                            "OSI " + osiPart + " @ " + ev.eventTime(),
-                            0,
-                            0,
-                            "AGENTE:" + machineName);
-                } else {
-                    action = "PART_NO_ORDER";
-                }
-            }
-
-            if ("Boards done".equalsIgnoreCase(type)) {
-                Map<String, Object> live = repository.findMachineById(machineId);
-                String jobName =
-                        live != null && live.get("job_name") != null
-                                ? str(live.get("job_name"))
-                                : str(machine.get("job_name"));
-                Map<String, Object> order =
-                        jobName != null && !jobName.isBlank()
-                                ? obrasClient.findOrderForJob(jobName)
-                                : null;
-                if (order != null) {
-                    orderId = ((Number) order.get("orderid")).longValue();
-                    markProduccionAndTrace(
-                            live != null ? live : machine, order, ev.eventTime(), "BOARDS_DONE");
-                    obrasClient.registrarTrazabilidad(
-                            opOf(order),
-                            orderId,
-                            str(order.get("ordername")),
-                            "PRODUCCION",
-                            "BOARDS_DONE",
-                            "Boards done: " + code + " " + desc + " @ " + ev.eventTime(),
-                            0,
-                            0,
-                            "AGENTE:" + machineName);
-                    action = "BOARDS_DONE";
-                } else {
-                    action = "BOARDS_DONE_NO_ORDER";
-                }
-                int boardsDelta = parseBoardsDelta(code);
-                if (boardsSessionTotal < 0) {
-                    int maxAfter = repository.maxBoardsTotalAfter(machineId, jobName);
-                    Integer liveBoards =
-                            intOrNull(live != null ? live.get("boards_done") : machine.get("boards_done"));
-                    // Reinicio de job: el contador vivo bajó respecto al histórico del mismo job_name.
-                    if (liveBoards != null && liveBoards < maxAfter) {
-                        boardsSessionTotal = liveBoards;
-                        boardsJobRestart = true;
-                    } else {
-                        boardsSessionTotal = maxAfter;
-                    }
-                }
-                boardsSessionTotal += boardsDelta;
-                boolean alreadyCounted =
-                        !boardsJobRestart
-                                && repository.boardCutExistsForTotal(
-                                        machineId, jobName, boardsSessionTotal);
-                if (!alreadyCounted) {
-                    repository.insertBoardCut(
+            try {
+                tx.executeWithoutResult(
+                        status ->
+                                processOneAgentEvent(
+                                        machine,
+                                        machineId,
+                                        machineName,
+                                        printLocal,
+                                        ev,
+                                        labels,
+                                        boardsSessionTotal,
+                                        boardsJobRestart));
+                accepted++;
+            } catch (Exception ex) {
+                errors++;
+                log.error(
+                        "Evento agente falló machine={} uid={} type={}: {}",
+                        machineId,
+                        ev.eventUid(),
+                        ev.eventType(),
+                        ex.getMessage(),
+                        ex);
+                try {
+                    tx.executeWithoutResult(
+                            status -> {
+                                if (!repository.eventExists(ev.eventUid())) {
+                                    repository.insertEvent(
+                                            ev.eventUid(),
+                                            machineId,
+                                            ev.eventType() != null ? ev.eventType().trim() : "",
+                                            ev.code(),
+                                            ev.description(),
+                                            "ERROR",
+                                            BiesseAgentRepository.parseEventTime(ev.eventTime()),
+                                            null,
+                                            "EVENT_ERROR");
+                                }
+                            });
+                    accepted++;
+                } catch (Exception insertEx) {
+                    log.error(
+                            "No se pudo registrar EVENT_ERROR uid={}: {}",
                             ev.eventUid(),
-                            machineId,
-                            machineName,
-                            orderId != null
-                                    ? orderId
-                                    : (live != null && live.get("current_order_id") instanceof Number n
-                                            ? n.longValue()
-                                            : null),
-                            jobName,
-                            boardsDelta,
-                            boardsSessionTotal,
-                            eventTime,
-                            "EVENT");
+                            insertEx.getMessage());
                 }
             }
-
-            if ("State".equalsIgnoreCase(type)
-                    && desc != null
-                    && desc.equalsIgnoreCase("Idle")
-                    && machine.get("job_started_at") != null) {
-                Map<String, Object> order =
-                        machine.get("job_name") != null
-                                ? obrasClient.findOrderForJob(str(machine.get("job_name")))
-                                : null;
-                closeCuttingWindow(machine, order, ev.eventTime(), "EVENT_IDLE");
-                action = "CORTE_FIN";
-            }
-
-            repository.insertEvent(
-                    ev.eventUid(),
-                    machineId,
-                    type,
-                    code,
-                    desc,
-                    ev.severity(),
-                    eventTime,
-                    orderId,
-                    action);
-            accepted++;
         }
 
         if (request.logByteOffset() != null || request.pendingQueueSize() != null) {
-            repository.updateHeartbeat(
+            try {
+                tx.executeWithoutResult(
+                        status ->
+                                repository.updateHeartbeat(
+                                        machineId,
+                                        new HeartbeatRequest(
+                                                null,
+                                                null,
+                                                null,
+                                                null,
+                                                null,
+                                                null,
+                                                null,
+                                                request.pendingQueueSize(),
+                                                request.logByteOffset(),
+                                                null,
+                                                request.healthStatus(),
+                                                null)));
+            } catch (Exception ex) {
+                log.warn("Heartbeat tras events falló machine={}: {}", machineId, ex.getMessage());
+            }
+        }
+
+        if (errors > 0) {
+            log.warn(
+                    "POST /events machine={} accepted={} dup={} errors={}",
                     machineId,
-                    new HeartbeatRequest(
-                            null,
-                            null,
-                            null,
-                            null,
-                            null,
-                            null,
-                            null,
-                            request.pendingQueueSize(),
-                            request.logByteOffset(),
-                            null,
-                            request.healthStatus(),
-                            null));
+                    accepted,
+                    duplicates,
+                    errors);
         }
 
         String printMode = printLocal ? "LOCAL" : "NONE";
         return EventsResponse.of(accepted, duplicates, printMode, labels);
+    }
+
+    private void processOneAgentEvent(
+            Map<String, Object> machine,
+            int machineId,
+            String machineName,
+            boolean printLocal,
+            AgentEventDto ev,
+            List<LabelDto> labels,
+            AtomicInteger boardsSessionTotal,
+            AtomicReference<Boolean> boardsJobRestart) {
+        Instant eventTime = BiesseAgentRepository.parseEventTime(ev.eventTime());
+        String type = ev.eventType() != null ? ev.eventType().trim() : "";
+        String desc = ev.description() != null ? ev.description().trim() : "";
+        String code = ev.code() != null ? ev.code().trim() : "";
+        String action = "INGESTED";
+        Long orderId = null;
+
+        if (isStartProgram(type, desc)) {
+            String job = parseJobName(desc);
+            Map<String, Object> resolve = obrasClient.resolveOrderForJob(job);
+            if (Boolean.TRUE.equals(resolve.get("ambiguous"))) {
+                action = "START_AMBIGUOUS";
+                log.warn("Start program ambiguo: job='{}' machine={}", job, machineId);
+            } else {
+                Object orderObj = resolve.get("order");
+                Map<String, Object> order =
+                        orderObj instanceof Map<?, ?> m
+                                ? castMap(m)
+                                : obrasClient.findOrderForJob(job);
+                if (order != null) {
+                    orderId = ((Number) order.get("orderid")).longValue();
+                    markProduccionAndTrace(machine, order, ev.eventTime(), "START_PROGRAM");
+                    action = "PRODUCCION";
+                } else {
+                    action = "START_NO_MATCH";
+                    log.info("Start program sin obra: job='{}' machine={}", job, machineId);
+                }
+            }
+        }
+
+        if ("Message".equalsIgnoreCase(type)) {
+            action = "OSI_ALARM";
+        }
+
+        if (isProductInfoPart(type, desc, code)) {
+            String osiPart = !desc.isBlank() ? desc : code;
+            Map<String, Object> live = repository.findMachineById(machineId);
+            Map<String, Object> machineCtx = live != null ? live : machine;
+            Map<String, Object> order =
+                    obrasClient.findOrderForJob(
+                            live != null ? str(live.get("job_name")) : str(machine.get("job_name")));
+            if (order == null && live != null && live.get("current_order_id") instanceof Number n) {
+                order = obrasClient.findOrderById(n.longValue());
+            }
+            if (order != null) {
+                orderId = ((Number) order.get("orderid")).longValue();
+                markProduccionAndTrace(machineCtx, order, ev.eventTime(), "PIEZA_CORTADA");
+                boolean printedLocally = Boolean.TRUE.equals(ev.printedLocally());
+                LabelDto label =
+                        buildLabelForPart(
+                                machineId,
+                                machineName,
+                                order,
+                                osiPart,
+                                ev.eventUid(),
+                                printLocal && !printedLocally,
+                                ev.pieceNumber(),
+                                ev.unitCode());
+                boolean mapped =
+                        label != null && "MAPPED".equalsIgnoreCase(str(label.mapStatus()));
+                if (!mapped) {
+                    Map<String, Object> marked =
+                            obrasClient.markCortada(
+                                    orderId, osiPart, machineName, ev.pieceNumber());
+                    if (marked != null && Boolean.TRUE.equals(marked.get("found"))) {
+                        mapped = true;
+                    }
+                }
+                if (label != null && printLocal && !printedLocally) {
+                    labels.add(label);
+                    action = mapped ? "LABEL" : "PART_UNMAPPED";
+                } else if (label != null) {
+                    action =
+                            printedLocally
+                                    ? "LABEL_LOCAL"
+                                    : (mapped ? "LABEL" : "PART_UNMAPPED");
+                } else {
+                    action = mapped ? "LABEL" : "PART_UNMAPPED";
+                }
+                obrasClient.registrarTrazabilidad(
+                        opOf(order),
+                        orderId,
+                        str(order.get("ordername")),
+                        "PRODUCCION",
+                        "PIEZA_CORTADA",
+                        "OSI " + osiPart + " @ " + ev.eventTime(),
+                        0,
+                        0,
+                        "AGENTE:" + machineName);
+            } else {
+                action = "PART_NO_ORDER";
+            }
+        }
+
+        if ("Boards done".equalsIgnoreCase(type)) {
+            Map<String, Object> live = repository.findMachineById(machineId);
+            String jobName =
+                    live != null && live.get("job_name") != null
+                            ? str(live.get("job_name"))
+                            : str(machine.get("job_name"));
+            Map<String, Object> order =
+                    jobName != null && !jobName.isBlank()
+                            ? obrasClient.findOrderForJob(jobName)
+                            : null;
+            if (order != null) {
+                orderId = ((Number) order.get("orderid")).longValue();
+                markProduccionAndTrace(
+                        live != null ? live : machine, order, ev.eventTime(), "BOARDS_DONE");
+                obrasClient.registrarTrazabilidad(
+                        opOf(order),
+                        orderId,
+                        str(order.get("ordername")),
+                        "PRODUCCION",
+                        "BOARDS_DONE",
+                        "Boards done: " + code + " " + desc + " @ " + ev.eventTime(),
+                        0,
+                        0,
+                        "AGENTE:" + machineName);
+                action = "BOARDS_DONE";
+            } else {
+                action = "BOARDS_DONE_NO_ORDER";
+            }
+            int boardsDelta = parseBoardsDelta(code);
+            int sessionTotal = boardsSessionTotal.get();
+            if (sessionTotal < 0) {
+                int maxAfter = repository.maxBoardsTotalAfter(machineId, jobName);
+                Integer liveBoards =
+                        intOrNull(
+                                live != null
+                                        ? live.get("boards_done")
+                                        : machine.get("boards_done"));
+                if (liveBoards != null && liveBoards < maxAfter) {
+                    sessionTotal = liveBoards;
+                    boardsJobRestart.set(true);
+                } else {
+                    sessionTotal = maxAfter;
+                }
+            }
+            sessionTotal += boardsDelta;
+            boardsSessionTotal.set(sessionTotal);
+            boolean alreadyCounted =
+                    !Boolean.TRUE.equals(boardsJobRestart.get())
+                            && repository.boardCutExistsForTotal(
+                                    machineId, jobName, sessionTotal);
+            if (!alreadyCounted) {
+                repository.insertBoardCut(
+                        ev.eventUid(),
+                        machineId,
+                        machineName,
+                        orderId != null
+                                ? orderId
+                                : (live != null
+                                                && live.get("current_order_id") instanceof Number n
+                                        ? n.longValue()
+                                        : null),
+                        jobName,
+                        boardsDelta,
+                        sessionTotal,
+                        eventTime,
+                        "EVENT");
+            }
+        }
+
+        if ("State".equalsIgnoreCase(type)
+                && desc != null
+                && desc.equalsIgnoreCase("Idle")
+                && machine.get("job_started_at") != null) {
+            Map<String, Object> order =
+                    machine.get("job_name") != null
+                            ? obrasClient.findOrderForJob(str(machine.get("job_name")))
+                            : null;
+            closeCuttingWindow(machine, order, ev.eventTime(), "EVENT_IDLE");
+            action = "CORTE_FIN";
+        }
+
+        repository.insertEvent(
+                ev.eventUid(),
+                machineId,
+                type,
+                code,
+                desc,
+                ev.severity(),
+                eventTime,
+                orderId,
+                action);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> castMap(Map<?, ?> m) {
+        return (Map<String, Object>) m;
     }
 
     @Transactional

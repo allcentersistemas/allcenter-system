@@ -443,9 +443,24 @@ public class BiesseIntegrationController {
         double width = toDouble(part.get("ancho"));
 
         Map<String, Object> cortadaInfo = null;
-        if (markCortada && pieceNum > 0 && (qty <= 0 || pieceNum <= qty)) {
-            obrasRepository.ensurePiezaRow(partId, pieceNum);
-            cortadaInfo = obrasRepository.markPiezaCortada(partId, pieceNum, machineName);
+        Map<String, Object> errorInfo = null;
+        if (markCortada && pieceNum > 0) {
+            if (qty > 0 && pieceNum > qty) {
+                // Fuera de plan: error visual en la última pieza válida (no inventa filas).
+                errorInfo =
+                        obrasRepository.markPiezaCorteError(
+                                partId,
+                                qty,
+                                "Captura fuera de cantidad del plan (" + pieceNum + ">" + qty + ")");
+            } else {
+                obrasRepository.ensurePiezaRow(partId, pieceNum);
+                cortadaInfo = obrasRepository.markPiezaCortada(partId, pieceNum, machineName);
+                if (cortadaInfo == null) {
+                    errorInfo =
+                            obrasRepository.markPiezaCorteError(
+                                    partId, pieceNum, "No se pudo marcar corte OSI: " + osiPart);
+                }
+            }
         }
 
         String resolvedUnitCode =
@@ -462,6 +477,8 @@ public class BiesseIntegrationController {
         out.put("width", width > 0 ? width : null);
         out.put("cortada", cortadaInfo != null);
         out.put("cortadaInfo", cortadaInfo);
+        out.put("corteError", errorInfo != null);
+        out.put("corteErrorInfo", errorInfo);
         out.put(
                 "zpl",
                 SimpleZplBuilder.build(
@@ -586,6 +603,13 @@ public class BiesseIntegrationController {
                     HttpStatus.BAD_REQUEST, "partId+pieceNumber u orderId+osiPart requeridos");
         }
         if (!obrasRepository.ensurePiezaRow(partId, pieceNumber)) {
+            Integer qty = obrasRepository.partCantidad(partId);
+            if (qty != null && qty > 0) {
+                obrasRepository.markPiezaCorteError(
+                        partId,
+                        qty,
+                        "Captura fuera de cantidad (" + pieceNumber + ">" + qty + ")");
+            }
             Map<String, Object> missing = new LinkedHashMap<>();
             missing.put("found", false);
             missing.put("partId", partId);
@@ -596,6 +620,8 @@ public class BiesseIntegrationController {
         Map<String, Object> result =
                 obrasRepository.markPiezaCortada(partId, pieceNumber, body.machineName());
         if (result == null) {
+            obrasRepository.markPiezaCorteError(
+                    partId, pieceNumber, "No se pudo marcar corte (mark-cortada)");
             Map<String, Object> missing = new LinkedHashMap<>();
             missing.put("found", false);
             missing.put("partId", partId);

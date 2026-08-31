@@ -223,6 +223,10 @@ public class BiesseObrasRepository {
         if (best == null) {
             return new MatchPick(null, Integer.MIN_VALUE, false);
         }
+        // Empate en nombre exacto (reimport XML): tomar la más reciente (ya viene ORDER BY fecha DESC).
+        if (bestScore >= 1000) {
+            return new MatchPick(best, bestScore, false);
+        }
         boolean weak = candidates.size() > 1 && bestScore < 200;
         boolean tied = tiedAtBest > 1;
         boolean ambiguous = weak || tied;
@@ -941,6 +945,23 @@ public class BiesseObrasRepository {
     }
 
     /**
+     * Cantidad planificada de la parte, o {@code null} si no hay fila / valor.
+     */
+    public Integer partCantidad(long partId) {
+        try {
+            List<Map<String, Object>> partRows =
+                    jdbc.queryForList("SELECT cantidad FROM partes WHERE partid = ? LIMIT 1", partId);
+            if (!partRows.isEmpty() && partRows.getFirst().get("cantidad") instanceof Number n) {
+                int qty = n.intValue();
+                return qty > 0 ? qty : null;
+            }
+        } catch (DataAccessException ignored) {
+            // sin cantidad
+        }
+        return null;
+    }
+
+    /**
      * Asegura una sola fila en {@code piezas} (sin crear el resto de la parte).
      * Usado al marcar corte del agente; no altera {@code escaneado}.
      */
@@ -1109,17 +1130,34 @@ public class BiesseObrasRepository {
                 || "t".equalsIgnoreCase(String.valueOf(piece.get("cortada")))
                 || "true".equalsIgnoreCase(String.valueOf(piece.get("cortada")));
         if (!already) {
-            jdbc.update(
-                    """
-                    UPDATE piezas
-                    SET cortada = TRUE,
-                        cortada_at = CURRENT_TIMESTAMP,
-                        cortada_por = ?
-                    WHERE piezaid = ?
-                      AND COALESCE(cortada, FALSE) = FALSE
-                    """,
-                    machineName != null && !machineName.isBlank() ? machineName.trim() : null,
-                    ((Number) piece.get("piezaid")).longValue());
+            try {
+                jdbc.update(
+                        """
+                        UPDATE piezas
+                        SET cortada = TRUE,
+                            cortada_at = CURRENT_TIMESTAMP,
+                            cortada_por = ?,
+                            corte_error = FALSE,
+                            corte_error_at = NULL,
+                            corte_error_msg = NULL
+                        WHERE piezaid = ?
+                          AND COALESCE(cortada, FALSE) = FALSE
+                        """,
+                        machineName != null && !machineName.isBlank() ? machineName.trim() : null,
+                        ((Number) piece.get("piezaid")).longValue());
+            } catch (DataAccessException ex) {
+                jdbc.update(
+                        """
+                        UPDATE piezas
+                        SET cortada = TRUE,
+                            cortada_at = CURRENT_TIMESTAMP,
+                            cortada_por = ?
+                        WHERE piezaid = ?
+                          AND COALESCE(cortada, FALSE) = FALSE
+                        """,
+                        machineName != null && !machineName.isBlank() ? machineName.trim() : null,
+                        ((Number) piece.get("piezaid")).longValue());
+            }
         }
         java.util.LinkedHashMap<String, Object> out = new java.util.LinkedHashMap<>();
         out.put("piezaId", ((Number) piece.get("piezaid")).longValue());
@@ -1128,6 +1166,67 @@ public class BiesseObrasRepository {
         out.put("already", already);
         out.put("updated", !already);
         out.put("cortada", true);
+        return out;
+    }
+
+    /**
+     * Marca error visual de captura (rojo en UI). No toca escaneado ni estado de la orden.
+     * No marca {@code cortada}.
+     */
+    public Map<String, Object> markPiezaCorteError(long partId, int pieceNumber, String message) {
+        if (pieceNumber <= 0 || !ensurePiezaRow(partId, pieceNumber)) {
+            return null;
+        }
+        List<Map<String, Object>> rows =
+                jdbc.queryForList(
+                        """
+                        SELECT piezaid,
+                               COALESCE(cortada, FALSE) AS cortada,
+                               COALESCE(escaneado, FALSE) AS escaneado
+                        FROM piezas
+                        WHERE partid = ? AND numero_pieza = ?
+                        LIMIT 1
+                        """,
+                        partId,
+                        pieceNumber);
+        if (rows.isEmpty()) {
+            return null;
+        }
+        Map<String, Object> piece = rows.getFirst();
+        boolean cortada = Boolean.TRUE.equals(piece.get("cortada"))
+                || "t".equalsIgnoreCase(String.valueOf(piece.get("cortada")))
+                || "true".equalsIgnoreCase(String.valueOf(piece.get("cortada")));
+        boolean escaneado = Boolean.TRUE.equals(piece.get("escaneado"))
+                || "t".equalsIgnoreCase(String.valueOf(piece.get("escaneado")))
+                || "true".equalsIgnoreCase(String.valueOf(piece.get("escaneado")));
+        // Ya cortada o escaneada: no pintar error encima del avance real.
+        if (cortada || escaneado) {
+            return null;
+        }
+        String msg = message != null ? truncate(message.trim(), 240) : "Error al capturar pieza";
+        try {
+            jdbc.update(
+                    """
+                    UPDATE piezas
+                    SET corte_error = TRUE,
+                        corte_error_at = CURRENT_TIMESTAMP,
+                        corte_error_msg = ?
+                    WHERE piezaid = ?
+                      AND COALESCE(cortada, FALSE) = FALSE
+                      AND COALESCE(escaneado, FALSE) = FALSE
+                    """,
+                    msg,
+                    ((Number) piece.get("piezaid")).longValue());
+        } catch (DataAccessException ex) {
+            // Columna ausente: no-op (schema aligner la creará en el próximo arranque).
+            return null;
+        }
+        java.util.LinkedHashMap<String, Object> out = new java.util.LinkedHashMap<>();
+        out.put("piezaId", ((Number) piece.get("piezaid")).longValue());
+        out.put("numeroPieza", pieceNumber);
+        out.put("partId", partId);
+        out.put("corteError", true);
+        out.put("corteErrorMsg", msg);
         return out;
     }
 

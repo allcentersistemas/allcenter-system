@@ -81,6 +81,14 @@ public class AgentCutSyncService {
 
             String machine = str(cut.get("machine_name"));
             if (!obrasRepository.ensurePiezaRow(partId, pieceNum)) {
+                // Fuera de cantidad: error visual en la última pieza del plan (no inventa filas).
+                Integer qty = obrasRepository.partCantidad(partId);
+                if (qty != null && qty > 0) {
+                    obrasRepository.markPiezaCorteError(
+                            partId,
+                            qty,
+                            "Sync: captura fuera de cantidad (" + pieceNum + ">" + qty + ")");
+                }
                 skipped++;
                 continue;
             }
@@ -88,6 +96,8 @@ public class AgentCutSyncService {
             if (result != null) {
                 marked++;
             } else {
+                obrasRepository.markPiezaCorteError(
+                        partId, pieceNum, "Sync monitor: no se pudo marcar cortada");
                 skipped++;
             }
         }

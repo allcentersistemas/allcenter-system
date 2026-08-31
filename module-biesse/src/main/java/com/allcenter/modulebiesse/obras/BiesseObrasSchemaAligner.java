@@ -43,6 +43,10 @@ public class BiesseObrasSchemaAligner {
             jdbc.execute("ALTER TABLE piezas ADD COLUMN IF NOT EXISTS cortada_por VARCHAR(120)");
             jdbc.execute(
                     "CREATE INDEX IF NOT EXISTS idx_piezas_partid_cortada ON piezas(partid, cortada)");
+            // Solo visual: error de captura agente (no cambia PRODUCCION / escaneo).
+            jdbc.execute("ALTER TABLE piezas ADD COLUMN IF NOT EXISTS corte_error BOOLEAN DEFAULT FALSE");
+            jdbc.execute("ALTER TABLE piezas ADD COLUMN IF NOT EXISTS corte_error_at TIMESTAMP");
+            jdbc.execute("ALTER TABLE piezas ADD COLUMN IF NOT EXISTS corte_error_msg VARCHAR(240)");
         } catch (Exception e) {
             log.debug("ensure piezas.cortada (tabla ausente?): {}", e.getMessage());
         }
