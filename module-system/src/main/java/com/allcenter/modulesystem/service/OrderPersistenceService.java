@@ -1328,17 +1328,17 @@ public class OrderPersistenceService {
         detalle.setDescripcion(valueOrNull(payload.observacion()));
 
         Map<String, Object> extras = new LinkedHashMap<>();
-        extras.put("l1", payload.l1());
-        extras.put("l2", payload.l2());
-        extras.put("a1", payload.a1());
-        extras.put("a2", payload.a2());
-        extras.put("perforacionCantidad", payload.perforacionCantidad());
-        extras.put("perforacionLado1", payload.perforacionLado1());
-        extras.put("perforacionLado2", payload.perforacionLado2());
-        extras.put("ranuraDist", payload.ranuraDist());
-        extras.put("ranuraProf", payload.ranuraProf());
-        extras.put("ranuraEs", payload.ranuraEs());
-        extras.put("ranuraLado", payload.ranuraLado());
+        extras.put("l1", normalizeOptionalExtra(payload.l1()));
+        extras.put("l2", normalizeOptionalExtra(payload.l2()));
+        extras.put("a1", normalizeOptionalExtra(payload.a1()));
+        extras.put("a2", normalizeOptionalExtra(payload.a2()));
+        extras.put("perforacionCantidad", normalizeOptionalExtra(payload.perforacionCantidad()));
+        extras.put("perforacionLado1", normalizeOptionalExtra(payload.perforacionLado1()));
+        extras.put("perforacionLado2", normalizeOptionalExtra(payload.perforacionLado2()));
+        extras.put("ranuraDist", normalizeOptionalExtra(payload.ranuraDist()));
+        extras.put("ranuraProf", normalizeOptionalExtra(payload.ranuraProf()));
+        extras.put("ranuraEs", normalizeOptionalExtra(payload.ranuraEs()));
+        extras.put("ranuraLado", normalizeOptionalExtra(payload.ranuraLado()));
         extras.put("ranuraEspecial", payload.ranuraEspecial());
         extras.put("observado", payload.observado());
         detalle.setParametros(writeJson(extras));
@@ -1390,11 +1390,24 @@ public class OrderPersistenceService {
         return trimmed.isEmpty() ? null : trimmed;
     }
 
+    /** Vacío o «NA» → null (sin valor en BD / exportación). */
+    private String normalizeOptionalExtra(String value) {
+        if (value == null) return null;
+        String trimmed = value.trim();
+        if (trimmed.isEmpty() || "NA".equalsIgnoreCase(trimmed)) {
+            return null;
+        }
+        return trimmed;
+    }
+
     private String nullToEmpty(String value) {
         return value == null ? "" : value;
     }
 
     private String str(Object value) {
-        return value == null ? "" : String.valueOf(value);
+        if (value == null) return "";
+        String s = String.valueOf(value).trim();
+        if (s.isEmpty() || "NA".equalsIgnoreCase(s)) return "";
+        return s;
     }
 }

@@ -446,13 +446,13 @@ public class BiesseScanService {
     }
 
     private static String trimDecimal(double v) {
-        if (Double.isNaN(v) || Double.isInfinite(v)) {
+        if (v <= 0 || Double.isNaN(v) || Double.isInfinite(v)) {
             return "—";
         }
-        if (v == Math.rint(v)) {
-            return String.valueOf((long) v);
+        if (Math.abs(v - Math.rint(v)) < 0.05) {
+            return String.valueOf((long) Math.rint(v));
         }
-        return String.valueOf(v);
+        return String.format(java.util.Locale.US, "%.1f", v);
     }
 
     private String normalizeMethod(String method) {
