@@ -180,6 +180,7 @@ public class BiesseObrasRepository {
             return new MatchPick(candidates.getFirst(), 1000, false);
         }
         String job = jobToken != null ? jobToken.trim().toUpperCase(Locale.ROOT) : "";
+        String jobNorm = normalizeForCompare(job);
         String jobCompact = compactName(job);
         Map<String, Object> best = null;
         int bestScore = Integer.MIN_VALUE;
@@ -190,30 +191,40 @@ public class BiesseObrasRepository {
                 continue;
             }
             String nameU = name.trim().toUpperCase(Locale.ROOT);
+            String nameNorm = normalizeForCompare(nameU);
             String nameCompact = compactName(nameU);
             int score = 0;
-            if (nameU.equals(job) || nameCompact.equals(jobCompact)) {
+            if (nameU.equals(job) || nameNorm.equals(jobNorm) || nameCompact.equals(jobCompact)) {
                 score += 1000;
             }
-            if (!job.isBlank() && (job.contains(nameU) || nameU.contains(job))) {
+            if (!jobNorm.isBlank() && (jobNorm.contains(nameNorm) || nameNorm.contains(jobNorm))) {
                 score += 400;
             }
             if (!jobCompact.isBlank()
                     && (jobCompact.contains(nameCompact) || nameCompact.contains(jobCompact))) {
                 score += 300;
             }
-            String jobTail = lastWord(job);
-            String nameTail = lastWord(nameU);
+            String jobTail = lastWord(jobNorm);
+            String nameTail = lastWord(nameNorm);
             if (jobTail.length() >= 3 && jobTail.equals(nameTail)) {
                 score += 500;
             } else if (jobTail.length() >= 3
-                    && (job.contains(nameTail) || nameU.contains(jobTail))) {
+                    && (jobNorm.contains(nameTail) || nameNorm.contains(jobTail))) {
                 score += 250;
+            }
+            // Discriminar K5_IZQ vs K5_DER / K1_DER dentro de la misma OP.
+            String jobKey = significantKey(jobNorm);
+            String nameKey = significantKey(nameNorm);
+            if (jobKey.length() >= 4 && jobKey.equals(nameKey)) {
+                score += 600;
+            } else if (jobKey.length() >= 4
+                    && (jobNorm.contains(jobKey) && nameNorm.contains(jobKey))) {
+                score += 350;
             }
             if (op != null && nameU.startsWith(op.toUpperCase(Locale.ROOT))) {
                 score += 50;
             }
-            score += tokenOverlapScore(job, nameU) * 20;
+            score += tokenOverlapScore(jobNorm, nameNorm) * 20;
             if (score > bestScore) {
                 bestScore = score;
                 best = row;
@@ -236,6 +247,24 @@ public class BiesseObrasRepository {
             return new MatchPick(null, bestScore, true);
         }
         return new MatchPick(best, bestScore, false);
+    }
+
+    /** Unifica espacios/_ para comparar job OSI vs ordername ERP. */
+    private static String normalizeForCompare(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.replace('_', ' ').replaceAll("\\s+", " ").trim().toUpperCase(Locale.ROOT);
+    }
+
+    /** Token distintivo tipo K5IZQ / K5DER / K1DER. */
+    private static String significantKey(String normalizedName) {
+        if (normalizedName == null || normalizedName.isBlank()) {
+            return "";
+        }
+        String compact = normalizedName.replace(" ", "");
+        Matcher m2 = Pattern.compile("(K\\d+[A-Z]+)", Pattern.CASE_INSENSITIVE).matcher(compact);
+        return m2.find() ? m2.group(1).toUpperCase(Locale.ROOT) : "";
     }
 
     private static String normalizeJobToken(String jobName) {

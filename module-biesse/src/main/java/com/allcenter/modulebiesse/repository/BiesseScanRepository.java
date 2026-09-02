@@ -815,58 +815,43 @@ public class BiesseScanRepository {
 
         if (hasOrderId || hasState || hasQuery || hasFromDate || hasToDate) {
             sql.append(" WHERE 1=1 ");
-            if (hasOrderId) {
-                sql.append(" AND o.orderid = ? ");
-            }
-            if (hasState) {
-                sql.append(" AND st.estado_escaneo = ? ");
-            }
-            if (hasQuery) {
-                // Normaliza _ / puntuación / espacios en ambos lados (K1_DER ≈ K1 DER).
-                sql.append(
-                        """
-                         AND (
-                           strpos(lower(%s), lower(%s)) > 0
-                           OR strpos(lower(%s), lower(%s)) > 0
-                           OR strpos(lower(%s), lower(%s)) > 0
-                           OR CAST(o.orderid AS TEXT) = ?
-                         )
-                        """
-                                .formatted(
-                                        sqlSearchNorm("o.ordername"),
-                                        sqlSearchNorm("?"),
-                                        sqlSearchNorm("COALESCE(o.bookingcode, '')"),
-                                        sqlSearchNorm("?"),
-                                        sqlSearchNorm("COALESCE(o.op_codigo, '')"),
-                                        sqlSearchNorm("?")));
-            }
-            if (hasFromDate) {
-                sql.append(" AND DATE(o.fechacreacion) >= CAST(? AS DATE) ");
-            }
-            if (hasToDate) {
-                sql.append(" AND DATE(o.fechacreacion) <= CAST(? AS DATE) ");
-            }
-            sql.append(" ORDER BY o.fechacreacion DESC LIMIT ? OFFSET ? ");
             java.util.List<Object> args = new java.util.ArrayList<>();
             if (hasOrderId) {
+                sql.append(" AND o.orderid = ? ");
                 args.add(orderId);
             }
             if (hasState) {
+                sql.append(" AND st.estado_escaneo = ? ");
                 args.add(normalizeOrderScanState(state));
             }
             if (hasQuery) {
-                String needle = query.trim();
-                args.add(needle);
-                args.add(needle);
-                args.add(needle);
-                args.add(needle);
+                // Varios tokens → TODOS deben aparecer (así K5_IZQ (1)4 no trae las 16 de S14783).
+                // Un solo token (p.ej. S14783) → sigue listando toda la OP.
+                String[] tokens = searchTokens(query);
+                sql.append(" AND ( ");
+                if (tokens.length == 0) {
+                    sql.append(" TRUE ");
+                } else {
+                    appendTokenAndSearch(
+                            sql,
+                            args,
+                            tokens,
+                            "o.ordername",
+                            "COALESCE(o.bookingcode, '')",
+                            "COALESCE(o.op_codigo, '')",
+                            true);
+                }
+                sql.append(" ) ");
             }
             if (hasFromDate) {
+                sql.append(" AND DATE(o.fechacreacion) >= CAST(? AS DATE) ");
                 args.add(fromDate.trim());
             }
             if (hasToDate) {
+                sql.append(" AND DATE(o.fechacreacion) <= CAST(? AS DATE) ");
                 args.add(toDate.trim());
             }
+            sql.append(" ORDER BY o.fechacreacion DESC LIMIT ? OFFSET ? ");
             args.add(limit);
             args.add(offset);
             return jdbcTemplate.queryForList(sql.toString(), args.toArray());
@@ -881,6 +866,64 @@ public class BiesseScanRepository {
      */
     private static String sqlSearchNorm(String expr) {
         return "trim(regexp_replace(" + expr + ", '[^[:alnum:]]+', ' ', 'g'))";
+    }
+
+    /** Tokens de búsqueda (min 1 char); ignora vacíos tras normalizar _/(). */
+    private static String[] searchTokens(String query) {
+        if (query == null || query.isBlank()) {
+            return new String[0];
+        }
+        String norm =
+                query.trim()
+                        .replace('_', ' ')
+                        .replace('(', ' ')
+                        .replace(')', ' ')
+                        .replaceAll("[^A-Za-z0-9]+", " ")
+                        .trim();
+        if (norm.isEmpty()) {
+            return new String[0];
+        }
+        return java.util.Arrays.stream(norm.split("\\s+"))
+                .map(String::trim)
+                .filter(t -> !t.isEmpty())
+                .toArray(String[]::new);
+    }
+
+    /**
+     * AND de tokens: cada uno debe aparecer en nombre, booking o op_codigo (y opcionalmente
+     * orderid exacto).
+     */
+    private static void appendTokenAndSearch(
+            StringBuilder sql,
+            java.util.List<Object> args,
+            String[] tokens,
+            String nameExpr,
+            String bookingExpr,
+            String opExpr,
+            boolean includeOrderId) {
+        for (int i = 0; i < tokens.length; i++) {
+            if (i > 0) {
+                sql.append(" AND ");
+            }
+            sql.append(" ( ");
+            sql.append("strpos(lower(")
+                    .append(sqlSearchNorm(nameExpr))
+                    .append("), lower(?)) > 0");
+            args.add(tokens[i]);
+            sql.append(" OR strpos(lower(")
+                    .append(sqlSearchNorm(bookingExpr))
+                    .append("), lower(?)) > 0");
+            args.add(tokens[i]);
+            sql.append(" OR strpos(lower(")
+                    .append(sqlSearchNorm(opExpr))
+                    .append("), lower(?)) > 0");
+            args.add(tokens[i]);
+            if (includeOrderId) {
+                sql.append(" OR CAST(o.orderid AS TEXT) = ?");
+                args.add(tokens[i]);
+            }
+            sql.append(" ) ");
+        }
     }
 
     private static String normalizeOrderScanState(String state) {
@@ -1799,27 +1842,27 @@ public class BiesseScanRepository {
         ensureOpCodigoColumn();
         backfillOpCodigos(2000);
         if (searchText != null && !searchText.isBlank()) {
-            String needle = searchText.trim();
-            Number n =
-                    jdbcTemplate.queryForObject(
-                            """
-                            SELECT COUNT(DISTINCT COALESCE(NULLIF(TRIM(op_codigo), ''), ordername))
-                            FROM ordenes
-                            WHERE strpos(lower(%s), lower(%s)) > 0
-                               OR strpos(lower(%s), lower(%s)) > 0
-                               OR strpos(lower(%s), lower(%s)) > 0
-                            """
-                                    .formatted(
-                                            sqlSearchNorm("ordername"),
-                                            sqlSearchNorm("?"),
-                                            sqlSearchNorm("COALESCE(bookingcode, '')"),
-                                            sqlSearchNorm("?"),
-                                            sqlSearchNorm("COALESCE(op_codigo, '')"),
-                                            sqlSearchNorm("?")),
-                            Number.class,
-                            needle,
-                            needle,
-                            needle);
+            String[] tokens = searchTokens(searchText);
+            if (tokens.length == 0) {
+                return 0;
+            }
+            StringBuilder sql = new StringBuilder();
+            sql.append(
+                    """
+                    SELECT COUNT(DISTINCT COALESCE(NULLIF(TRIM(op_codigo), ''), ordername))
+                    FROM ordenes
+                    WHERE
+                    """);
+            java.util.List<Object> args = new java.util.ArrayList<>();
+            appendTokenAndSearch(
+                    sql,
+                    args,
+                    tokens,
+                    "ordername",
+                    "COALESCE(bookingcode, '')",
+                    "COALESCE(op_codigo, '')",
+                    false);
+            Number n = jdbcTemplate.queryForObject(sql.toString(), Number.class, args.toArray());
             return n == null ? 0 : n.intValue();
         }
         Number n =
@@ -1839,31 +1882,36 @@ public class BiesseScanRepository {
         int safeOffset = Math.max(0, offset);
         List<Map<String, Object>> opKeys;
         if (searchText != null && !searchText.isBlank()) {
-            String needle = searchText.trim();
-            opKeys =
-                    jdbcTemplate.queryForList(
-                            """
-                            SELECT COALESCE(NULLIF(TRIM(o.op_codigo), ''), o.ordername) AS op_key
-                            FROM ordenes o
-                            WHERE strpos(lower(%s), lower(%s)) > 0
-                               OR strpos(lower(%s), lower(%s)) > 0
-                               OR strpos(lower(%s), lower(%s)) > 0
-                            GROUP BY COALESCE(NULLIF(TRIM(o.op_codigo), ''), o.ordername)
-                            ORDER BY MAX(o.fechacreacion) DESC NULLS LAST
-                            LIMIT ? OFFSET ?
-                            """
-                                    .formatted(
-                                            sqlSearchNorm("o.ordername"),
-                                            sqlSearchNorm("?"),
-                                            sqlSearchNorm("COALESCE(o.bookingcode, '')"),
-                                            sqlSearchNorm("?"),
-                                            sqlSearchNorm("COALESCE(o.op_codigo, '')"),
-                                            sqlSearchNorm("?")),
-                            needle,
-                            needle,
-                            needle,
-                            safeLimit,
-                            safeOffset);
+            String[] tokens = searchTokens(searchText);
+            if (tokens.length == 0) {
+                opKeys = List.of();
+            } else {
+                StringBuilder sql = new StringBuilder();
+                sql.append(
+                        """
+                        SELECT COALESCE(NULLIF(TRIM(o.op_codigo), ''), o.ordername) AS op_key
+                        FROM ordenes o
+                        WHERE
+                        """);
+                java.util.List<Object> args = new java.util.ArrayList<>();
+                appendTokenAndSearch(
+                        sql,
+                        args,
+                        tokens,
+                        "o.ordername",
+                        "COALESCE(o.bookingcode, '')",
+                        "COALESCE(o.op_codigo, '')",
+                        false);
+                sql.append(
+                        """
+                         GROUP BY COALESCE(NULLIF(TRIM(o.op_codigo), ''), o.ordername)
+                         ORDER BY MAX(o.fechacreacion) DESC NULLS LAST
+                         LIMIT ? OFFSET ?
+                        """);
+                args.add(safeLimit);
+                args.add(safeOffset);
+                opKeys = jdbcTemplate.queryForList(sql.toString(), args.toArray());
+            }
         } else {
             opKeys =
                     jdbcTemplate.queryForList(
