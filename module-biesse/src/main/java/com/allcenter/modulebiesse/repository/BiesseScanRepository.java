@@ -822,16 +822,23 @@ public class BiesseScanRepository {
                 sql.append(" AND st.estado_escaneo = ? ");
             }
             if (hasQuery) {
-                // Subcadena literal (no LIKE): '_' en nombres como K1_DER no es comodín.
+                // Normaliza _ / puntuación / espacios en ambos lados (K1_DER ≈ K1 DER).
                 sql.append(
                         """
                          AND (
-                           strpos(lower(o.ordername), lower(?)) > 0
-                           OR strpos(lower(COALESCE(o.bookingcode, '')), lower(?)) > 0
-                           OR strpos(lower(COALESCE(o.op_codigo, '')), lower(?)) > 0
+                           strpos(lower(%s), lower(%s)) > 0
+                           OR strpos(lower(%s), lower(%s)) > 0
+                           OR strpos(lower(%s), lower(%s)) > 0
                            OR CAST(o.orderid AS TEXT) = ?
                          )
-                        """);
+                        """
+                                .formatted(
+                                        sqlSearchNorm("o.ordername"),
+                                        sqlSearchNorm("?"),
+                                        sqlSearchNorm("COALESCE(o.bookingcode, '')"),
+                                        sqlSearchNorm("?"),
+                                        sqlSearchNorm("COALESCE(o.op_codigo, '')"),
+                                        sqlSearchNorm("?")));
             }
             if (hasFromDate) {
                 sql.append(" AND DATE(o.fechacreacion) >= CAST(? AS DATE) ");
@@ -866,6 +873,14 @@ public class BiesseScanRepository {
         }
         sql.append(" ORDER BY o.fechacreacion DESC LIMIT ? OFFSET ? ");
         return jdbcTemplate.queryForList(sql.toString(), limit, offset);
+    }
+
+    /**
+     * Expresión SQL: deja solo alfanuméricos separados por espacio.
+     * Así {@code K1_DER(x25)} y {@code K1 DER x25} coinciden.
+     */
+    private static String sqlSearchNorm(String expr) {
+        return "trim(regexp_replace(" + expr + ", '[^[:alnum:]]+', ' ', 'g'))";
     }
 
     private static String normalizeOrderScanState(String state) {
@@ -1790,10 +1805,17 @@ public class BiesseScanRepository {
                             """
                             SELECT COUNT(DISTINCT COALESCE(NULLIF(TRIM(op_codigo), ''), ordername))
                             FROM ordenes
-                            WHERE strpos(lower(ordername), lower(?)) > 0
-                               OR strpos(lower(COALESCE(bookingcode, '')), lower(?)) > 0
-                               OR strpos(lower(COALESCE(op_codigo, '')), lower(?)) > 0
-                            """,
+                            WHERE strpos(lower(%s), lower(%s)) > 0
+                               OR strpos(lower(%s), lower(%s)) > 0
+                               OR strpos(lower(%s), lower(%s)) > 0
+                            """
+                                    .formatted(
+                                            sqlSearchNorm("ordername"),
+                                            sqlSearchNorm("?"),
+                                            sqlSearchNorm("COALESCE(bookingcode, '')"),
+                                            sqlSearchNorm("?"),
+                                            sqlSearchNorm("COALESCE(op_codigo, '')"),
+                                            sqlSearchNorm("?")),
                             Number.class,
                             needle,
                             needle,
@@ -1823,13 +1845,20 @@ public class BiesseScanRepository {
                             """
                             SELECT COALESCE(NULLIF(TRIM(o.op_codigo), ''), o.ordername) AS op_key
                             FROM ordenes o
-                            WHERE strpos(lower(o.ordername), lower(?)) > 0
-                               OR strpos(lower(COALESCE(o.bookingcode, '')), lower(?)) > 0
-                               OR strpos(lower(COALESCE(o.op_codigo, '')), lower(?)) > 0
+                            WHERE strpos(lower(%s), lower(%s)) > 0
+                               OR strpos(lower(%s), lower(%s)) > 0
+                               OR strpos(lower(%s), lower(%s)) > 0
                             GROUP BY COALESCE(NULLIF(TRIM(o.op_codigo), ''), o.ordername)
                             ORDER BY MAX(o.fechacreacion) DESC NULLS LAST
                             LIMIT ? OFFSET ?
-                            """,
+                            """
+                                    .formatted(
+                                            sqlSearchNorm("o.ordername"),
+                                            sqlSearchNorm("?"),
+                                            sqlSearchNorm("COALESCE(o.bookingcode, '')"),
+                                            sqlSearchNorm("?"),
+                                            sqlSearchNorm("COALESCE(o.op_codigo, '')"),
+                                            sqlSearchNorm("?")),
                             needle,
                             needle,
                             needle,
