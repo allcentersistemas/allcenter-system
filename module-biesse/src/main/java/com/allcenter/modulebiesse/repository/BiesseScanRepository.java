@@ -890,8 +890,7 @@ public class BiesseScanRepository {
     }
 
     /**
-     * AND de tokens: cada uno debe aparecer en nombre, booking o op_codigo (y opcionalmente
-     * orderid exacto).
+     * AND de tokens por palabra completa (evita que "4" de (1)4 coincida dentro de S14783).
      */
     private static void appendTokenAndSearch(
             StringBuilder sql,
@@ -906,17 +905,18 @@ public class BiesseScanRepository {
                 sql.append(" AND ");
             }
             sql.append(" ( ");
-            sql.append("strpos(lower(")
+            // ' ' || norm || ' ' LIKE '% tok %' → token acotado por espacios
+            sql.append("((' ' || lower(")
                     .append(sqlSearchNorm(nameExpr))
-                    .append("), lower(?)) > 0");
+                    .append(") || ' ') LIKE ('% ' || lower(?) || ' %'))");
             args.add(tokens[i]);
-            sql.append(" OR strpos(lower(")
+            sql.append(" OR ((' ' || lower(")
                     .append(sqlSearchNorm(bookingExpr))
-                    .append("), lower(?)) > 0");
+                    .append(") || ' ') LIKE ('% ' || lower(?) || ' %'))");
             args.add(tokens[i]);
-            sql.append(" OR strpos(lower(")
+            sql.append(" OR ((' ' || lower(")
                     .append(sqlSearchNorm(opExpr))
-                    .append("), lower(?)) > 0");
+                    .append(") || ' ') LIKE ('% ' || lower(?) || ' %'))");
             args.add(tokens[i]);
             if (includeOrderId) {
                 sql.append(" OR CAST(o.orderid AS TEXT) = ?");
