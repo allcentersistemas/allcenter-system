@@ -100,12 +100,14 @@ public class BiesseObrasRepository {
                                nparts, partes_totales
                         FROM ordenes
                         WHERE UPPER(TRIM(ordername)) = UPPER(?)
+                           OR UPPER(REPLACE(REPLACE(TRIM(ordername), '_', ' '), ' ', '')) = UPPER(?)
                            OR UPPER(REPLACE(TRIM(ordername), ' ', '')) = UPPER(?)
                            OR (bookingcode IS NOT NULL AND UPPER(TRIM(bookingcode)) = UPPER(?))
                         ORDER BY fechacreacion DESC
                         LIMIT 5
                         """,
                         token,
+                        compact,
                         compact,
                         token);
         MatchPick pickExact = pickBestOrderMatchDetailed(exact, token, op);
@@ -141,9 +143,9 @@ public class BiesseObrasRepository {
                             SELECT orderid, ordername, bookingcode, op_codigo, estado_escaneo,
                                    nparts, partes_totales
                             FROM ordenes
-                            WHERE UPPER(REPLACE(ordername, ' ', '')) = UPPER(?)
-                               OR UPPER(REPLACE(ordername, ' ', '')) LIKE UPPER(?) || '%'
-                               OR UPPER(?) LIKE UPPER(REPLACE(ordername, ' ', '')) || '%'
+                            WHERE UPPER(REPLACE(REPLACE(ordername, '_', ''), ' ', '')) = UPPER(?)
+                               OR UPPER(REPLACE(REPLACE(ordername, '_', ''), ' ', '')) LIKE UPPER(?) || '%'
+                               OR UPPER(?) LIKE UPPER(REPLACE(REPLACE(ordername, '_', ''), ' ', '')) || '%'
                             ORDER BY fechacreacion DESC
                             LIMIT 40
                             """,
@@ -237,7 +239,8 @@ public class BiesseObrasRepository {
     }
 
     private static String normalizeJobToken(String jobName) {
-        String t = jobName.trim().replaceAll("\\s+", " ");
+        // OSI a veces manda _ y espacios dobles; unificar con ordername ERP.
+        String t = jobName.trim().replace('_', ' ').replaceAll("\\s+", " ");
         // Quitar sufijo de patrón tipo ".001" pegado al nombre.
         Matcher suffix = PATTERN_SUFFIX.matcher(t);
         if (suffix.find()) {
@@ -252,7 +255,7 @@ public class BiesseObrasRepository {
         if (value == null) {
             return "";
         }
-        return value.replaceAll("\\s+", "").toUpperCase(Locale.ROOT);
+        return value.replaceAll("[\\s_]+", "").toUpperCase(Locale.ROOT);
     }
 
     private static String lastWord(String value) {

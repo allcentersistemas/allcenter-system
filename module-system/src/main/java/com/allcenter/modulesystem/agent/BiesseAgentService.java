@@ -64,7 +64,7 @@ public class BiesseAgentService {
                     org.springframework.http.HttpStatus.BAD_REQUEST, "job requerido");
         }
         Map<String, Object> resolve = obrasClient.resolveOrderForJob(jobName.trim());
-        if (Boolean.TRUE.equals(resolve.get("ambiguous"))) {
+        if (resolve != null && Boolean.TRUE.equals(resolve.get("ambiguous"))) {
             throw new org.springframework.web.server.ResponseStatusException(
                     org.springframework.http.HttpStatus.CONFLICT,
                     "Obra ambigua para job «" + jobName.trim() + "»");

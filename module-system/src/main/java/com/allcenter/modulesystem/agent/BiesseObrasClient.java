@@ -143,7 +143,7 @@ public class BiesseObrasClient {
 
     public Map<String, Object> resolveOrderForJob(String jobName) {
         if (jobName == null || jobName.isBlank()) {
-            return Map.of("ambiguous", false, "order", null, "candidates", List.of());
+            return emptyResolve();
         }
         try {
             String url =
@@ -156,13 +156,22 @@ public class BiesseObrasClient {
                             HttpMethod.GET,
                             new HttpEntity<>(headers()),
                             new ParameterizedTypeReference<>() {});
-            return res.getBody() != null ? res.getBody() : Map.of("ambiguous", false);
+            return res.getBody() != null ? res.getBody() : emptyResolve();
         } catch (HttpClientErrorException.NotFound e) {
-            return Map.of("ambiguous", false, "order", null, "candidates", List.of());
+            return emptyResolve();
         } catch (Exception e) {
             log.warn("biesse resolveOrderForJob('{}'): {}", jobName, e.getMessage());
-            return Map.of("ambiguous", false, "order", null, "candidates", List.of());
+            return emptyResolve();
         }
+    }
+
+    /** Map.of no admite null → NPE y el agente veía 500 en order-manifest. */
+    private static Map<String, Object> emptyResolve() {
+        Map<String, Object> m = new HashMap<>();
+        m.put("ambiguous", false);
+        m.put("order", null);
+        m.put("candidates", List.of());
+        return m;
     }
 
     public String labelZpl(
