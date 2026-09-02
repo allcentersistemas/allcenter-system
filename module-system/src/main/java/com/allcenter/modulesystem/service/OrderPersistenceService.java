@@ -328,6 +328,14 @@ public class OrderPersistenceService {
             if (p instanceof Number n) {
                 pct = n.doubleValue();
             }
+            Double pctCorte = null;
+            Object pc = row.get("porcentajeCorte");
+            if (pc == null) {
+                pc = row.get("porcentaje_corte");
+            }
+            if (pc instanceof Number n) {
+                pctCorte = n.doubleValue();
+            }
             out.add(
                     new OrderDtos.SeguimientoObraResponse(
                             orderId,
@@ -337,7 +345,11 @@ public class OrderPersistenceService {
                             estado,
                             pct,
                             firstNonBlank(str(row.get("avanceLabel")), str(row.get("avance_label"))),
-                            str(row.get("seccionador"))));
+                            str(row.get("seccionador")),
+                            pctCorte,
+                            firstNonBlank(
+                                    str(row.get("avanceCorteLabel")),
+                                    str(row.get("avance_corte_label")))));
         }
         return out;
     }

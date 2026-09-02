@@ -192,7 +192,9 @@ public final class OrderDtos {
             String estadoEscaneo,
             Double porcentaje,
             String avanceLabel,
-            String seccionador
+            String seccionador,
+            Double porcentajeCorte,
+            String avanceCorteLabel
     ) {
     }
 

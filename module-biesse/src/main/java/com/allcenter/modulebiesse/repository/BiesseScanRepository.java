@@ -822,8 +822,16 @@ public class BiesseScanRepository {
                 sql.append(" AND st.estado_escaneo = ? ");
             }
             if (hasQuery) {
+                // Subcadena literal (no LIKE): '_' en nombres como K1_DER no es comodín.
                 sql.append(
-                        " AND (o.ordername ILIKE ? OR COALESCE(o.bookingcode, '') ILIKE ? OR CAST(o.orderid AS TEXT) LIKE ?) ");
+                        """
+                         AND (
+                           strpos(lower(o.ordername), lower(?)) > 0
+                           OR strpos(lower(COALESCE(o.bookingcode, '')), lower(?)) > 0
+                           OR strpos(lower(COALESCE(o.op_codigo, '')), lower(?)) > 0
+                           OR CAST(o.orderid AS TEXT) = ?
+                         )
+                        """);
             }
             if (hasFromDate) {
                 sql.append(" AND DATE(o.fechacreacion) >= CAST(? AS DATE) ");
@@ -840,10 +848,11 @@ public class BiesseScanRepository {
                 args.add(normalizeOrderScanState(state));
             }
             if (hasQuery) {
-                String like = "%" + query.trim() + "%";
-                args.add(like);
-                args.add(like);
-                args.add(like);
+                String needle = query.trim();
+                args.add(needle);
+                args.add(needle);
+                args.add(needle);
+                args.add(needle);
             }
             if (hasFromDate) {
                 args.add(fromDate.trim());
@@ -1017,16 +1026,15 @@ public class BiesseScanRepository {
             args.add(Long.parseLong(token));
             return;
         }
-        String like = "%" + token + "%";
         sql.append(
                 """
                  AND (
-                   UPPER(COALESCE(o.ordername, '')) LIKE UPPER(?)
-                   OR UPPER(COALESCE(o.bookingcode, '')) LIKE UPPER(?)
+                   strpos(lower(COALESCE(o.ordername, '')), lower(?)) > 0
+                   OR strpos(lower(COALESCE(o.bookingcode, '')), lower(?)) > 0
                  )
                 """);
-        args.add(like);
-        args.add(like);
+        args.add(token);
+        args.add(token);
     }
 
     private static void appendPartAuditFilter(
@@ -1048,19 +1056,18 @@ public class BiesseScanRepository {
         String normalized = token.toUpperCase(java.util.Locale.ROOT);
         String withP =
                 normalized.startsWith("P") ? normalized : "P" + normalized.replaceAll("^P", "");
-        String like = "%" + token + "%";
         sql.append(
                 """
                  AND (
                    UPPER(TRIM(COALESCE(p.partcode, ''))) = UPPER(TRIM(?))
                    OR UPPER(TRIM(COALESCE(p.partcode, ''))) = UPPER(TRIM(?))
-                   OR UPPER(COALESCE(p.partcode, '')) LIKE UPPER(?)
+                   OR strpos(lower(COALESCE(p.partcode, '')), lower(?)) > 0
                    OR CAST(p.partnumber AS TEXT) = ?
                  )
                 """);
         args.add(token);
         args.add(withP);
-        args.add(like);
+        args.add(token);
         args.add(token.replaceAll("\\D", "").isEmpty() ? token : token.replaceAll("\\D", ""));
     }
 
@@ -1777,20 +1784,20 @@ public class BiesseScanRepository {
         ensureOpCodigoColumn();
         backfillOpCodigos(2000);
         if (searchText != null && !searchText.isBlank()) {
-            String like = "%" + searchText.trim() + "%";
+            String needle = searchText.trim();
             Number n =
                     jdbcTemplate.queryForObject(
                             """
                             SELECT COUNT(DISTINCT COALESCE(NULLIF(TRIM(op_codigo), ''), ordername))
                             FROM ordenes
-                            WHERE ordername ILIKE ?
-                               OR COALESCE(bookingcode, '') ILIKE ?
-                               OR COALESCE(op_codigo, '') ILIKE ?
+                            WHERE strpos(lower(ordername), lower(?)) > 0
+                               OR strpos(lower(COALESCE(bookingcode, '')), lower(?)) > 0
+                               OR strpos(lower(COALESCE(op_codigo, '')), lower(?)) > 0
                             """,
                             Number.class,
-                            like,
-                            like,
-                            like);
+                            needle,
+                            needle,
+                            needle);
             return n == null ? 0 : n.intValue();
         }
         Number n =
@@ -1810,22 +1817,22 @@ public class BiesseScanRepository {
         int safeOffset = Math.max(0, offset);
         List<Map<String, Object>> opKeys;
         if (searchText != null && !searchText.isBlank()) {
-            String like = "%" + searchText.trim() + "%";
+            String needle = searchText.trim();
             opKeys =
                     jdbcTemplate.queryForList(
                             """
                             SELECT COALESCE(NULLIF(TRIM(o.op_codigo), ''), o.ordername) AS op_key
                             FROM ordenes o
-                            WHERE o.ordername ILIKE ?
-                               OR COALESCE(o.bookingcode, '') ILIKE ?
-                               OR COALESCE(o.op_codigo, '') ILIKE ?
+                            WHERE strpos(lower(o.ordername), lower(?)) > 0
+                               OR strpos(lower(COALESCE(o.bookingcode, '')), lower(?)) > 0
+                               OR strpos(lower(COALESCE(o.op_codigo, '')), lower(?)) > 0
                             GROUP BY COALESCE(NULLIF(TRIM(o.op_codigo), ''), o.ordername)
                             ORDER BY MAX(o.fechacreacion) DESC NULLS LAST
                             LIMIT ? OFFSET ?
                             """,
-                            like,
-                            like,
-                            like,
+                            needle,
+                            needle,
+                            needle,
                             safeLimit,
                             safeOffset);
         } else {

@@ -49,7 +49,7 @@ public class BiesseObrasRepository {
                     ESTADO_COMPLETADA_LEGACY,
                     "COMPLETADO");
 
-    private static final Pattern OP_PATTERN = Pattern.compile("^([A-Za-z]?\\d{3,})\\b");
+    private static final Pattern OP_PATTERN = Pattern.compile("^([A-Za-z]?\\d{3,})(?:_|$|\\s|[-.])");
     private static final Pattern PART_PATTERN =
             Pattern.compile("(?i)^Part\\s*(P?\\d+)", Pattern.CASE_INSENSITIVE);
     private static final Pattern DIM_PATTERN =
@@ -521,6 +521,10 @@ public class BiesseObrasRepository {
                                       WHERE p.orderid = o.orderid
                                         AND (COALESCE(p.cantidad, 0) <= 0 OR z.numero_pieza <= p.cantidad)
                                         AND COALESCE(z.escaneado, FALSE)) AS piezas_escaneadas,
+                                   (SELECT COUNT(*) FROM piezas z JOIN partes p ON p.partid = z.partid
+                                      WHERE p.orderid = o.orderid
+                                        AND (COALESCE(p.cantidad, 0) <= 0 OR z.numero_pieza <= p.cantidad)
+                                        AND COALESCE(z.cortada, FALSE)) AS piezas_cortadas,
                                    (SELECT z.cortada_por FROM piezas z
                                       JOIN partes p ON p.partid = z.partid
                                      WHERE p.orderid = o.orderid AND z.cortada_por IS NOT NULL AND TRIM(z.cortada_por) <> ''
@@ -557,6 +561,10 @@ public class BiesseObrasRepository {
                                       WHERE p.orderid = o.orderid
                                         AND (COALESCE(p.cantidad, 0) <= 0 OR z.numero_pieza <= p.cantidad)
                                         AND COALESCE(z.escaneado, FALSE)) AS piezas_escaneadas,
+                                   (SELECT COUNT(*) FROM piezas z JOIN partes p ON p.partid = z.partid
+                                      WHERE p.orderid = o.orderid
+                                        AND (COALESCE(p.cantidad, 0) <= 0 OR z.numero_pieza <= p.cantidad)
+                                        AND COALESCE(z.cortada, FALSE)) AS piezas_cortadas,
                                        NULL AS seccionador
                                 FROM ordenes o
                                 WHERE UPPER(TRIM(COALESCE(o.estado_escaneo, ''))) IN (
@@ -579,6 +587,7 @@ public class BiesseObrasRepository {
                                        (SELECT COUNT(*) FROM partes p WHERE p.orderid = o.orderid AND COALESCE(p.escaneado, FALSE)) AS partes_escaneadas,
                                        0 AS piezas_totales,
                                        0 AS piezas_escaneadas,
+                                       0 AS piezas_cortadas,
                                        NULL AS seccionador
                                 FROM ordenes o
                                 WHERE UPPER(TRIM(COALESCE(o.estado_escaneo, ''))) IN (
@@ -605,6 +614,7 @@ public class BiesseObrasRepository {
         int partesEsc = numberInt(row.get("partes_escaneadas"));
         int piezasTot = numberInt(row.get("piezas_totales"));
         int piezasEsc = numberInt(row.get("piezas_escaneadas"));
+        int piezasCor = numberInt(row.get("piezas_cortadas"));
         double pct;
         String avance;
         if (piezasTot > 0) {
@@ -616,6 +626,15 @@ public class BiesseObrasRepository {
         } else {
             pct = 0;
             avance = "0/0";
+        }
+        double pctCorte;
+        String avanceCorte;
+        if (piezasTot > 0) {
+            pctCorte = Math.round(piezasCor * 1000.0 / piezasTot) / 10.0;
+            avanceCorte = piezasCor + "/" + piezasTot + " cortes";
+        } else {
+            pctCorte = 0;
+            avanceCorte = "0/0 cortes";
         }
         Map<String, Object> obra = new LinkedHashMap<>();
         obra.put("orderid", row.get("orderid"));
@@ -632,9 +651,14 @@ public class BiesseObrasRepository {
         obra.put("porcentaje", pct);
         obra.put("avance_label", avance);
         obra.put("avanceLabel", avance);
+        obra.put("porcentaje_corte", pctCorte);
+        obra.put("porcentajeCorte", pctCorte);
+        obra.put("avance_corte_label", avanceCorte);
+        obra.put("avanceCorteLabel", avanceCorte);
         obra.put("seccionador", blankToNull(str(row.get("seccionador"))));
         obra.put("piezas_totales", piezasTot);
         obra.put("piezas_escaneadas", piezasEsc);
+        obra.put("piezas_cortadas", piezasCor);
         obra.put("partes_totales", totalPartes);
         obra.put("partes_escaneadas", partesEsc);
         return obra;
