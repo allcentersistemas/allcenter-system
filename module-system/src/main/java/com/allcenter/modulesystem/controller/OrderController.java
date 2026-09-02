@@ -3,8 +3,9 @@ package com.allcenter.modulesystem.controller;
 import com.allcenter.modulesystem.dto.ClientResponse;
 import com.allcenter.modulesystem.dto.OrderDtos;
 import com.allcenter.modulesystem.security.EmployeeUserDetails;
-import com.allcenter.modulesystem.service.OrderPersistenceService;
 import com.allcenter.modulesystem.service.FulfillmentService;
+import com.allcenter.modulesystem.service.OrderPersistenceService;
+import com.allcenter.modulesystem.service.SeguimientoLiveHub;
 import com.allcenter.modulesystem.support.OptimizacionStorageService;
 import jakarta.persistence.EntityNotFoundException;
 import java.time.LocalDate;
@@ -31,6 +32,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 @RestController
 @RequestMapping("/api/order")
@@ -39,14 +41,17 @@ public class OrderController {
     private final OrderPersistenceService service;
     private final FulfillmentService fulfillmentService;
     private final OptimizacionStorageService storageService;
+    private final SeguimientoLiveHub seguimientoLiveHub;
 
     public OrderController(
             OrderPersistenceService service,
             FulfillmentService fulfillmentService,
-            OptimizacionStorageService storageService) {
+            OptimizacionStorageService storageService,
+            SeguimientoLiveHub seguimientoLiveHub) {
         this.service = service;
         this.fulfillmentService = fulfillmentService;
         this.storageService = storageService;
+        this.seguimientoLiveHub = seguimientoLiveHub;
     }
 
     @GetMapping({"/proyectos", "/projects"})
@@ -129,6 +134,12 @@ public class OrderController {
     public java.util.List<OrderDtos.SeguimientoObraResponse> listSeguimientoObras(
             @RequestParam(required = false) String since) {
         return service.listSeguimientoObras(since);
+    }
+
+    /** Canal en vivo (SSE) del tablero de seguimiento. Emite {@code snapshot} y {@code update}. */
+    @GetMapping(value = "/obras/seguimiento/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter streamSeguimientoObras(@RequestParam(required = false) String since) {
+        return seguimientoLiveHub.connect(since);
     }
 
     @PostMapping("/obras/{biesseOrderId}/entregado")
