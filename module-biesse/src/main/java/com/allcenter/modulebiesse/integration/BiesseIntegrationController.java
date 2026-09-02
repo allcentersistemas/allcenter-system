@@ -367,10 +367,11 @@ public class BiesseIntegrationController {
             @RequestHeader(value = BiesseInternalAuth.HEADER_INTERNAL, required = false) String internalToken,
             @RequestParam(required = false) String op,
             @RequestParam(required = false) Long orderId,
-            @RequestParam(defaultValue = "100") int limit) {
+            @RequestParam(defaultValue = "100") int limit,
+            @RequestParam(defaultValue = "false") boolean soloCorte) {
         internalAuth.requireRead(authorization, internalToken);
         schemaAligner.ensureReady();
-        return ResponseEntity.ok(obrasRepository.listTrazabilidad(op, orderId, limit));
+        return ResponseEntity.ok(obrasRepository.listTrazabilidad(op, orderId, limit, soloCorte));
     }
 
     public record MarkCortadaRequest(

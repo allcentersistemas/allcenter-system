@@ -1407,6 +1407,14 @@ public class BiesseObrasRepository {
     }
 
     public List<Map<String, Object>> listTrazabilidad(String opCodigo, Long orderId, int limit) {
+        return listTrazabilidad(opCodigo, orderId, limit, false);
+    }
+
+    /**
+     * @param soloCorte si true, solo filas {@code CORTE_INICIO}/{@code CORTE_FIN} (tiempos de corte).
+     */
+    public List<Map<String, Object>> listTrazabilidad(
+            String opCodigo, Long orderId, int limit, boolean soloCorte) {
         int safe = Math.max(1, Math.min(limit, 500));
         String op = opCodigo;
         if ((op == null || op.isBlank()) && orderId != null) {
@@ -1420,13 +1428,20 @@ public class BiesseObrasRepository {
                 }
             }
         }
+        String corteFilter =
+                soloCorte
+                        ? " AND UPPER(TRIM(accion)) IN ('CORTE_INICIO', 'CORTE_FIN') "
+                        : "";
         if (orderId != null && op != null && !op.isBlank()) {
             return jdbc.queryForList(
                     """
                     SELECT id, op_codigo, orderid, ordername, estado, accion, detalle,
                            xml_file, piezas_totales, partes_totales, usuario, usuario_id, fecha
                     FROM op_trazabilidad
-                    WHERE orderid = ? OR UPPER(TRIM(op_codigo)) = UPPER(TRIM(?))
+                    WHERE (orderid = ? OR UPPER(TRIM(op_codigo)) = UPPER(TRIM(?)))
+                    """
+                            + corteFilter
+                            + """
                     ORDER BY fecha DESC, id DESC
                     LIMIT ?
                     """,
@@ -1441,6 +1456,9 @@ public class BiesseObrasRepository {
                            xml_file, piezas_totales, partes_totales, usuario, usuario_id, fecha
                     FROM op_trazabilidad
                     WHERE orderid = ?
+                    """
+                            + corteFilter
+                            + """
                     ORDER BY fecha DESC, id DESC
                     LIMIT ?
                     """,
@@ -1454,6 +1472,9 @@ public class BiesseObrasRepository {
                            xml_file, piezas_totales, partes_totales, usuario, usuario_id, fecha
                     FROM op_trazabilidad
                     WHERE UPPER(TRIM(op_codigo)) = UPPER(TRIM(?))
+                    """
+                            + corteFilter
+                            + """
                     ORDER BY fecha DESC, id DESC
                     LIMIT ?
                     """,
@@ -1465,6 +1486,10 @@ public class BiesseObrasRepository {
                 SELECT id, op_codigo, orderid, ordername, estado, accion, detalle,
                        xml_file, piezas_totales, partes_totales, usuario, usuario_id, fecha
                 FROM op_trazabilidad
+                WHERE 1=1
+                """
+                        + corteFilter
+                        + """
                 ORDER BY fecha DESC, id DESC
                 LIMIT ?
                 """,

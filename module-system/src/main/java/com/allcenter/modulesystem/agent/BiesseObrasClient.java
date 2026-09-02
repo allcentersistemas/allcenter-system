@@ -432,6 +432,11 @@ public class BiesseObrasClient {
     }
 
     public List<Map<String, Object>> listTrazabilidad(String op, Long orderId, int limit) {
+        return listTrazabilidad(op, orderId, limit, false);
+    }
+
+    public List<Map<String, Object>> listTrazabilidad(
+            String op, Long orderId, int limit, boolean soloCorte) {
         try {
             UriComponentsBuilder b =
                     UriComponentsBuilder.fromUriString(biesseBaseUrl + "/api/biesse/scan/integration/trazabilidad")
@@ -441,6 +446,9 @@ public class BiesseObrasClient {
             }
             if (orderId != null) {
                 b.queryParam("orderId", orderId);
+            }
+            if (soloCorte) {
+                b.queryParam("soloCorte", true);
             }
             ResponseEntity<List<Map<String, Object>>> res =
                     restTemplate.exchange(

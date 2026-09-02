@@ -737,7 +737,8 @@ public class BiesseAgentRepository {
         return jdbc.queryForList(sql.toString(), args.toArray());
     }
 
-    public List<Map<String, Object>> summarizeBoardCuts(LocalDate from, LocalDate to) {
+    public List<Map<String, Object>> summarizeBoardCuts(
+            LocalDate from, LocalDate to, Integer machineId) {
         StringBuilder sql =
                 new StringBuilder(
                         """
@@ -757,6 +758,10 @@ public class BiesseAgentRepository {
         if (to != null) {
             sql.append(" AND DATE(COALESCE(b.event_time, b.created_at)) <= ?");
             args.add(Date.valueOf(to));
+        }
+        if (machineId != null) {
+            sql.append(" AND b.machine_id = ?");
+            args.add(machineId);
         }
         sql.append(" GROUP BY b.machine_id, m.machine_name ORDER BY boards_total DESC, b.machine_id");
         return jdbc.queryForList(sql.toString(), args.toArray());

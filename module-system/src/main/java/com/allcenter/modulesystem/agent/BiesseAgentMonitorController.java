@@ -16,6 +16,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -27,6 +28,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /** Monitor seccionadores + tokens (JWT empleado). El agente Win10 usa {@code /api/biesse/agent}. */
 @RestController
@@ -43,6 +45,7 @@ public class BiesseAgentMonitorController {
     private final BiesseAgentRepository agentRepository;
     private final BiesseAgentSchemaAligner schemaAligner;
     private final BiesseObrasClient obrasClient;
+    private final BiesseMonitorLiveHub liveHub;
 
     public record CreateMachineRequest(String machineName, String plantName) {}
 
@@ -154,6 +157,16 @@ public class BiesseAgentMonitorController {
     }
 
     /**
+     * Canal en vivo (SSE): eventos {@code connected}, {@code snapshot}, {@code update}, {@code ping}.
+     * Payload: {@code { machines, boards_live, server_time }}.
+     */
+    @GetMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @PreAuthorize("@portalAuth.canRead()")
+    public SseEmitter stream() {
+        return liveHub.connect();
+    }
+
+    /**
      * Planchas en tiempo real: por máquina ({@code boards_done} del status) + totales.
      *
      * <p>Criterio: {@code total_live} = suma de {@code boards_done} de máquinas online en RUN.
@@ -162,47 +175,13 @@ public class BiesseAgentMonitorController {
     @GetMapping("/boards/live")
     @PreAuthorize("@portalAuth.canRead()")
     public ResponseEntity<Map<String, Object>> boardsLive() {
-        schemaAligner.ensureReady();
-        List<Map<String, Object>> machines = agentRepository.listMachines();
-        List<Map<String, Object>> rows = new ArrayList<>();
-        int totalLive = 0;
-        int totalOnline = 0;
-        for (Map<String, Object> m : machines) {
-            int machineId = ((Number) m.get("machine_id")).intValue();
-            boolean online = Boolean.TRUE.equals(m.get("online"));
-            String state = str(m.get("state"));
-            String stateUpper = state != null ? state.trim().toUpperCase(Locale.ROOT) : "";
-            int boardsDone = m.get("boards_done") instanceof Number n ? n.intValue() : 0;
-            int boardsToday = agentRepository.sumBoardsToday(machineId);
-
-            Map<String, Object> row = new LinkedHashMap<>();
-            row.put("machine_id", machineId);
-            row.put("machine_name", m.get("machine_name"));
-            row.put("plant_name", m.get("plant_name"));
-            row.put("online", online);
-            row.put("state", state);
-            row.put("job_name", m.get("job_name"));
-            row.put("boards_done", boardsDone);
-            row.put("boards_today", boardsToday);
-            row.put("pieces_produced", m.get("pieces_produced"));
-            row.put("job_started_at", m.get("job_started_at"));
-            row.put("last_status_at", m.get("last_status_at"));
-            row.put("last_heartbeat_at", m.get("last_heartbeat_at"));
-            rows.add(row);
-
-            if (online) {
-                totalOnline += boardsDone;
-                if ("RUN".equals(stateUpper)) {
-                    totalLive += boardsDone;
-                }
-            }
-        }
-
+        @SuppressWarnings("unchecked")
+        Map<String, Object> boards =
+                (Map<String, Object>) liveHub.buildSnapshot().get("boards_live");
         Map<String, Object> out = new LinkedHashMap<>();
-        out.put("machines", rows);
-        out.put("total_live", totalLive);
-        out.put("total_online", totalOnline);
-        out.put("total_today", agentRepository.sumBoardsToday(null));
+        if (boards != null) {
+            out.putAll(boards);
+        }
         out.put(
                 "criterion",
                 "total_live = suma boards_done de máquinas online en RUN; "
@@ -251,7 +230,8 @@ public class BiesseAgentMonitorController {
     @PreAuthorize("@portalAuth.canRead()")
     public ResponseEntity<Map<String, Object>> boardsSummary(
             @RequestParam(required = false) String from,
-            @RequestParam(required = false) String to) {
+            @RequestParam(required = false) String to,
+            @RequestParam(required = false) Integer machineId) {
         schemaAligner.ensureReady();
         LocalDate fromDate = parseDateParam(from);
         LocalDate toDate = parseDateParam(to);
@@ -263,11 +243,13 @@ public class BiesseAgentMonitorController {
         } else if (toDate == null) {
             toDate = LocalDate.now();
         }
-        List<Map<String, Object>> byMachine = agentRepository.summarizeBoardCuts(fromDate, toDate);
-        int grandTotal = agentRepository.sumBoardCutsInRange(fromDate, toDate, null);
+        List<Map<String, Object>> byMachine =
+                agentRepository.summarizeBoardCuts(fromDate, toDate, machineId);
+        int grandTotal = agentRepository.sumBoardCutsInRange(fromDate, toDate, machineId);
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("from", fromDate.toString());
         out.put("to", toDate.toString());
+        out.put("machine_id", machineId);
         out.put("grand_total", grandTotal);
         out.put("by_machine", byMachine);
         return ResponseEntity.ok(out);
@@ -380,8 +362,9 @@ public class BiesseAgentMonitorController {
 
     private List<Map<String, Object>> listCutTimeEvents(String op, Long orderId, int limit) {
         int safe = Math.max(1, Math.min(limit, 400));
+        // Solo CORTE_* en SQL para no ahogar el listado con otras acciones.
         List<Map<String, Object>> rows =
-                obrasClient.listTrazabilidad(op, orderId, Math.min(safe * 3, 500));
+                obrasClient.listTrazabilidad(op, orderId, Math.min(safe * 2, 500), true);
         List<Map<String, Object>> windows = new ArrayList<>();
         for (Map<String, Object> row : rows) {
             String accion = str(row.get("accion"));
