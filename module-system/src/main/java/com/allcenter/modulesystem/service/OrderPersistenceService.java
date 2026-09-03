@@ -1204,20 +1204,79 @@ public class OrderPersistenceService {
                 proyecto.getCodigoproyecto() == null
                         ? ""
                         : " (#" + proyecto.getCodigoproyecto() + ")";
+        String obrasLine = formatLinkedObrasForTelegram(proyecto.getId());
         String message =
                 """
                 Hola %s,
 
                 Su pedido <b>%s</b>%s está <b>listo para entregar</b>.
-
+                %s
                 Puede pasar a recogerlo o coordinar la entrega.
                 AllCenter
                 """
                         .formatted(
                                 escapeHtml(recipientName),
                                 escapeHtml(projectName),
-                                escapeHtml(codigo));
+                                escapeHtml(codigo),
+                                obrasLine);
         telegramService.sendTextQuietly(client.getTelegramChatId().trim(), message);
+    }
+
+    /** Lista obras/XML ligadas al proyecto para que el cliente identifique qué pedido está listo. */
+    private String formatLinkedObrasForTelegram(Long proyectoId) {
+        if (proyectoId == null) {
+            return "";
+        }
+        List<Orden> ordenes =
+                ordenRepository.findByProyectoOptimizacionId_IdOrderByIdAsc(proyectoId);
+        if (ordenes.isEmpty()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder("\nObras / XML:\n");
+        int shown = 0;
+        for (Orden orden : ordenes) {
+            String label = resolveOrdenXmlLabel(orden);
+            if (label == null) {
+                continue;
+            }
+            sb.append("• ").append(escapeHtml(label)).append('\n');
+            shown++;
+            if (shown >= 8) {
+                int remaining = ordenes.size() - shown;
+                if (remaining > 0) {
+                    sb.append("• … y ").append(remaining).append(" más\n");
+                }
+                break;
+            }
+        }
+        return shown == 0 ? "" : sb.toString();
+    }
+
+    private static String resolveOrdenXmlLabel(Orden orden) {
+        if (orden == null) {
+            return null;
+        }
+        String name =
+                firstNonBlank(
+                        orden.getBiesseOrderName(),
+                        orden.getOrderName(),
+                        orden.getOrderCode());
+        String op = orden.getOpCodigo();
+        if (name == null && (op == null || op.isBlank()) && orden.getBiesseOrderId() == null) {
+            return null;
+        }
+        StringBuilder label = new StringBuilder();
+        if (name != null) {
+            label.append(name);
+        } else if (orden.getBiesseOrderId() != null) {
+            label.append("Obra #").append(orden.getBiesseOrderId());
+        } else {
+            label.append("Orden #").append(orden.getId());
+        }
+        if (op != null && !op.isBlank()) {
+            label.append(" (OP ").append(op.trim()).append(')');
+        }
+        return label.toString();
     }
 
     private static String resolveClientDisplayName(ClientUser client) {
