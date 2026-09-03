@@ -10,6 +10,7 @@ public record ClientResponse(
         String displayName,
         boolean juridica,
         String phone,
+        String telegramChatId,
         String tipoDocumento,
         String numeroDocumento,
         String direccion,
@@ -33,6 +34,7 @@ public record ClientResponse(
                 client.getDisplayName(),
                 client.isJuridica(),
                 client.getPhone(),
+                blankToNull(client.getTelegramChatId()),
                 client.getTipoDocumento(),
                 client.getDocumentodeindentificacion(),
                 client.getDireccion(),
@@ -47,5 +49,12 @@ public record ClientResponse(
                 client.getLastLoginAt(),
                 client.getLastLoginIp(),
                 client.getLoginCount());
+    }
+
+    private static String blankToNull(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        return raw.trim();
     }
 }

@@ -10,7 +10,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
 /**
- * Columnas IA de {@code app_config}.
+ * Columnas IA / Telegram de {@code app_config}.
  * Hibernate {@code ddl-auto=update} no puede añadir {@code NOT NULL} sin default sobre filas existentes.
  */
 @Component("appConfigSchemaAligner")
@@ -39,6 +39,8 @@ public class AppConfigSchemaAligner implements ApplicationRunner {
         addColumnIfMissing("ai_model", "VARCHAR(80) DEFAULT ''");
         addColumnIfMissing("ai_api_key", "VARCHAR(512) DEFAULT ''");
         addColumnIfMissing("ai_daily_limit_per_client", "INTEGER NOT NULL DEFAULT 20");
+        addColumnIfMissing("telegram_enabled", "BOOLEAN NOT NULL DEFAULT false");
+        addColumnIfMissing("telegram_bot_token", "VARCHAR(128) DEFAULT ''");
         backfillNulls();
     }
 
@@ -51,11 +53,13 @@ public class AppConfigSchemaAligner implements ApplicationRunner {
                       ai_provider = COALESCE(NULLIF(TRIM(ai_provider), ''), 'claude'),
                       ai_model = COALESCE(ai_model, ''),
                       ai_api_key = COALESCE(ai_api_key, ''),
-                      ai_daily_limit_per_client = COALESCE(ai_daily_limit_per_client, 20)
+                      ai_daily_limit_per_client = COALESCE(ai_daily_limit_per_client, 20),
+                      telegram_enabled = COALESCE(telegram_enabled, false),
+                      telegram_bot_token = COALESCE(telegram_bot_token, '')
                     WHERE id = 1
                     """);
         } catch (Exception ex) {
-            log.debug("Backfill app_config IA omitido: {}", ex.getMessage());
+            log.debug("Backfill app_config IA/Telegram omitido: {}", ex.getMessage());
         }
     }
 

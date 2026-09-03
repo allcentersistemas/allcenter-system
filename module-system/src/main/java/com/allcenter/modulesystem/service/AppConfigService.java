@@ -77,6 +77,18 @@ public class AppConfigService {
     }
 
     @Transactional(readOnly = true)
+    public boolean isTelegramEnabled() {
+        AppConfig config = ensureConfigRow();
+        return config.isTelegramEnabled() && StringUtils.hasText(config.getTelegramBotToken());
+    }
+
+    @Transactional(readOnly = true)
+    public String effectiveTelegramBotToken() {
+        AppConfig config = ensureConfigRow();
+        return config.getTelegramBotToken() == null ? "" : config.getTelegramBotToken().trim();
+    }
+
+    @Transactional(readOnly = true)
     public int getAiDailyLimitPerClient() {
         return Math.max(0, ensureConfigRow().getAiDailyLimitPerClient());
     }
@@ -173,6 +185,12 @@ public class AppConfigService {
         }
         if (request.aiDailyLimitPerClient() != null) {
             config.setAiDailyLimitPerClient(Math.max(0, request.aiDailyLimitPerClient()));
+        }
+        if (request.telegramEnabled() != null) {
+            config.setTelegramEnabled(request.telegramEnabled());
+        }
+        if (request.telegramBotToken() != null && !request.telegramBotToken().isBlank()) {
+            config.setTelegramBotToken(trimMax(request.telegramBotToken(), 128));
         }
         configRepository.save(config);
         return AppConfigDto.from(config);
@@ -376,6 +394,8 @@ public class AppConfigService {
         config.setAiModel("");
         config.setAiApiKey("");
         config.setAiDailyLimitPerClient(20);
+        config.setTelegramEnabled(false);
+        config.setTelegramBotToken("");
         return configRepository.save(config);
     }
 

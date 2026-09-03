@@ -17,7 +17,9 @@ public record AppConfigDto(
         String aiProvider,
         String aiModel,
         boolean aiApiKeyConfigured,
-        int aiDailyLimitPerClient) {
+        int aiDailyLimitPerClient,
+        boolean telegramEnabled,
+        boolean telegramBotTokenConfigured) {
 
     public static AppConfigDto from(AppConfig config) {
         return new AppConfigDto(
@@ -37,7 +39,9 @@ public record AppConfigDto(
                         : "claude",
                 blankToNull(config.getAiModel()),
                 config.getAiApiKey() != null && !config.getAiApiKey().isBlank(),
-                Math.max(0, config.getAiDailyLimitPerClient()));
+                Math.max(0, config.getAiDailyLimitPerClient()),
+                config.isTelegramEnabled(),
+                config.getTelegramBotToken() != null && !config.getTelegramBotToken().isBlank());
     }
 
     private static String blankToNull(String raw) {

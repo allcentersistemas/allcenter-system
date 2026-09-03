@@ -10,4 +10,5 @@ public record ClientCreateRequest(
         @NotBlank @Size(min = 8, max = 128) String password,
         @NotBlank @Size(max = 180) String displayName,
         @Size(max = 40) String phone,
+        @Size(max = 64) String telegramChatId,
         Boolean active) {}

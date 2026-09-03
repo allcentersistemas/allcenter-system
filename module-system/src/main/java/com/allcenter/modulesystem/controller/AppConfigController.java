@@ -5,8 +5,11 @@ import com.allcenter.modulesystem.dto.AppConfigUpdateRequest;
 import com.allcenter.modulesystem.dto.KardexResetResult;
 import com.allcenter.modulesystem.dto.MailTestRequest;
 import com.allcenter.modulesystem.dto.PlanillaAiUsageDtos;
+import com.allcenter.modulesystem.dto.TelegramTestRequest;
+import com.allcenter.modulesystem.exception.BadRequestException;
 import com.allcenter.modulesystem.service.AppConfigService;
 import com.allcenter.modulesystem.service.PlanillaAiUsageService;
+import com.allcenter.modulesystem.service.TelegramService;
 import com.allcenter.modulesystem.support.OptimizacionStorageService;
 import jakarta.validation.Valid;
 import java.io.IOException;
@@ -34,6 +37,7 @@ import org.springframework.web.multipart.MultipartFile;
 public class AppConfigController {
 
     private final AppConfigService appConfigService;
+    private final TelegramService telegramService;
     private final OptimizacionStorageService optimizacionStorageService;
     private final PlanillaAiUsageService planillaAiUsageService;
 
@@ -65,6 +69,21 @@ public class AppConfigController {
     @PreAuthorize("@portalAuth.canGestion()")
     public ResponseEntity<Void> testMail(@Valid @RequestBody MailTestRequest request) {
         appConfigService.sendTestMail(request);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/telegram/test")
+    @PreAuthorize("@portalAuth.canGestion()")
+    public ResponseEntity<Void> testTelegram(@Valid @RequestBody TelegramTestRequest request) {
+        if (!appConfigService.getConfig().telegramEnabled()) {
+            throw new BadRequestException("Telegram está desactivado. Actívelo en configuración.");
+        }
+        if (!appConfigService.getConfig().telegramBotTokenConfigured()) {
+            throw new BadRequestException("Configure el token del bot de Telegram antes de probar.");
+        }
+        telegramService.sendText(
+                request.chatId().trim(),
+                "Mensaje de prueba desde AllCenter. Si lo recibió, la configuración de Telegram es correcta.");
         return ResponseEntity.noContent().build();
     }
 

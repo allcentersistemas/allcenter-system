@@ -79,4 +79,8 @@ public class ClientUser {
 
     @Column(name = "login_count", nullable = false)
     private int loginCount = 0;
+
+    /** Chat ID de Telegram para notificaciones (pedido listo, etc.). */
+    @Column(name = "telegram_chat_id", length = 64)
+    private String telegramChatId;
 }

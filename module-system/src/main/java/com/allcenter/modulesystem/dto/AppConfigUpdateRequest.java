@@ -21,4 +21,7 @@ public record AppConfigUpdateRequest(
         /** Vacío o null = no cambiar API key almacenada. */
         String aiApiKey,
         /** Límite diario por cliente; 0 = ilimitado. Null = no cambiar. */
-        @Min(0) @Max(10_000) Integer aiDailyLimitPerClient) {}
+        @Min(0) @Max(10_000) Integer aiDailyLimitPerClient,
+        Boolean telegramEnabled,
+        /** Vacío o null = no cambiar token almacenado. */
+        String telegramBotToken) {}

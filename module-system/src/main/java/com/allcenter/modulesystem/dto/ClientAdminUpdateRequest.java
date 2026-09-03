@@ -8,6 +8,7 @@ public record ClientAdminUpdateRequest(
         @Size(min = 3, max = 64) String username,
         @Size(max = 180) String displayName,
         @Size(max = 40) String phone,
+        @Size(max = 64) String telegramChatId,
         @Size(max = 16) String tipoDocumento,
         @Size(max = 40) String numeroDocumento,
         @Size(max = 200) String direccion,

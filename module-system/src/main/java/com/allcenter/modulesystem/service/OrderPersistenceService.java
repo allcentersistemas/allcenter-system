@@ -48,6 +48,7 @@ public class OrderPersistenceService {
     private final MaquinaOptimizacionService maquinaService;
     private final com.allcenter.modulesystem.support.OptimizacionStorageService optimizacionStorage;
     private final MailService mailService;
+    private final TelegramService telegramService;
     private final AuditService auditService;
     private final EmployeeNotificationService employeeNotificationService;
     private final BiesseObrasClient biesseObrasClient;
@@ -62,6 +63,7 @@ public class OrderPersistenceService {
             MaquinaOptimizacionService maquinaService,
             com.allcenter.modulesystem.support.OptimizacionStorageService optimizacionStorage,
             MailService mailService,
+            TelegramService telegramService,
             AuditService auditService,
             @Lazy EmployeeNotificationService employeeNotificationService,
             BiesseObrasClient biesseObrasClient
@@ -75,6 +77,7 @@ public class OrderPersistenceService {
         this.maquinaService = maquinaService;
         this.optimizacionStorage = optimizacionStorage;
         this.mailService = mailService;
+        this.telegramService = telegramService;
         this.auditService = auditService;
         this.employeeNotificationService = employeeNotificationService;
         this.biesseObrasClient = biesseObrasClient;
@@ -209,6 +212,9 @@ public class OrderPersistenceService {
                 AuditAction.UPDATE,
                 proyecto,
                 (reason == null || reason.isBlank() ? "Seguimiento" : reason) + "; estado " + target.name());
+        if (target == ProyectoEstado.LISTO_PARA_ENTREGAR) {
+            notifyClientPedidoListoTelegram(proyecto);
+        }
         return true;
     }
 
@@ -1163,6 +1169,55 @@ public class OrderPersistenceService {
                     proyecto.getId(),
                     ex.getMessage());
         }
+    }
+
+    private void notifyClientPedidoListoTelegram(ProyectoOptimizacion proyecto) {
+        if (!telegramService.isEnabled()) {
+            log.debug(
+                    "Telegram deshabilitado; no se notifica pedido listo del proyecto {}",
+                    proyecto.getId());
+            return;
+        }
+        Long clientUserId = proyecto.getClientUserId();
+        if (clientUserId == null) {
+            log.info(
+                    "Proyecto {} sin cliente portal; no se envía Telegram de pedido listo",
+                    proyecto.getId());
+            return;
+        }
+        ClientUser client = clientUserRepository.findById(clientUserId).orElse(null);
+        if (client == null
+                || client.getTelegramChatId() == null
+                || client.getTelegramChatId().isBlank()) {
+            log.info(
+                    "Cliente {} sin chat ID de Telegram; no se notifica pedido listo del proyecto {}",
+                    clientUserId,
+                    proyecto.getId());
+            return;
+        }
+        String recipientName = resolveClientDisplayName(client);
+        String projectName =
+                proyecto.getNombre() == null || proyecto.getNombre().isBlank()
+                        ? "su pedido"
+                        : proyecto.getNombre().trim();
+        String codigo =
+                proyecto.getCodigoproyecto() == null
+                        ? ""
+                        : " (#" + proyecto.getCodigoproyecto() + ")";
+        String message =
+                """
+                Hola %s,
+
+                Su pedido <b>%s</b>%s está <b>listo para entregar</b>.
+
+                Puede pasar a recogerlo o coordinar la entrega.
+                AllCenter
+                """
+                        .formatted(
+                                escapeHtml(recipientName),
+                                escapeHtml(projectName),
+                                escapeHtml(codigo));
+        telegramService.sendTextQuietly(client.getTelegramChatId().trim(), message);
     }
 
     private static String resolveClientDisplayName(ClientUser client) {

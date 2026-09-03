@@ -66,4 +66,12 @@ public class AppConfig {
      */
     @Column(nullable = false, columnDefinition = "integer default 20")
     private int aiDailyLimitPerClient = 20;
+
+    /** Notificaciones a clientes vía bot de Telegram. */
+    @Column(nullable = false, columnDefinition = "boolean default false")
+    private boolean telegramEnabled = false;
+
+    /** Token del bot (BotFather). No se expone en claro en la API. */
+    @Column(length = 128, columnDefinition = "varchar(128) default ''")
+    private String telegramBotToken = "";
 }
