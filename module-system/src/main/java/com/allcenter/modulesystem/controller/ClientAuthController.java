@@ -8,7 +8,9 @@ import com.allcenter.modulesystem.dto.ClientResponse;
 import com.allcenter.modulesystem.dto.LoginRequest;
 import com.allcenter.modulesystem.dto.RefreshTokenRequest;
 import com.allcenter.modulesystem.dto.ClientRegisterRequest;
+import com.allcenter.modulesystem.dto.TelegramPublicInfoDto;
 import com.allcenter.modulesystem.security.ClientUserDetails;
+import com.allcenter.modulesystem.service.AppConfigService;
 import com.allcenter.modulesystem.service.ClientAuthService;
 import com.allcenter.modulesystem.support.ClientRequestInfo;
 import jakarta.servlet.http.HttpServletRequest;
@@ -31,6 +33,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class ClientAuthController {
 
     private final ClientAuthService authService;
+    private final AppConfigService appConfigService;
 
     @PostMapping("/login")
     public ResponseEntity<ClientAuthSessionResponse> login(
@@ -43,6 +46,12 @@ public class ClientAuthController {
             @Valid @RequestBody ClientRegisterRequest request, HttpServletRequest httpRequest) {
         ClientAuthSessionResponse body = authService.register(request, ClientRequestInfo.from(httpRequest));
         return ResponseEntity.status(HttpStatus.CREATED).body(body);
+    }
+
+    /** Info pública del bot (sin token) para registro y perfil. */
+    @GetMapping("/telegram-info")
+    public ResponseEntity<TelegramPublicInfoDto> telegramInfo() {
+        return ResponseEntity.ok(appConfigService.getTelegramPublicInfo());
     }
 
     @PostMapping("/refresh")

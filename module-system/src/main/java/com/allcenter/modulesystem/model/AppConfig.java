@@ -74,4 +74,11 @@ public class AppConfig {
     /** Token del bot (BotFather). No se expone en claro en la API. */
     @Column(length = 128, columnDefinition = "varchar(128) default ''")
     private String telegramBotToken = "";
+
+    /**
+     * Usuario público del bot sin {@code @} (p. ej. {@code AllCenterBot}).
+     * Se muestra a clientes para abrir el chat.
+     */
+    @Column(length = 64, columnDefinition = "varchar(64) default ''")
+    private String telegramBotUsername = "";
 }

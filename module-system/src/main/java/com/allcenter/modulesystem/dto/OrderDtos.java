@@ -146,6 +146,7 @@ public final class OrderDtos {
             Long biesseOrderId,
             String biesseOrderName,
             String opCodigo,
+            String estadoEscaneo,
             List<DetalleResponse> detalles
     ) {
     }

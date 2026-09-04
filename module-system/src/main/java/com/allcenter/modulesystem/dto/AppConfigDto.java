@@ -19,7 +19,8 @@ public record AppConfigDto(
         boolean aiApiKeyConfigured,
         int aiDailyLimitPerClient,
         boolean telegramEnabled,
-        boolean telegramBotTokenConfigured) {
+        boolean telegramBotTokenConfigured,
+        String telegramBotUsername) {
 
     public static AppConfigDto from(AppConfig config) {
         return new AppConfigDto(
@@ -41,7 +42,20 @@ public record AppConfigDto(
                 config.getAiApiKey() != null && !config.getAiApiKey().isBlank(),
                 Math.max(0, config.getAiDailyLimitPerClient()),
                 config.isTelegramEnabled(),
-                config.getTelegramBotToken() != null && !config.getTelegramBotToken().isBlank());
+                config.getTelegramBotToken() != null && !config.getTelegramBotToken().isBlank(),
+                normalizeBotUsername(config.getTelegramBotUsername()));
+    }
+
+    /** Usuario sin @; null si vacío. */
+    public static String normalizeBotUsername(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        String u = raw.trim();
+        if (u.startsWith("@")) {
+            u = u.substring(1).trim();
+        }
+        return u.isEmpty() ? null : u;
     }
 
     private static String blankToNull(String raw) {

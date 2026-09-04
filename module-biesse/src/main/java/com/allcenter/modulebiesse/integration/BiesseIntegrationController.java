@@ -605,6 +605,10 @@ public class BiesseIntegrationController {
                                 .machineName(machineName)
                                 .desc1(desc1)
                                 .desc2(desc2)
+                                .edgeUp(str(part.get("matedgeup")))
+                                .edgeLo(str(part.get("matedgelo")))
+                                .edgeL(str(part.get("matedgel")))
+                                .edgeR(str(part.get("matedger")))
                                 .osiPart(osiPart)
                                 .partLabel("P" + partNumber)
                                 .length(length)
@@ -659,12 +663,6 @@ public class BiesseIntegrationController {
         }
         int partNumber = intOrZero(part.get("partnumber"));
         int qty = intOrZero(part.get("cantidad"));
-        String edge =
-                EdgeLabelFormatter.format(
-                        str(part.get("matedgeup")),
-                        str(part.get("matedgelo")),
-                        str(part.get("matedgel")),
-                        str(part.get("matedger")));
         out.put(
                 "zpl",
                 SimpleZplBuilder.build(
@@ -677,7 +675,10 @@ public class BiesseIntegrationController {
                                 .machineName(machineName)
                                 .desc1(str(part.get("descripcion")))
                                 .desc2(str(part.get("descripcion1")))
-                                .edgeLabel(edge)
+                                .edgeUp(str(part.get("matedgeup")))
+                                .edgeLo(str(part.get("matedgelo")))
+                                .edgeL(str(part.get("matedgel")))
+                                .edgeR(str(part.get("matedger")))
                                 .osiPart(osiPart)
                                 .partLabel("P" + partNumber)
                                 .length(toDouble(part.get("longitud")))

@@ -2,6 +2,7 @@ package com.allcenter.modulesystem.dto;
 
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.Size;
 
 public record AppConfigUpdateRequest(
         Boolean kardexEnabled,
@@ -24,4 +25,6 @@ public record AppConfigUpdateRequest(
         @Min(0) @Max(10_000) Integer aiDailyLimitPerClient,
         Boolean telegramEnabled,
         /** Vacío o null = no cambiar token almacenado. */
-        String telegramBotToken) {}
+        String telegramBotToken,
+        /** Usuario del bot sin o con @. Null = no cambiar; vacío = limpiar. */
+        @Size(max = 64) String telegramBotUsername) {}

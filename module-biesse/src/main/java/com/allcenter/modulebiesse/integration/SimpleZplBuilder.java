@@ -2,17 +2,18 @@ package com.allcenter.modulebiesse.integration;
 
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.Locale;
 
 /**
- * ZPL alineado a plantilla LEdit {@code EtiquetaRM050X75} / {@code LayoutSch} (~80×50 mm).
+ * ZPL del agente seccionadora (~80×50 mm @ 203 dpi). Independiente del editor web.
  *
  * <pre>
- *  [order name]                    [QR unitCode]
- *  [material]                      L: xxxx
- *  ─────────────                   A: xxx
- *  ║ edge bars + rotated desc ║    n / tot
- *  ─────────────                   Pnn
- *  [edge / finish]                 dd/MM/yy
+ *  [order name]
+ *  [material]
+ *  [desc2 / ref]
+ *  ┌─ edgeUp ─────────┐     [QR]
+ *  │edgeL  DESC  edgeR│     L / A
+ *  └─ edgeLo ─────────┘     n/tot  Pnn  date
  * </pre>
  */
 public final class SimpleZplBuilder {
@@ -40,24 +41,42 @@ public final class SimpleZplBuilder {
     }
 
     public static String build(LabelData data) {
-        String order = esc(trunc(data.orderName(), 42));
-        String material = esc(trunc(firstNonBlank(data.material(), data.bookingCode()), 40));
-        String desc1 =
-                esc(trunc(firstNonBlank(data.desc1(), data.partCode(), data.osiPart()), 28));
-        String desc2 = esc(trunc(nullToEmpty(data.desc2()), 28));
-        String edge = esc(trunc(firstNonBlank(data.edgeLabel(), shortEdge(material)), 18));
+        String order = esc(trunc(data.orderName(), 44));
+        String material = esc(trunc(firstNonBlank(data.material(), data.bookingCode()), 42));
+        String refLine =
+                esc(
+                        trunc(
+                                firstNonBlank(data.desc2(), data.partCode(), data.osiPart()),
+                                40));
+        String center =
+                esc(
+                        trunc(
+                                firstNonBlank(data.desc1(), data.partCode(), data.osiPart()),
+                                18));
+        String edgeUp = esc(formatEdge(data.edgeUp()));
+        String edgeLo = esc(formatEdge(data.edgeLo()));
+        String edgeL = esc(formatEdge(data.edgeL()));
+        String edgeR = esc(formatEdge(data.edgeR()));
+        if (edgeUp.isBlank()
+                && edgeLo.isBlank()
+                && edgeL.isBlank()
+                && edgeR.isBlank()
+                && data.edgeLabel() != null
+                && !data.edgeLabel().isBlank()) {
+            // Fallback compacto antiguo → canto inferior.
+            edgeLo = esc(trunc(data.edgeLabel().trim(), 22));
+        }
         String length = esc(formatDim(data.length()));
         String width = esc(formatDim(data.width()));
         String piece = data.pieceNumber() > 0 ? String.valueOf(data.pieceNumber()) : "1";
-        String qty =
-                data.quantity() > 0 ? String.valueOf(data.quantity()) : piece;
+        String qty = data.quantity() > 0 ? String.valueOf(data.quantity()) : piece;
         String partLabel =
                 esc(
                         trunc(
                                 firstNonBlank(
                                         data.partLabel(),
                                         data.partCode() != null && !data.partCode().isBlank()
-                                                ? (data.partCode().toUpperCase().startsWith("P")
+                                                ? (data.partCode().toUpperCase(Locale.ROOT).startsWith("P")
                                                         ? data.partCode()
                                                         : "P" + data.partNumber())
                                                 : (data.partNumber() > 0
@@ -70,38 +89,43 @@ public final class SimpleZplBuilder {
                                 ? data.dateLabel()
                                 : LocalDate.now().format(DATE_FMT));
         String code = esc(nullToEmpty(data.unitCode()));
-        String machine = esc(trunc(nullToEmpty(data.machineName()), 20));
+        String machine = esc(trunc(nullToEmpty(data.machineName()), 18));
+        String machineLine = machine.isBlank() ? "" : ("Sec: " + machine);
 
-        // 203 dpi ≈ 80 mm × 50 mm (plantilla LEdit 80000×46000 µm).
+        // Marco pieza: FO28,95  GB 300×175. QR a la derecha (mag 4 para no recortar).
         return """
                 ^XA
                 ^PW640
                 ^LL400
                 ^LH0,0
                 ^CI28
-                ^FO20,12^A0N,34,30^FD%s^FS
-                ^FO20,50^A0N,24,22^FD%s^FS
-                ^FO20,82^GB360,3,3^FS
-                ^FO20,98^GB360,10,10^FS
-                ^FO48,120^A0R,26,22^FD%s^FS
-                ^FO78,120^A0R,24,20^FD%s^FS
-                ^FO20,270^GB360,10,10^FS
-                ^FO20,288^A0N,22,20^FD%s^FS
-                ^FO420,20^BQN,2,5^FDQA,%s^FS
-                ^FO420,230^A0N,28,26^FDL: %s^FS
-                ^FO420,268^A0N,28,26^FDA: %s^FS
-                ^FO420,306^A0N,24,22^FD%s / %s^FS
-                ^FO420,338^A0N,26,24^FD%s^FS
-                ^FO420,368^A0N,20,18^FD%s^FS
-                ^FO20,360^A0N,16,14^FD%s^FS
+                ^FO16,8^A0N,30,26^FD%s^FS
+                ^FO16,42^A0N,22,20^FD%s^FS
+                ^FO16,68^A0N,20,18^FD%s^FS
+                ^FO28,95^GB300,175,2^FS
+                ^FO40,102^A0N,18,16^FD%s^FS
+                ^FO40,248^A0N,18,16^FD%s^FS
+                ^FO34,120^A0R,18,16^FD%s^FS
+                ^FO300,120^A0R,18,16^FD%s^FS
+                ^FO150,118^A0R,28,24^FD%s^FS
+                ^FO360,20^BQN,2,4^FDQA,%s^FS
+                ^FO360,210^A0N,26,24^FDL: %s^FS
+                ^FO360,244^A0N,26,24^FDA: %s^FS
+                ^FO360,278^A0N,22,20^FD%s / %s^FS
+                ^FO360,308^A0N,24,22^FD%s^FS
+                ^FO360,338^A0N,18,16^FD%s^FS
+                ^FO16,360^A0N,14,12^FD%s^FS
                 ^XZ
                 """
                 .formatted(
                         order,
                         material,
-                        desc1,
-                        desc2,
-                        edge,
+                        refLine,
+                        edgeUp,
+                        edgeLo,
+                        edgeL,
+                        edgeR,
+                        center,
                         code,
                         length,
                         width,
@@ -109,7 +133,7 @@ public final class SimpleZplBuilder {
                         qty,
                         partLabel,
                         date,
-                        machine.isBlank() ? "" : ("Sec: " + machine));
+                        machineLine);
     }
 
     public record LabelData(
@@ -122,6 +146,10 @@ public final class SimpleZplBuilder {
             String desc1,
             String desc2,
             String edgeLabel,
+            String edgeUp,
+            String edgeLo,
+            String edgeL,
+            String edgeR,
             String osiPart,
             String partLabel,
             String dateLabel,
@@ -145,6 +173,10 @@ public final class SimpleZplBuilder {
             private String desc1;
             private String desc2;
             private String edgeLabel;
+            private String edgeUp;
+            private String edgeLo;
+            private String edgeL;
+            private String edgeR;
             private String osiPart;
             private String partLabel;
             private String dateLabel;
@@ -199,6 +231,26 @@ public final class SimpleZplBuilder {
                 return this;
             }
 
+            public Builder edgeUp(String v) {
+                this.edgeUp = v;
+                return this;
+            }
+
+            public Builder edgeLo(String v) {
+                this.edgeLo = v;
+                return this;
+            }
+
+            public Builder edgeL(String v) {
+                this.edgeL = v;
+                return this;
+            }
+
+            public Builder edgeR(String v) {
+                this.edgeR = v;
+                return this;
+            }
+
             public Builder osiPart(String v) {
                 this.osiPart = v;
                 return this;
@@ -250,6 +302,10 @@ public final class SimpleZplBuilder {
                         desc1,
                         desc2,
                         edgeLabel,
+                        edgeUp,
+                        edgeLo,
+                        edgeL,
+                        edgeR,
                         osiPart,
                         partLabel,
                         dateLabel,
@@ -262,15 +318,18 @@ public final class SimpleZplBuilder {
         }
     }
 
-    private static String shortEdge(String material) {
-        if (material == null || material.isBlank()) {
+    /** Texto de canto para el diagrama (sin prefijo U/B/I/D). */
+    static String formatEdge(String raw) {
+        if (raw == null || raw.isBlank()) {
             return "";
         }
-        String t = material.trim();
-        if (t.length() <= 14) {
-            return t.toUpperCase();
+        String t = raw.trim();
+        if ("0".equals(t)
+                || "NONE".equalsIgnoreCase(t)
+                || "N/A".equalsIgnoreCase(t)) {
+            return "";
         }
-        return t.substring(0, 14).toUpperCase();
+        return trunc(t.toUpperCase(Locale.ROOT), 20);
     }
 
     private static String formatDim(double value) {
@@ -280,7 +339,7 @@ public final class SimpleZplBuilder {
         if (Math.abs(value - Math.rint(value)) < 0.05) {
             return String.valueOf((long) Math.rint(value));
         }
-        return String.format(java.util.Locale.US, "%.1f", value);
+        return String.format(Locale.US, "%.1f", value);
     }
 
     private static String firstNonBlank(String... values) {

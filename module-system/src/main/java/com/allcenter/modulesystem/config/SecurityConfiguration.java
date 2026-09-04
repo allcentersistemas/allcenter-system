@@ -76,6 +76,8 @@ public class SecurityConfiguration {
                                                 "/api/client/auth/refresh",
                                                 "/api/client/auth/logout")
                                         .permitAll()
+                                        .requestMatchers(HttpMethod.GET, "/api/client/auth/telegram-info")
+                                        .permitAll()
                                         .requestMatchers(HttpMethod.POST, "/api/client/auth/register")
                                         .access(
                                                 (a, ctx) ->

@@ -41,6 +41,7 @@ public class AppConfigSchemaAligner implements ApplicationRunner {
         addColumnIfMissing("ai_daily_limit_per_client", "INTEGER NOT NULL DEFAULT 20");
         addColumnIfMissing("telegram_enabled", "BOOLEAN NOT NULL DEFAULT false");
         addColumnIfMissing("telegram_bot_token", "VARCHAR(128) DEFAULT ''");
+        addColumnIfMissing("telegram_bot_username", "VARCHAR(64) DEFAULT ''");
         backfillNulls();
     }
 
@@ -55,7 +56,8 @@ public class AppConfigSchemaAligner implements ApplicationRunner {
                       ai_api_key = COALESCE(ai_api_key, ''),
                       ai_daily_limit_per_client = COALESCE(ai_daily_limit_per_client, 20),
                       telegram_enabled = COALESCE(telegram_enabled, false),
-                      telegram_bot_token = COALESCE(telegram_bot_token, '')
+                      telegram_bot_token = COALESCE(telegram_bot_token, ''),
+                      telegram_bot_username = COALESCE(telegram_bot_username, '')
                     WHERE id = 1
                     """);
         } catch (Exception ex) {

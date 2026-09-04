@@ -989,6 +989,7 @@ public class OrderPersistenceService {
     public OrderDtos.ProyectoConOrdenesResponse getProjectTree(Long proyectoId, boolean editable) {
         ProyectoOptimizacion proyectoOptimizacion = requireProject(proyectoId);
 
+        Map<Long, Map<String, Object>> biesseById = new HashMap<>();
         List<OrderDtos.OrdenConDetallesResponse> orders =
                 ordenRepository.findByProyectoOptimizacionId_IdOrderByIdAsc(proyectoId)
                 .stream()
@@ -1005,6 +1006,7 @@ public class OrderPersistenceService {
                             orden.getBiesseOrderId(),
                             orden.getBiesseOrderName(),
                             orden.getOpCodigo(),
+                            resolveEstadoEscaneo(orden, biesseById),
                             detalles
                     );
                 }).toList();

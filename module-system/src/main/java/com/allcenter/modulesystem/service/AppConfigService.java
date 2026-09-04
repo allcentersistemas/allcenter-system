@@ -5,6 +5,7 @@ import com.allcenter.modulesystem.dto.AppConfigDto;
 import com.allcenter.modulesystem.dto.AppConfigUpdateRequest;
 import com.allcenter.modulesystem.dto.KardexResetResult;
 import com.allcenter.modulesystem.dto.MailTestRequest;
+import com.allcenter.modulesystem.dto.TelegramPublicInfoDto;
 import com.allcenter.modulesystem.exception.BadRequestException;
 import com.allcenter.modulesystem.model.AppConfig;
 import com.allcenter.modulesystem.repository.AppConfigRepository;
@@ -86,6 +87,14 @@ public class AppConfigService {
     public String effectiveTelegramBotToken() {
         AppConfig config = ensureConfigRow();
         return config.getTelegramBotToken() == null ? "" : config.getTelegramBotToken().trim();
+    }
+
+    @Transactional(readOnly = true)
+    public TelegramPublicInfoDto getTelegramPublicInfo() {
+        AppConfig config = ensureConfigRow();
+        boolean enabled =
+                config.isTelegramEnabled() && StringUtils.hasText(config.getTelegramBotToken());
+        return TelegramPublicInfoDto.of(enabled, config.getTelegramBotUsername());
     }
 
     @Transactional(readOnly = true)
@@ -191,6 +200,10 @@ public class AppConfigService {
         }
         if (request.telegramBotToken() != null && !request.telegramBotToken().isBlank()) {
             config.setTelegramBotToken(trimMax(request.telegramBotToken(), 128));
+        }
+        if (request.telegramBotUsername() != null) {
+            String user = AppConfigDto.normalizeBotUsername(request.telegramBotUsername());
+            config.setTelegramBotUsername(user == null ? "" : trimMax(user, 64));
         }
         configRepository.save(config);
         return AppConfigDto.from(config);
@@ -396,6 +409,7 @@ public class AppConfigService {
         config.setAiDailyLimitPerClient(20);
         config.setTelegramEnabled(false);
         config.setTelegramBotToken("");
+        config.setTelegramBotUsername("");
         return configRepository.save(config);
     }
 
