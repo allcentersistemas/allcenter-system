@@ -63,18 +63,50 @@ public class BiesseAgentService {
             throw new org.springframework.web.server.ResponseStatusException(
                     org.springframework.http.HttpStatus.BAD_REQUEST, "job requerido");
         }
-        Map<String, Object> resolve = obrasClient.resolveOrderForJob(jobName.trim());
+        String job = jobName.trim();
+        Map<String, Object> resolve = obrasClient.resolveOrderForJob(job);
+        if (resolve != null && resolve.get("bridgeError") != null) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.BAD_GATEWAY,
+                    "module-biesse no respondió al buscar obra «"
+                            + job
+                            + "»: "
+                            + resolve.get("bridgeError")
+                            + (resolve.get("bridgeBody") != null
+                                    ? " — " + resolve.get("bridgeBody")
+                                    : ""));
+        }
         if (resolve != null && Boolean.TRUE.equals(resolve.get("ambiguous"))) {
             throw new org.springframework.web.server.ResponseStatusException(
                     org.springframework.http.HttpStatus.CONFLICT,
-                    "Obra ambigua para job «" + jobName.trim() + "»");
+                    "Obra ambigua para job «" + job + "»");
         }
-        Map<String, Object> manifest = obrasClient.orderManifest(jobName.trim());
-        if (manifest == null || manifest.isEmpty()) {
+        BiesseObrasClient.ManifestFetch fetch = obrasClient.orderManifestFetch(job);
+        if ("ok".equals(fetch.kind()) && fetch.body() != null) {
+            return fetch.body();
+        }
+        if ("ambiguous".equals(fetch.kind())) {
             throw new org.springframework.web.server.ResponseStatusException(
-                    org.springframework.http.HttpStatus.NOT_FOUND, "Manifiesto no encontrado para job");
+                    org.springframework.http.HttpStatus.CONFLICT,
+                    "Obra ambigua para job «" + job + "»");
         }
-        return manifest;
+        if ("bridge".equals(fetch.kind())) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.BAD_GATEWAY,
+                    "Falló manifiesto en module-biesse para «"
+                            + job
+                            + "»: "
+                            + fetch.message()
+                            + (fetch.detail() != null ? " — " + fetch.detail() : ""));
+        }
+        Object order = resolve != null ? resolve.get("order") : null;
+        String hint =
+                order == null
+                        ? "by-job no encontró ninguna obra con ese nombre exacto (sí puede aparecer en la lista web por búsqueda parcial)."
+                        : "by-job sí vio la obra, pero el manifiesto no devolvió partes.";
+        throw new org.springframework.web.server.ResponseStatusException(
+                org.springframework.http.HttpStatus.NOT_FOUND,
+                "Manifiesto no encontrado para job «" + job + "». " + hint);
     }
 
     public Map<String, Object> labelZpl(

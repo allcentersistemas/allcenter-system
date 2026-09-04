@@ -138,6 +138,9 @@ public class BiesseIntegrationController {
         List<Map<String, Object>> parts = scanRepository.findOrderParts(orderId);
         List<Map<String, Object>> manifestParts = new ArrayList<>();
         for (Map<String, Object> part : parts) {
+            if (!(part.get("partid") instanceof Number partIdNum)) {
+                continue;
+            }
             int partNumber = intOrZero(part.get("partnumber"));
             if (partNumber <= 0) {
                 continue;
@@ -156,7 +159,8 @@ public class BiesseIntegrationController {
             osiKeys.add("P" + partNumber);
             osiKeys.add(String.valueOf(partNumber));
             Map<String, Object> row = new LinkedHashMap<>();
-            row.put("partId", part.get("partid"));
+            long partId = partIdNum.longValue();
+            row.put("partId", partId);
             row.put("partNumber", partNumber);
             row.put("partCode", partCode);
             row.put("osiKeys", osiKeys.stream().distinct().toList());
@@ -170,7 +174,6 @@ public class BiesseIntegrationController {
             row.put("edgeLo", str(part.get("matedgelo")));
             row.put("edgeL", str(part.get("matedgel")));
             row.put("edgeR", str(part.get("matedger")));
-            long partId = ((Number) part.get("partid")).longValue();
             row.put("cortadasMax", scanRepository.maxCortadaPieceNumber(partId));
             manifestParts.add(row);
         }

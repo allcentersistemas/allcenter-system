@@ -159,9 +159,21 @@ public class BiesseObrasClient {
             return res.getBody() != null ? res.getBody() : emptyResolve();
         } catch (HttpClientErrorException.NotFound e) {
             return emptyResolve();
+        } catch (HttpClientErrorException e) {
+            log.warn(
+                    "biesse resolveOrderForJob('{}'): HTTP {} {}",
+                    jobName,
+                    e.getStatusCode().value(),
+                    e.getResponseBodyAsString());
+            Map<String, Object> m = emptyResolve();
+            m.put("bridgeError", e.getStatusCode().value() + " " + e.getStatusText());
+            m.put("bridgeBody", trimBody(e.getResponseBodyAsString()));
+            return m;
         } catch (Exception e) {
             log.warn("biesse resolveOrderForJob('{}'): {}", jobName, e.getMessage());
-            return emptyResolve();
+            Map<String, Object> m = emptyResolve();
+            m.put("bridgeError", e.getMessage());
+            return m;
         }
     }
 
@@ -172,6 +184,78 @@ public class BiesseObrasClient {
         m.put("order", null);
         m.put("candidates", List.of());
         return m;
+    }
+
+    private static String trimBody(String body) {
+        if (body == null) {
+            return null;
+        }
+        String t = body.trim();
+        return t.length() > 400 ? t.substring(0, 400) + "…" : t;
+    }
+
+    public ManifestFetch orderManifestFetch(String jobName) {
+        if (jobName == null || jobName.isBlank()) {
+            return ManifestFetch.missing("job vacío");
+        }
+        try {
+            String url =
+                    UriComponentsBuilder.fromUriString(
+                                    biesseBaseUrl + "/api/biesse/scan/integration/orders/manifest")
+                            .queryParam("jobName", jobName)
+                            .toUriString();
+            ResponseEntity<Map<String, Object>> res =
+                    restTemplate.exchange(
+                            url,
+                            HttpMethod.GET,
+                            new HttpEntity<>(headers()),
+                            new ParameterizedTypeReference<>() {});
+            Map<String, Object> body = res.getBody();
+            if (body == null || body.isEmpty()) {
+                return ManifestFetch.missing("respuesta vacía de module-biesse");
+            }
+            return ManifestFetch.ok(body);
+        } catch (HttpClientErrorException.NotFound e) {
+            return ManifestFetch.missing("module-biesse: obra no encontrada para job");
+        } catch (HttpClientErrorException.Conflict e) {
+            return ManifestFetch.ambiguous(trimBody(e.getResponseBodyAsString()));
+        } catch (HttpClientErrorException e) {
+            log.warn(
+                    "biesse orderManifest('{}'): HTTP {} {}",
+                    jobName,
+                    e.getStatusCode().value(),
+                    e.getResponseBodyAsString());
+            return ManifestFetch.bridgeFailure(
+                    e.getStatusCode().value() + " " + e.getStatusText(),
+                    trimBody(e.getResponseBodyAsString()));
+        } catch (Exception e) {
+            log.warn("biesse orderManifest('{}'): {}", jobName, e.getMessage());
+            return ManifestFetch.bridgeFailure(e.getMessage(), null);
+        }
+    }
+
+    public Map<String, Object> orderManifest(String jobName) {
+        ManifestFetch fetch = orderManifestFetch(jobName);
+        return fetch.body();
+    }
+
+    public record ManifestFetch(
+            Map<String, Object> body, String kind, String message, String detail) {
+        static ManifestFetch ok(Map<String, Object> body) {
+            return new ManifestFetch(body, "ok", null, null);
+        }
+
+        static ManifestFetch missing(String message) {
+            return new ManifestFetch(null, "missing", message, null);
+        }
+
+        static ManifestFetch ambiguous(String detail) {
+            return new ManifestFetch(null, "ambiguous", "Obra ambigua", detail);
+        }
+
+        static ManifestFetch bridgeFailure(String message, String detail) {
+            return new ManifestFetch(null, "bridge", message, detail);
+        }
     }
 
     public String labelZpl(
@@ -206,31 +290,6 @@ public class BiesseObrasClient {
 
     private static String str(Object value) {
         return value == null ? null : String.valueOf(value);
-    }
-
-    public Map<String, Object> orderManifest(String jobName) {
-        if (jobName == null || jobName.isBlank()) {
-            return null;
-        }
-        try {
-            String url =
-                    UriComponentsBuilder.fromUriString(
-                                    biesseBaseUrl + "/api/biesse/scan/integration/orders/manifest")
-                            .queryParam("jobName", jobName)
-                            .toUriString();
-            ResponseEntity<Map<String, Object>> res =
-                    restTemplate.exchange(
-                            url,
-                            HttpMethod.GET,
-                            new HttpEntity<>(headers()),
-                            new ParameterizedTypeReference<>() {});
-            return res.getBody();
-        } catch (HttpClientErrorException.NotFound e) {
-            return null;
-        } catch (Exception e) {
-            log.warn("biesse orderManifest('{}'): {}", jobName, e.getMessage());
-            return null;
-        }
     }
 
     public boolean markOrderProduccion(long orderId) {

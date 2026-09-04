@@ -890,7 +890,7 @@ public class BiesseScanRepository {
     }
 
     /**
-     * AND de tokens por palabra completa (8MM ≠ 18MM; (1)4 ≠ (1)3).
+     * AND de tokens por palabra completa (evita que "4" de (1)4 coincida dentro de S14783).
      */
     private static void appendTokenAndSearch(
             StringBuilder sql,
@@ -905,18 +905,18 @@ public class BiesseScanRepository {
                 sql.append(" AND ");
             }
             sql.append(" ( ");
-            // Token exacto en el array de palabras (no substring: 8MM no está en 18MM).
-            sql.append("lower(?) = ANY(string_to_array(lower(")
+            // ' ' || norm || ' ' LIKE '% tok %' → token acotado por espacios
+            sql.append("((' ' || lower(")
                     .append(sqlSearchNorm(nameExpr))
-                    .append("), ' '))");
+                    .append(") || ' ') LIKE ('% ' || lower(?) || ' %'))");
             args.add(tokens[i]);
-            sql.append(" OR lower(?) = ANY(string_to_array(lower(")
+            sql.append(" OR ((' ' || lower(")
                     .append(sqlSearchNorm(bookingExpr))
-                    .append("), ' '))");
+                    .append(") || ' ') LIKE ('% ' || lower(?) || ' %'))");
             args.add(tokens[i]);
-            sql.append(" OR lower(?) = ANY(string_to_array(lower(")
+            sql.append(" OR ((' ' || lower(")
                     .append(sqlSearchNorm(opExpr))
-                    .append("), ' '))");
+                    .append(") || ' ') LIKE ('% ' || lower(?) || ' %'))");
             args.add(tokens[i]);
             if (includeOrderId) {
                 sql.append(" OR CAST(o.orderid AS TEXT) = ?");

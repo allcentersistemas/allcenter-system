@@ -93,35 +93,56 @@ public class BiesseObrasRepository {
         String op = extractOp(token);
         String compact = compactName(token);
 
-        List<Map<String, Object>> exact =
-                jdbc.queryForList(
-                        """
-                        SELECT orderid, ordername, bookingcode, op_codigo, estado_escaneo,
-                               nparts, partes_totales
-                        FROM ordenes
-                        WHERE UPPER(TRIM(ordername)) = UPPER(?)
-                           OR UPPER(REPLACE(REPLACE(TRIM(ordername), '_', ' '), ' ', '')) = UPPER(?)
-                           OR UPPER(REPLACE(TRIM(ordername), ' ', '')) = UPPER(?)
-                           OR (bookingcode IS NOT NULL AND UPPER(TRIM(bookingcode)) = UPPER(?))
-                        ORDER BY fechacreacion DESC
-                        LIMIT 5
-                        """,
-                        token,
-                        compact,
-                        compact,
-                        token);
-        MatchPick pickExact = pickFullNameMatch(exact, token);
-        if (pickExact.order() != null) {
+        List<Map<String, Object>> exact = queryOrdersForJobMatch(
+                """
+                SELECT orderid, ordername, bookingcode, op_codigo, estado_escaneo,
+                       nparts, partes_totales
+                FROM ordenes
+                WHERE UPPER(TRIM(ordername)) = UPPER(?)
+                   OR UPPER(REPLACE(REPLACE(TRIM(ordername), '_', ' '), ' ', '')) = UPPER(?)
+                   OR UPPER(REPLACE(TRIM(ordername), ' ', '')) = UPPER(?)
+                   OR (bookingcode IS NOT NULL AND UPPER(TRIM(bookingcode)) = UPPER(?))
+                ORDER BY fechacreacion DESC
+                LIMIT 5
+                """,
+                """
+                SELECT orderid, ordername, bookingcode, op_codigo, estado_escaneo
+                FROM ordenes
+                WHERE UPPER(TRIM(ordername)) = UPPER(?)
+                   OR UPPER(REPLACE(REPLACE(TRIM(ordername), '_', ' '), ' ', '')) = UPPER(?)
+                   OR UPPER(REPLACE(TRIM(ordername), ' ', '')) = UPPER(?)
+                   OR (bookingcode IS NOT NULL AND UPPER(TRIM(bookingcode)) = UPPER(?))
+                ORDER BY fechacreacion DESC
+                LIMIT 5
+                """,
+                token,
+                compact,
+                compact,
+                token);
+        MatchPick pickExact = pickBestOrderMatchDetailed(exact, token, op);
+        if (pickExact.order() != null && !pickExact.ambiguous()) {
             return new OrderJobMatch(pickExact.order(), false, exact);
+        }
+        if (pickExact.ambiguous()) {
+            return new OrderJobMatch(null, true, exact);
         }
 
         List<Map<String, Object>> candidates = new ArrayList<>();
         if (op != null) {
             candidates.addAll(
-                    jdbc.queryForList(
+                    queryOrdersForJobMatch(
                             """
                             SELECT orderid, ordername, bookingcode, op_codigo, estado_escaneo,
                                    nparts, partes_totales
+                            FROM ordenes
+                            WHERE UPPER(TRIM(COALESCE(op_codigo, ''))) = UPPER(?)
+                               OR UPPER(TRIM(ordername)) LIKE UPPER(?) || ' %'
+                               OR UPPER(TRIM(ordername)) LIKE UPPER(?) || '%'
+                            ORDER BY fechacreacion DESC
+                            LIMIT 40
+                            """,
+                            """
+                            SELECT orderid, ordername, bookingcode, op_codigo, estado_escaneo
                             FROM ordenes
                             WHERE UPPER(TRIM(COALESCE(op_codigo, ''))) = UPPER(?)
                                OR UPPER(TRIM(ordername)) LIKE UPPER(?) || ' %'
@@ -133,8 +154,57 @@ public class BiesseObrasRepository {
                             op,
                             op));
         }
-        MatchPick pick = pickFullNameMatch(candidates, token);
+        if (candidates.isEmpty()) {
+            candidates.addAll(
+                    queryOrdersForJobMatch(
+                            """
+                            SELECT orderid, ordername, bookingcode, op_codigo, estado_escaneo,
+                                   nparts, partes_totales
+                            FROM ordenes
+                            WHERE UPPER(REPLACE(REPLACE(ordername, '_', ''), ' ', '')) = UPPER(?)
+                               OR UPPER(REPLACE(REPLACE(ordername, '_', ''), ' ', '')) LIKE UPPER(?) || '%'
+                               OR UPPER(?) LIKE UPPER(REPLACE(REPLACE(ordername, '_', ''), ' ', '')) || '%'
+                            ORDER BY fechacreacion DESC
+                            LIMIT 40
+                            """,
+                            """
+                            SELECT orderid, ordername, bookingcode, op_codigo, estado_escaneo
+                            FROM ordenes
+                            WHERE UPPER(REPLACE(REPLACE(ordername, '_', ''), ' ', '')) = UPPER(?)
+                               OR UPPER(REPLACE(REPLACE(ordername, '_', ''), ' ', '')) LIKE UPPER(?) || '%'
+                               OR UPPER(?) LIKE UPPER(REPLACE(REPLACE(ordername, '_', ''), ' ', '')) || '%'
+                            ORDER BY fechacreacion DESC
+                            LIMIT 40
+                            """,
+                            compact,
+                            compact,
+                            compact));
+        }
+        MatchPick pick = pickBestOrderMatchDetailed(candidates, token, op);
         return new OrderJobMatch(pick.order(), pick.ambiguous(), candidates);
+    }
+
+    /**
+     * Intenta SELECT con columnas denormalizadas; si el esquema no las tiene, reintenta sin ellas.
+     */
+    private List<Map<String, Object>> queryOrdersForJobMatch(
+            String sqlWithExtras, String sqlMinimal, Object... args) {
+        try {
+            return jdbc.queryForList(sqlWithExtras, args);
+        } catch (DataAccessException ex) {
+            try {
+                return jdbc.queryForList(sqlMinimal, args);
+            } catch (DataAccessException ex2) {
+                // Último recurso: sin ORDER BY fechacreacion (esquemas muy viejos).
+                String noOrderBy =
+                        sqlMinimal.replaceAll("(?is)\\s+ORDER BY\\s+fechacreacion\\s+DESC\\s*", " ");
+                try {
+                    return jdbc.queryForList(noOrderBy, args);
+                } catch (DataAccessException ex3) {
+                    return List.of();
+                }
+            }
+        }
     }
 
     public Map<String, Object> findOrderForJob(String jobName) {
@@ -148,45 +218,85 @@ public class BiesseObrasRepository {
     private record MatchPick(Map<String, Object> order, int score, boolean ambiguous) {}
 
     /**
-     * Solo nombre completo (mayúsculas, espacios y {@code _} no cuentan).
-     * No elige “la más parecida” de la OP: BLANCO ≠ BLANCO RH ≠ CAPRI.
+     * Con varias obras bajo la misma OP (p.ej. TAUPE vs PANELA), elige la que mejor
+     * coincide con el job del Event.log — no la más reciente a ciegas.
      */
-    private static MatchPick pickFullNameMatch(List<Map<String, Object>> candidates, String jobToken) {
+    private static MatchPick pickBestOrderMatchDetailed(
+            List<Map<String, Object>> candidates, String jobToken, String op) {
         if (candidates == null || candidates.isEmpty()) {
             return new MatchPick(null, Integer.MIN_VALUE, false);
+        }
+        if (candidates.size() == 1) {
+            return new MatchPick(candidates.getFirst(), 1000, false);
         }
         String job = jobToken != null ? jobToken.trim().toUpperCase(Locale.ROOT) : "";
         String jobNorm = normalizeForCompare(job);
         String jobCompact = compactName(job);
-        TokenDiff empty = new TokenDiff(0, 0);
-        List<Map<String, Object>> hits = new ArrayList<>();
+        Map<String, Object> best = null;
+        int bestScore = Integer.MIN_VALUE;
+        int tiedAtBest = 0;
         for (Map<String, Object> row : candidates) {
             String name = str(row.get("ordername"));
-            String booking = str(row.get("bookingcode"));
             if (name == null || name.isBlank()) {
                 continue;
             }
             String nameU = name.trim().toUpperCase(Locale.ROOT);
             String nameNorm = normalizeForCompare(nameU);
             String nameCompact = compactName(nameU);
-            boolean fullName =
-                    nameU.equals(job)
-                            || nameNorm.equals(jobNorm)
-                            || nameCompact.equals(jobCompact)
-                            || tokenDiff(jobNorm, nameNorm).equals(empty);
-            boolean bookingHit =
-                    booking != null
-                            && !booking.isBlank()
-                            && normalizeForCompare(booking).equals(jobNorm);
-            if (fullName || bookingHit) {
-                hits.add(row);
+            int score = 0;
+            if (nameU.equals(job) || nameNorm.equals(jobNorm) || nameCompact.equals(jobCompact)) {
+                score += 1000;
+            }
+            if (!jobNorm.isBlank() && (jobNorm.contains(nameNorm) || nameNorm.contains(jobNorm))) {
+                score += 400;
+            }
+            if (!jobCompact.isBlank()
+                    && (jobCompact.contains(nameCompact) || nameCompact.contains(jobCompact))) {
+                score += 300;
+            }
+            String jobTail = lastWord(jobNorm);
+            String nameTail = lastWord(nameNorm);
+            if (jobTail.length() >= 3 && jobTail.equals(nameTail)) {
+                score += 500;
+            } else if (jobTail.length() >= 3
+                    && (jobNorm.contains(nameTail) || nameNorm.contains(jobTail))) {
+                score += 250;
+            }
+            // Discriminar K5_IZQ vs K5_DER / K1_DER dentro de la misma OP.
+            String jobKey = significantKey(jobNorm);
+            String nameKey = significantKey(nameNorm);
+            if (jobKey.length() >= 4 && jobKey.equals(nameKey)) {
+                score += 600;
+            } else if (jobKey.length() >= 4
+                    && (jobNorm.contains(jobKey) && nameNorm.contains(jobKey))) {
+                score += 350;
+            }
+            if (op != null && nameU.startsWith(op.toUpperCase(Locale.ROOT))) {
+                score += 50;
+            }
+            score += tokenOverlapScore(jobNorm, nameNorm) * 20;
+            if (score > bestScore) {
+                bestScore = score;
+                best = row;
+                tiedAtBest = 1;
+            } else if (score == bestScore && score > Integer.MIN_VALUE) {
+                tiedAtBest++;
             }
         }
-        if (hits.isEmpty()) {
+        if (best == null) {
             return new MatchPick(null, Integer.MIN_VALUE, false);
         }
-        // Varios XML reimportados con el mismo nombre: el más reciente (ORDER BY fecha DESC).
-        return new MatchPick(hits.getFirst(), 2000, false);
+        // Empate en nombre exacto (reimport XML): tomar la más reciente (ya viene ORDER BY fecha DESC).
+        if (bestScore >= 1000) {
+            return new MatchPick(best, bestScore, false);
+        }
+        boolean weak = candidates.size() > 1 && bestScore < 200;
+        boolean tied = tiedAtBest > 1;
+        boolean ambiguous = weak || tied;
+        if (ambiguous) {
+            return new MatchPick(null, bestScore, true);
+        }
+        return new MatchPick(best, bestScore, false);
     }
 
     /** Unifica espacios/_ para comparar job OSI vs ordername ERP. */
@@ -195,6 +305,16 @@ public class BiesseObrasRepository {
             return "";
         }
         return value.replace('_', ' ').replaceAll("\\s+", " ").trim().toUpperCase(Locale.ROOT);
+    }
+
+    /** Token distintivo tipo K5IZQ / K5DER / K1DER. */
+    private static String significantKey(String normalizedName) {
+        if (normalizedName == null || normalizedName.isBlank()) {
+            return "";
+        }
+        String compact = normalizedName.replace(" ", "");
+        Matcher m2 = Pattern.compile("(K\\d+[A-Z]+)", Pattern.CASE_INSENSITIVE).matcher(compact);
+        return m2.find() ? m2.group(1).toUpperCase(Locale.ROOT) : "";
     }
 
     private static String normalizeJobToken(String jobName) {
@@ -217,39 +337,33 @@ public class BiesseObrasRepository {
         return value.replaceAll("[\\s_]+", "").toUpperCase(Locale.ROOT);
     }
 
-    private record TokenDiff(int missing, int extra) {}
-
-    /** Palabras de ≥2 caracteres (incluye RH). */
-    private static Set<String> significantTokens(String normalized) {
-        Set<String> out = new java.util.LinkedHashSet<>();
-        if (normalized == null || normalized.isBlank()) {
-            return out;
+    private static String lastWord(String value) {
+        if (value == null || value.isBlank()) {
+            return "";
         }
-        for (String p : normalized.split("\\s+")) {
-            String t = p.replaceAll("[^A-Z0-9]", "");
-            if (t.length() >= 2) {
-                out.add(t);
-            }
-        }
-        return out;
+        String[] parts = value.trim().split("\\s+");
+        return parts[parts.length - 1].replaceAll("[^A-Z0-9]", "");
     }
 
-    private static TokenDiff tokenDiff(String jobNorm, String nameNorm) {
-        Set<String> job = significantTokens(jobNorm);
-        Set<String> name = significantTokens(nameNorm);
-        int missing = 0;
-        for (String t : job) {
-            if (!name.contains(t)) {
-                missing++;
+    private static int tokenOverlapScore(String a, String b) {
+        if (a == null || b == null || a.isBlank() || b.isBlank()) {
+            return 0;
+        }
+        Set<String> left = new java.util.HashSet<>();
+        for (String p : a.split("\\s+")) {
+            String t = p.replaceAll("[^A-Z0-9]", "");
+            if (t.length() >= 3) {
+                left.add(t);
             }
         }
-        int extra = 0;
-        for (String t : name) {
-            if (!job.contains(t)) {
-                extra++;
+        int n = 0;
+        for (String p : b.split("\\s+")) {
+            String t = p.replaceAll("[^A-Z0-9]", "");
+            if (t.length() >= 3 && left.contains(t)) {
+                n++;
             }
         }
-        return new TokenDiff(missing, extra);
+        return n;
     }
 
     /**
