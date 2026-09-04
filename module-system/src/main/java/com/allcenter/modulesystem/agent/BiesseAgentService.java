@@ -381,7 +381,10 @@ public class BiesseAgentService {
 
         Integer piecesTotal = null;
         Long prevOrderId = before != null ? longOrNull(before.get("current_order_id")) : null;
-        if (orderId != null && (jobChanged || prevOrderId == null || !orderId.equals(prevOrderId))) {
+        boolean orderNewlyBound =
+                orderId != null
+                        && (jobChanged || prevOrderId == null || !orderId.equals(prevOrderId));
+        if (orderNewlyBound) {
             piecesTotal = resolvePiecesTotal(order, orderId);
         } else if (orderId == null && jobChanged) {
             repository.clearPiecesTotal(machineId);
@@ -425,6 +428,11 @@ public class BiesseAgentService {
             markProduccionAndTrace(live, order, status.eventTime(), source);
         }
 
+        // Al enlazar obra: mismo sync que al abrir detalle (last_part / cut_pieces → avance).
+        if (orderNewlyBound) {
+            syncAgentCutsQuiet(orderId);
+        }
+
         // Respaldo: si llega last_part nueva por status (y el evento PRODUCT INFO no se procesó),
         // registrar corte / sticker igual que con el Event.log.
         processCutFromStatus(
@@ -462,16 +470,67 @@ public class BiesseAgentService {
      */
     private Map<String, Object> resolveOrderForStatus(
             String jobName, Map<String, Object> before, boolean jobChanged) {
-        if (jobName != null && !jobName.isBlank() && !"SINGLE".equalsIgnoreCase(jobName.trim())) {
-            Map<String, Object> byJob = obrasClient.findOrderForJob(jobName.trim());
-            if (byJob != null) {
-                return byJob;
-            }
+        Map<String, Object> liveHint = jobChanged ? null : before;
+        Map<String, Object> order = resolveOrderForJobRobust(jobName, liveHint);
+        if (order != null) {
+            return order;
         }
         if (!jobChanged && before != null && before.get("current_order_id") instanceof Number n) {
-            return obrasClient.findOrderById(n.longValue());
+            return normalizeOrderKeys(obrasClient.findOrderById(n.longValue()));
         }
         return null;
+    }
+
+    /**
+     * Misma robustez que order-manifest: by-job → listOrders → current_order_id.
+     * Sin esto el agente puede mapear localmente y el server deja PART_NO_ORDER (no pinta).
+     */
+    private Map<String, Object> resolveOrderForJobRobust(
+            String jobName, Map<String, Object> machineLive) {
+        if (jobName != null && !jobName.isBlank() && !"SINGLE".equalsIgnoreCase(jobName.trim())) {
+            String job = jobName.trim();
+            Map<String, Object> resolve = obrasClient.resolveOrderForJob(job);
+            if (resolve != null && !Boolean.TRUE.equals(resolve.get("ambiguous"))) {
+                Object orderObj = resolve.get("order");
+                if (orderObj instanceof Map<?, ?> m) {
+                    Map<String, Object> order = normalizeOrderKeys(castMap(m));
+                    if (order != null && order.get("orderid") != null) {
+                        return order;
+                    }
+                }
+            }
+            ResolvedOrder listed = resolveOrderViaListOrders(job);
+            if (listed != null && listed.orderId() != null) {
+                Map<String, Object> byId =
+                        normalizeOrderKeys(obrasClient.findOrderById(listed.orderId()));
+                if (byId != null && byId.get("orderid") != null) {
+                    return byId;
+                }
+            }
+        }
+        if (machineLive != null && machineLive.get("current_order_id") instanceof Number n) {
+            return normalizeOrderKeys(obrasClient.findOrderById(n.longValue()));
+        }
+        return null;
+    }
+
+    private static Map<String, Object> normalizeOrderKeys(Map<String, Object> order) {
+        if (order == null) {
+            return null;
+        }
+        boolean needId = order.get("orderid") == null && order.get("orderId") != null;
+        boolean needName = order.get("ordername") == null && order.get("orderName") != null;
+        if (!needId && !needName) {
+            return order;
+        }
+        Map<String, Object> copy = new java.util.HashMap<>(order);
+        if (needId) {
+            copy.put("orderid", order.get("orderId"));
+        }
+        if (needName) {
+            copy.put("ordername", order.get("orderName"));
+        }
+        return copy;
     }
 
     /**
@@ -763,18 +822,15 @@ public class BiesseAgentService {
         if (isStartProgram(type, desc)) {
             String job = parseJobName(desc);
             Map<String, Object> resolve = obrasClient.resolveOrderForJob(job);
-            if (Boolean.TRUE.equals(resolve.get("ambiguous"))) {
+            if (resolve != null && Boolean.TRUE.equals(resolve.get("ambiguous"))) {
                 action = "START_AMBIGUOUS";
                 log.warn("Start program ambiguo: job='{}' machine={}", job, machineId);
             } else {
-                Object orderObj = resolve.get("order");
-                Map<String, Object> order =
-                        orderObj instanceof Map<?, ?> m
-                                ? castMap(m)
-                                : obrasClient.findOrderForJob(job);
-                if (order != null) {
+                Map<String, Object> order = resolveOrderForJobRobust(job, machine);
+                if (order != null && order.get("orderid") != null) {
                     orderId = ((Number) order.get("orderid")).longValue();
                     markProduccionAndTrace(machine, order, ev.eventTime(), "START_PROGRAM");
+                    syncAgentCutsQuiet(orderId);
                     action = "PRODUCCION";
                 } else {
                     action = "START_NO_MATCH";
@@ -791,12 +847,11 @@ public class BiesseAgentService {
             String osiPart = !desc.isBlank() ? desc : code;
             Map<String, Object> live = repository.findMachineById(machineId);
             Map<String, Object> machineCtx = live != null ? live : machine;
-            Map<String, Object> order =
-                    obrasClient.findOrderForJob(
-                            live != null ? str(live.get("job_name")) : str(machine.get("job_name")));
-            if (order == null && live != null && live.get("current_order_id") instanceof Number n) {
-                order = obrasClient.findOrderById(n.longValue());
-            }
+            String jobName =
+                    live != null && live.get("job_name") != null
+                            ? str(live.get("job_name"))
+                            : str(machine.get("job_name"));
+            Map<String, Object> order = resolveOrderForJobRobust(jobName, machineCtx);
             if (order != null) {
                 orderId = ((Number) order.get("orderid")).longValue();
                 markProduccionAndTrace(machineCtx, order, ev.eventTime(), "PIEZA_CORTADA");
@@ -844,6 +899,12 @@ public class BiesseAgentService {
                         "AGENTE:" + machineName);
             } else {
                 action = "PART_NO_ORDER";
+                log.warn(
+                        "PART_NO_ORDER machine={} job='{}' current_order_id={} part={}",
+                        machineId,
+                        jobName,
+                        machineCtx != null ? machineCtx.get("current_order_id") : null,
+                        osiPart);
             }
         }
 
@@ -855,8 +916,8 @@ public class BiesseAgentService {
                             : str(machine.get("job_name"));
             Map<String, Object> order =
                     jobName != null && !jobName.isBlank()
-                            ? obrasClient.findOrderForJob(jobName)
-                            : null;
+                            ? resolveOrderForJobRobust(jobName, live != null ? live : machine)
+                            : resolveOrderForJobRobust(null, live != null ? live : machine);
             if (order != null) {
                 orderId = ((Number) order.get("orderid")).longValue();
                 markProduccionAndTrace(
@@ -970,6 +1031,23 @@ public class BiesseAgentService {
             repository.ackPrint(item.cutPieceId(), item.eventUid(), item.printed(), item.error());
         }
         return OkResponse.success();
+    }
+
+    /** Sync monitor → piezas.cortada sin tumbar el flujo del agente. */
+    private void syncAgentCutsQuiet(long orderId) {
+        try {
+            Map<String, Object> sync = obrasClient.syncAgentCuts(orderId);
+            if (sync != null) {
+                log.info(
+                        "sync-agent-cuts orderId={} marked={} fromStatus={} produccion={}",
+                        orderId,
+                        sync.get("marked"),
+                        sync.get("fromStatus"),
+                        sync.get("produccion"));
+            }
+        } catch (Exception e) {
+            log.warn("sync-agent-cuts orderId={}: {}", orderId, e.getMessage());
+        }
     }
 
     private void markProduccionAndTrace(

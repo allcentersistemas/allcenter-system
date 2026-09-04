@@ -338,6 +338,27 @@ public class BiesseObrasClient {
         }
     }
 
+    /**
+     * Backfill idempotente: cortes del monitor / last_part → {@code piezas.cortada} + PRODUCCION.
+     * Lo usa el agente al enlazar obra (sin esperar a abrir el detalle en inventario).
+     */
+    public Map<String, Object> syncAgentCuts(long orderId) {
+        try {
+            String url =
+                    biesseBaseUrl + "/api/biesse/scan/integration/orders/" + orderId + "/sync-agent-cuts";
+            ResponseEntity<Map<String, Object>> res =
+                    restTemplate.exchange(
+                            url,
+                            HttpMethod.POST,
+                            new HttpEntity<>(Map.of(), headers()),
+                            new ParameterizedTypeReference<>() {});
+            return res.getBody();
+        } catch (Exception e) {
+            log.warn("biesse syncAgentCuts({}): {}", orderId, e.getMessage());
+            return null;
+        }
+    }
+
     public List<Map<String, Object>> listSeguimientoObras(int limit) {
         return listSeguimientoObras(limit, null);
     }
