@@ -83,6 +83,12 @@ public class BiesseObrasRepository {
     public record OrderJobMatch(
             Map<String, Object> order, boolean ambiguous, List<Map<String, Object>> candidates) {}
 
+    /** Diagnóstico: filas en {@code ordenes} visibles para este datasource. */
+    public int countOrdenes() {
+        Integer n = jdbc.queryForObject("SELECT COUNT(*) FROM ordenes", Integer.class);
+        return n == null ? 0 : n;
+    }
+
     /** Resuelve job OSI → obra ERP; {@code ambiguous=true} si hay empate o señal débil. */
     public OrderJobMatch resolveOrderForJob(String jobName) {
         if (jobName == null || jobName.isBlank()) {
@@ -101,141 +107,153 @@ public class BiesseObrasRepository {
                 compact,
                 op);
 
-        // TRIM solo quita espacio ASCII; NBSP (CHR(160)) en ordername rompe el = exacto.
-        List<Map<String, Object>> exact = queryOrdersForJobMatch(
-                """
-                SELECT orderid, ordername, bookingcode, op_codigo, estado_escaneo,
-                       nparts, partes_totales
-                FROM ordenes
-                WHERE UPPER(TRIM(BOTH FROM REPLACE(COALESCE(ordername, ''), CHR(160), ' '))) = UPPER(?)
-                   OR UPPER(REPLACE(REPLACE(REPLACE(COALESCE(ordername, ''), CHR(160), ''), '_', ''), ' ', '')) = UPPER(?)
-                   OR UPPER(REPLACE(REPLACE(COALESCE(ordername, ''), CHR(160), ' '), ' ', '')) = UPPER(?)
-                   OR (bookingcode IS NOT NULL AND UPPER(TRIM(BOTH FROM REPLACE(bookingcode, CHR(160), ' '))) = UPPER(?))
-                ORDER BY fechacreacion DESC
-                LIMIT 5
-                """,
-                """
-                SELECT orderid, ordername, bookingcode, op_codigo, estado_escaneo
-                FROM ordenes
-                WHERE UPPER(TRIM(BOTH FROM REPLACE(COALESCE(ordername, ''), CHR(160), ' '))) = UPPER(?)
-                   OR UPPER(REPLACE(REPLACE(REPLACE(COALESCE(ordername, ''), CHR(160), ''), '_', ''), ' ', '')) = UPPER(?)
-                   OR UPPER(REPLACE(REPLACE(COALESCE(ordername, ''), CHR(160), ' '), ' ', '')) = UPPER(?)
-                   OR (bookingcode IS NOT NULL AND UPPER(TRIM(BOTH FROM REPLACE(bookingcode, CHR(160), ' '))) = UPPER(?))
-                ORDER BY fechacreacion DESC
-                LIMIT 5
-                """,
-                token,
-                compact,
-                compact,
-                token);
-        MatchPick pickExact = pickBestOrderMatchDetailed(exact, token, op);
-        if (pickExact.order() != null && !pickExact.ambiguous()) {
-            return new OrderJobMatch(pickExact.order(), false, exact);
-        }
-        if (pickExact.ambiguous()) {
-            return new OrderJobMatch(null, true, exact);
+        // Solo columnas base: estado_escaneo/nparts rompen el match si no existen en ese esquema.
+        List<Map<String, Object>> exact =
+                queryOrdersBase(
+                        """
+                        SELECT orderid, ordername, bookingcode, op_codigo
+                        FROM ordenes
+                        WHERE UPPER(TRIM(BOTH FROM REPLACE(COALESCE(ordername, ''), CHR(160), ' '))) = UPPER(?)
+                           OR UPPER(REPLACE(REPLACE(REPLACE(COALESCE(ordername, ''), CHR(160), ''), '_', ''), ' ', '')) = UPPER(?)
+                           OR UPPER(REPLACE(REPLACE(COALESCE(ordername, ''), CHR(160), ' '), ' ', '')) = UPPER(?)
+                           OR (bookingcode IS NOT NULL
+                               AND UPPER(TRIM(BOTH FROM REPLACE(bookingcode, CHR(160), ' '))) = UPPER(?))
+                        ORDER BY orderid DESC
+                        LIMIT 10
+                        """,
+                        """
+                        SELECT orderid, ordername, bookingcode
+                        FROM ordenes
+                        WHERE UPPER(TRIM(COALESCE(ordername, ''))) = UPPER(?)
+                           OR UPPER(REPLACE(REPLACE(COALESCE(ordername, ''), '_', ''), ' ', '')) = UPPER(?)
+                           OR UPPER(REPLACE(COALESCE(ordername, ''), ' ', '')) = UPPER(?)
+                           OR (bookingcode IS NOT NULL AND UPPER(TRIM(bookingcode)) = UPPER(?))
+                        ORDER BY orderid DESC
+                        LIMIT 10
+                        """,
+                        token,
+                        compact,
+                        compact,
+                        token);
+        OrderJobMatch fromExact = finishMatch(exact, token, op, "exact");
+        if (fromExact != null) {
+            return fromExact;
         }
 
         List<Map<String, Object>> candidates = new ArrayList<>();
         if (op != null) {
-            candidates.addAll(
-                    queryOrdersForJobMatch(
-                            """
-                            SELECT orderid, ordername, bookingcode, op_codigo, estado_escaneo,
-                                   nparts, partes_totales
-                            FROM ordenes
-                            WHERE UPPER(TRIM(COALESCE(op_codigo, ''))) = UPPER(?)
-                               OR UPPER(TRIM(ordername)) LIKE UPPER(?) || ' %'
-                               OR UPPER(TRIM(ordername)) LIKE UPPER(?) || '%'
-                            ORDER BY fechacreacion DESC
-                            LIMIT 40
-                            """,
-                            """
-                            SELECT orderid, ordername, bookingcode, op_codigo, estado_escaneo
-                            FROM ordenes
-                            WHERE UPPER(TRIM(COALESCE(op_codigo, ''))) = UPPER(?)
-                               OR UPPER(TRIM(ordername)) LIKE UPPER(?) || ' %'
-                               OR UPPER(TRIM(ordername)) LIKE UPPER(?) || '%'
-                            ORDER BY fechacreacion DESC
-                            LIMIT 40
-                            """,
-                            op,
-                            op,
-                            op));
+            candidates.addAll(queryOrdersByOpPrefix(op));
         }
         if (candidates.isEmpty()) {
             candidates.addAll(
-                    queryOrdersForJobMatch(
+                    queryOrdersBase(
                             """
-                            SELECT orderid, ordername, bookingcode, op_codigo, estado_escaneo,
-                                   nparts, partes_totales
+                            SELECT orderid, ordername, bookingcode, op_codigo
                             FROM ordenes
-                            WHERE UPPER(REPLACE(REPLACE(ordername, '_', ''), ' ', '')) = UPPER(?)
-                               OR UPPER(REPLACE(REPLACE(ordername, '_', ''), ' ', '')) LIKE UPPER(?) || '%'
-                               OR UPPER(?) LIKE UPPER(REPLACE(REPLACE(ordername, '_', ''), ' ', '')) || '%'
-                            ORDER BY fechacreacion DESC
+                            WHERE UPPER(REPLACE(REPLACE(REPLACE(COALESCE(ordername, ''), CHR(160), ''), '_', ''), ' ', '')) = UPPER(?)
+                               OR UPPER(REPLACE(REPLACE(REPLACE(COALESCE(ordername, ''), CHR(160), ''), '_', ''), ' ', '')) LIKE UPPER(?) || '%'
+                               OR UPPER(?) LIKE UPPER(REPLACE(REPLACE(REPLACE(COALESCE(ordername, ''), CHR(160), ''), '_', ''), ' ', '')) || '%'
+                            ORDER BY orderid DESC
                             LIMIT 40
                             """,
                             """
-                            SELECT orderid, ordername, bookingcode, op_codigo, estado_escaneo
+                            SELECT orderid, ordername, bookingcode
                             FROM ordenes
-                            WHERE UPPER(REPLACE(REPLACE(ordername, '_', ''), ' ', '')) = UPPER(?)
-                               OR UPPER(REPLACE(REPLACE(ordername, '_', ''), ' ', '')) LIKE UPPER(?) || '%'
-                               OR UPPER(?) LIKE UPPER(REPLACE(REPLACE(ordername, '_', ''), ' ', '')) || '%'
-                            ORDER BY fechacreacion DESC
+                            WHERE UPPER(REPLACE(REPLACE(COALESCE(ordername, ''), '_', ''), ' ', '')) = UPPER(?)
+                               OR UPPER(REPLACE(REPLACE(COALESCE(ordername, ''), '_', ''), ' ', '')) LIKE UPPER(?) || '%'
+                               OR UPPER(?) LIKE UPPER(REPLACE(REPLACE(COALESCE(ordername, ''), '_', ''), ' ', '')) || '%'
+                            ORDER BY orderid DESC
                             LIMIT 40
                             """,
                             compact,
                             compact,
                             compact));
         }
-        MatchPick pick = pickBestOrderMatchDetailed(candidates, token, op);
-        if (pick.order() != null && !pick.ambiguous()) {
-            return new OrderJobMatch(pick.order(), false, candidates);
-        }
-        if (pick.ambiguous()) {
-            return new OrderJobMatch(null, true, candidates);
+        OrderJobMatch fromCand = finishMatch(candidates, token, op, "op/compact");
+        if (fromCand != null) {
+            return fromCand;
         }
 
-        // Fallback: misma idea que la lista web (ILIKE / espacios raros). Evita 404 cuando
-        // el nombre en BD tiene NBSP u el SELECT estricto falló por columnas opcionales.
         List<Map<String, Object>> loose = queryOrdersLooseByName(token, compact);
-        MatchPick pickLoose = pickBestOrderMatchDetailed(loose, token, op);
-        if (pickLoose.order() != null && !pickLoose.ambiguous()) {
-            log.info(
-                    "resolveOrderForJob fallback loose OK job='{}' → orderid={} name='{}'",
-                    token,
-                    pickLoose.order().get("orderid"),
-                    pickLoose.order().get("ordername"));
-            return new OrderJobMatch(pickLoose.order(), false, loose);
-        }
-        if (pickLoose.ambiguous()) {
-            return new OrderJobMatch(null, true, loose);
-        }
-        // Un solo resultado por búsqueda parcial de nombre completo → aceptar.
-        if (loose.size() == 1) {
-            return new OrderJobMatch(loose.getFirst(), false, loose);
+        OrderJobMatch fromLoose = finishMatch(loose, token, op, "loose-tokens");
+        if (fromLoose != null) {
+            return fromLoose;
         }
 
-        // Último recurso: ILIKE %token% sin columnas opcionales.
+        // Prefijo OP solo (31313%) — tolera que el resto del nombre difiera (18MM vs 18 MM).
+        if (op != null) {
+            List<Map<String, Object>> byOp = queryOrdersByOpPrefix(op);
+            OrderJobMatch fromOp = finishMatch(byOp, token, op, "op-prefix");
+            if (fromOp != null) {
+                return fromOp;
+            }
+            if (!byOp.isEmpty()) {
+                MatchPick pick = pickBestOrderMatchDetailed(byOp, token, op);
+                if (pick.order() != null) {
+                    log.info(
+                            "resolveOrderForJob op-prefix pick job='{}' → orderid={} score={}",
+                            token,
+                            pick.order().get("orderid"),
+                            pick.score());
+                    return new OrderJobMatch(pick.order(), pick.ambiguous(), byOp);
+                }
+                return new OrderJobMatch(null, true, byOp);
+            }
+        }
+
         List<Map<String, Object>> ilike = queryOrdersIlikeContains(token);
-        MatchPick pickIlike = pickBestOrderMatchDetailed(ilike, token, op);
-        if (pickIlike.order() != null && !pickIlike.ambiguous()) {
-            log.info(
-                    "resolveOrderForJob fallback ILIKE OK job='{}' → orderid={} name='{}'",
+        OrderJobMatch fromIlike = finishMatch(ilike, token, op, "ilike-full");
+        if (fromIlike != null) {
+            return fromIlike;
+        }
+
+        // Probe: ¿hay filas en ordenes? (diagnóstico en logs)
+        try {
+            Integer n = jdbc.queryForObject("SELECT COUNT(*) FROM ordenes", Integer.class);
+            log.warn(
+                    "resolveOrderForJob SIN MATCH job='{}' op={} ordenes.count={} loose={} ilike={}",
                     token,
-                    pickIlike.order().get("orderid"),
-                    pickIlike.order().get("ordername"));
-            return new OrderJobMatch(pickIlike.order(), false, ilike);
+                    op,
+                    n,
+                    loose.size(),
+                    ilike.size());
+        } catch (DataAccessException ex) {
+            log.warn(
+                    "resolveOrderForJob SIN MATCH y COUNT ordenes falló: {}",
+                    ex.getMostSpecificCause().getMessage());
         }
-        if (pickIlike.ambiguous()) {
-            return new OrderJobMatch(null, true, ilike);
-        }
-        if (ilike.size() == 1) {
-            return new OrderJobMatch(ilike.getFirst(), false, ilike);
-        }
+
         return new OrderJobMatch(
                 null, false, !ilike.isEmpty() ? ilike : (loose.isEmpty() ? candidates : loose));
+    }
+
+    /** Si hay match usable, lo envuelve; si ambigua con filas, también; si vacío → null. */
+    private OrderJobMatch finishMatch(
+            List<Map<String, Object>> rows, String token, String op, String stage) {
+        if (rows == null || rows.isEmpty()) {
+            return null;
+        }
+        MatchPick pick = pickBestOrderMatchDetailed(rows, token, op);
+        if (pick.order() != null && !pick.ambiguous()) {
+            log.info(
+                    "resolveOrderForJob {} OK job='{}' → orderid={} name='{}'",
+                    stage,
+                    token,
+                    pick.order().get("orderid"),
+                    pick.order().get("ordername"));
+            return new OrderJobMatch(pick.order(), false, rows);
+        }
+        if (pick.ambiguous()) {
+            return new OrderJobMatch(null, true, rows);
+        }
+        if (rows.size() == 1) {
+            return new OrderJobMatch(rows.getFirst(), false, rows);
+        }
+        // pick devolvió best no ambiguo en el else de pickBest… si score bajo con 1 best, aceptar
+        if (pick.order() != null) {
+            return new OrderJobMatch(pick.order(), false, rows);
+        }
+        return null;
     }
 
     /**
@@ -262,15 +280,9 @@ public class BiesseObrasRepository {
             }
             normalized.add(n);
         }
-        MatchPick pick = pickBestOrderMatchDetailed(normalized, token, op);
-        if (pick.order() != null && !pick.ambiguous()) {
-            return new OrderJobMatch(pick.order(), false, normalized);
-        }
-        if (pick.ambiguous()) {
-            return new OrderJobMatch(null, true, normalized);
-        }
-        if (normalized.size() == 1) {
-            return new OrderJobMatch(normalized.getFirst(), false, normalized);
+        OrderJobMatch m = finishMatch(normalized, token, op, "web-rows");
+        if (m != null) {
+            return m;
         }
         return new OrderJobMatch(null, false, normalized);
     }
@@ -310,82 +322,130 @@ public class BiesseObrasRepository {
         }
     }
 
-    /**
-     * Intenta SELECT con columnas denormalizadas; si el esquema no las tiene, reintenta sin ellas.
-     */
-    private List<Map<String, Object>> queryOrdersForJobMatch(
-            String sqlWithExtras, String sqlMinimal, Object... args) {
+    private List<Map<String, Object>> queryOrdersByOpPrefix(String op) {
+        if (op == null || op.isBlank()) {
+            return List.of();
+        }
         try {
-            return jdbc.queryForList(sqlWithExtras, args);
+            return jdbc.queryForList(
+                    """
+                    SELECT orderid, ordername, bookingcode, op_codigo
+                    FROM ordenes
+                    WHERE UPPER(TRIM(COALESCE(op_codigo, ''))) = UPPER(?)
+                       OR REPLACE(COALESCE(ordername, ''), CHR(160), ' ') ILIKE ?
+                       OR REPLACE(COALESCE(ordername, ''), CHR(160), ' ') ILIKE ?
+                       OR ordername ILIKE ?
+                       OR ordername ILIKE ?
+                    ORDER BY orderid DESC
+                    LIMIT 40
+                    """,
+                    op,
+                    op + " %",
+                    op + "%",
+                    op + " %",
+                    op + "%");
         } catch (DataAccessException ex) {
-            log.warn("resolveOrderForJob SQL extras falló: {}", ex.getMostSpecificCause().getMessage());
+            log.warn("resolveOrderForJob op-prefix falló: {}", ex.getMostSpecificCause().getMessage());
             try {
-                return jdbc.queryForList(sqlMinimal, args);
+                return jdbc.queryForList(
+                        """
+                        SELECT orderid, ordername, bookingcode
+                        FROM ordenes
+                        WHERE ordername ILIKE ?
+                           OR ordername ILIKE ?
+                        ORDER BY orderid DESC
+                        LIMIT 40
+                        """,
+                        op + " %",
+                        op + "%");
             } catch (DataAccessException ex2) {
                 log.warn(
-                        "resolveOrderForJob SQL minimal falló: {}",
+                        "resolveOrderForJob op-prefix bare falló: {}",
                         ex2.getMostSpecificCause().getMessage());
-                String noOrderBy =
-                        sqlMinimal.replaceAll("(?is)\\s+ORDER BY\\s+fechacreacion\\s+DESC\\s*", " ");
-                try {
-                    return jdbc.queryForList(noOrderBy, args);
-                } catch (DataAccessException ex3) {
-                    log.warn(
-                            "resolveOrderForJob SQL sin ORDER BY falló: {}",
-                            ex3.getMostSpecificCause().getMessage());
-                    return List.of();
-                }
+                return List.of();
             }
         }
     }
 
     /**
-     * Misma idea que la lista web ({@code findOrders}): TODOS los tokens del job deben
-     * aparecer en ordername/booking/op (palabra completa tras normalizar no-alfanuméricos).
+     * Ejecuta SQL preferido; si falla (columna ausente / CHR / etc.), usa el SQL mínimo.
+     * Ambos SQL deben tener el mismo número de {@code ?} (mismos args).
+     */
+    private List<Map<String, Object>> queryOrdersBase(
+            String sqlPreferred, String sqlBare, Object... args) {
+        try {
+            return jdbc.queryForList(sqlPreferred, args);
+        } catch (DataAccessException ex) {
+            log.warn("resolveOrderForJob SQL preferido falló: {}", ex.getMostSpecificCause().getMessage());
+            try {
+                return jdbc.queryForList(sqlBare, args);
+            } catch (DataAccessException ex2) {
+                log.warn(
+                        "resolveOrderForJob SQL bare falló: {}",
+                        ex2.getMostSpecificCause().getMessage());
+                return List.of();
+            }
+        }
+    }
+
+    /**
+     * Misma idea que la lista web ({@code findOrders}): tokens del job en ordername.
+     * Si el AND estricto no da, reintenta con tokens largos (>=3) y sin unidades pegadas (18MM→18,MM).
      */
     private List<Map<String, Object>> queryOrdersLooseByName(String token, String compact) {
-        String[] tokens = jobSearchTokens(token);
-        if (tokens.length == 0) {
+        List<Map<String, Object>> hit = queryOrdersByTokens(jobSearchTokens(token), token, compact);
+        if (!hit.isEmpty()) {
+            return hit;
+        }
+        // 18MM → 18 + MM, etc.
+        hit = queryOrdersByTokens(jobSearchTokensSplitUnits(token), token, compact);
+        if (!hit.isEmpty()) {
+            return hit;
+        }
+        // Solo tokens >= 3 chars (evita que "19"/"18" rompan el AND).
+        String[] longTok =
+                java.util.Arrays.stream(jobSearchTokensSplitUnits(token))
+                        .filter(t -> t.length() >= 3)
+                        .toArray(String[]::new);
+        return queryOrdersByTokens(longTok, token, compact);
+    }
+
+    private List<Map<String, Object>> queryOrdersByTokens(
+            String[] tokens, String token, String compact) {
+        if (tokens == null || tokens.length == 0) {
             return List.of();
         }
-        String nameNorm = "trim(regexp_replace(REPLACE(COALESCE(ordername, ''), CHR(160), ' '), '[^[:alnum:]]+', ' ', 'g'))";
-        String bookingNorm =
-                "trim(regexp_replace(REPLACE(COALESCE(bookingcode, ''), CHR(160), ' '), '[^[:alnum:]]+', ' ', 'g'))";
-        String opNorm =
-                "trim(regexp_replace(REPLACE(COALESCE(op_codigo, ''), CHR(160), ' '), '[^[:alnum:]]+', ' ', 'g'))";
-        StringBuilder sql = new StringBuilder(
-                """
-                SELECT orderid, ordername, bookingcode, op_codigo, estado_escaneo
-                FROM ordenes
-                WHERE (
-                """);
+        String nameNorm =
+                "trim(regexp_replace(REPLACE(COALESCE(ordername, ''), CHR(160), ' '), '[^[:alnum:]]+', ' ', 'g'))";
+        StringBuilder sql =
+                new StringBuilder(
+                        """
+                        SELECT orderid, ordername, bookingcode, op_codigo
+                        FROM ordenes
+                        WHERE (
+                        """);
         List<Object> args = new ArrayList<>();
-        // Exacto / compacto primero (barato).
         sql.append(" UPPER(TRIM(BOTH FROM REPLACE(COALESCE(ordername, ''), CHR(160), ' '))) = UPPER(?) ");
         args.add(token);
-        sql.append(" OR UPPER(REPLACE(REPLACE(REPLACE(COALESCE(ordername, ''), CHR(160), ''), '_', ''), ' ', '')) = UPPER(?) ");
+        sql.append(
+                " OR UPPER(REPLACE(REPLACE(REPLACE(COALESCE(ordername, ''), CHR(160), ''), '_', ''), ' ', '')) = UPPER(?) ");
         args.add(compact);
         sql.append(" OR ( ");
         for (int i = 0; i < tokens.length; i++) {
             if (i > 0) {
                 sql.append(" AND ");
             }
-            sql.append(" ( ");
-            sql.append("((' ' || lower(").append(nameNorm).append(") || ' ') LIKE ('% ' || lower(?) || ' %'))");
+            sql.append("((' ' || lower(")
+                    .append(nameNorm)
+                    .append(") || ' ') LIKE ('% ' || lower(?) || ' %'))");
             args.add(tokens[i]);
-            sql.append(" OR ((' ' || lower(").append(bookingNorm).append(") || ' ') LIKE ('% ' || lower(?) || ' %'))");
-            args.add(tokens[i]);
-            sql.append(" OR ((' ' || lower(").append(opNorm).append(") || ' ') LIKE ('% ' || lower(?) || ' %'))");
-            args.add(tokens[i]);
-            sql.append(" ) ");
         }
         sql.append(" ) ) ORDER BY orderid DESC LIMIT 40 ");
         try {
             return jdbc.queryForList(sql.toString(), args.toArray());
         } catch (DataAccessException ex) {
-            log.warn("resolveOrderForJob loose falló: {}", ex.getMostSpecificCause().getMessage());
+            log.warn("resolveOrderForJob tokens falló: {}", ex.getMostSpecificCause().getMessage());
             try {
-                // Sin regexp / op_codigo: ILIKE parcial con el nombre completo.
                 return jdbc.queryForList(
                         """
                         SELECT orderid, ordername, bookingcode
@@ -399,7 +459,7 @@ public class BiesseObrasRepository {
                         "%" + compact + "%");
             } catch (DataAccessException ex2) {
                 log.warn(
-                        "resolveOrderForJob loose mínimo falló: {}",
+                        "resolveOrderForJob tokens mínimo falló: {}",
                         ex2.getMostSpecificCause().getMessage());
                 return List.of();
             }
@@ -426,6 +486,22 @@ public class BiesseObrasRepository {
                 .map(String::trim)
                 .filter(t -> !t.isEmpty())
                 .toArray(String[]::new);
+    }
+
+    /** Como {@link #jobSearchTokens} pero parte 18MM → 18 + MM. */
+    private static String[] jobSearchTokensSplitUnits(String query) {
+        String[] base = jobSearchTokens(query);
+        List<String> out = new ArrayList<>();
+        for (String t : base) {
+            Matcher m = Pattern.compile("(?i)^(\\d+)([A-Z]+)$").matcher(t);
+            if (m.matches()) {
+                out.add(m.group(1));
+                out.add(m.group(2));
+            } else {
+                out.add(t);
+            }
+        }
+        return out.toArray(String[]::new);
     }
 
     public Map<String, Object> findOrderForJob(String jobName) {

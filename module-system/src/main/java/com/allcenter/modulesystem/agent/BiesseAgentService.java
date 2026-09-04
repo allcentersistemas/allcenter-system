@@ -120,60 +120,99 @@ public class BiesseAgentService {
                 "Manifiesto no encontrado para job «" + job + "». " + hint);
     }
 
-    /**
-     * Usa /integration/orders?q= (misma lógica que la UI). Devuelve ordername canónico o null.
-     */
     private String resolveJobViaListOrders(String job) {
         try {
             Map<String, Object> listed = obrasClient.listOrders(job, 40, 0);
-            Object itemsObj = listed != null ? listed.get("items") : null;
-            if (!(itemsObj instanceof java.util.List<?> items) || items.isEmpty()) {
-                return null;
+            String hit = pickCanonicalOrderName(job, listed);
+            if (hit != null) {
+                return hit;
             }
-            String jobNorm = job.replace('\u00A0', ' ').replaceAll("\\s+", " ").trim().toUpperCase();
-            String jobCompact = jobNorm.replace(" ", "").replace("_", "");
-            Map<?, ?> exact = null;
-            for (Object o : items) {
-                if (!(o instanceof Map<?, ?> row)) {
-                    continue;
+            // Misma OP numérica (p.ej. 31313) como en la UI al buscar parcial.
+            String op = extractOpCodigo(job);
+            if (op != null && !op.equalsIgnoreCase(job.trim())) {
+                listed = obrasClient.listOrders(op, 40, 0);
+                hit = pickCanonicalOrderName(job, listed);
+                if (hit != null) {
+                    return hit;
                 }
-                Object nameObj = row.get("ordername");
-                if (nameObj == null) {
-                    nameObj = row.get("orderName");
-                }
-                if (nameObj == null) {
-                    continue;
-                }
-                String name = String.valueOf(nameObj).replace('\u00A0', ' ').replaceAll("\\s+", " ").trim();
-                String nameU = name.toUpperCase();
-                String nameCompact = nameU.replace(" ", "").replace("_", "");
-                if (nameU.equals(jobNorm) || nameCompact.equals(jobCompact)) {
-                    exact = row;
-                    break;
-                }
-            }
-            Map<?, ?> chosen = exact;
-            if (chosen == null && items.size() == 1 && items.get(0) instanceof Map<?, ?> only) {
-                chosen = only;
-            }
-            if (chosen == null) {
-                log.warn(
-                        "listOrders('{}') devolvió {} hits sin nombre exacto — no se usa fallback",
-                        job,
-                        items.size());
-                return null;
-            }
-            Object nameObj = chosen.get("ordername");
-            if (nameObj == null) {
-                nameObj = chosen.get("orderName");
-            }
-            String canonical = nameObj != null ? String.valueOf(nameObj).trim() : null;
-            if (canonical != null && !canonical.isBlank()) {
-                log.info("order-manifest fallback listOrders OK job='{}' → '{}'", job, canonical);
-                return canonical;
             }
         } catch (Exception e) {
             log.warn("resolveJobViaListOrders('{}'): {}", job, e.getMessage());
+        }
+        return null;
+    }
+
+    private static String extractOpCodigo(String job) {
+        if (job == null || job.isBlank()) {
+            return null;
+        }
+        java.util.regex.Matcher m =
+                java.util.regex.Pattern.compile("^([A-Za-z]?\\d{3,})(?:_|$|\\s|[-.])")
+                        .matcher(job.trim());
+        return m.find() ? m.group(1).toUpperCase(Locale.ROOT) : null;
+    }
+
+    private String pickCanonicalOrderName(String job, Map<String, Object> listed) {
+        Object itemsObj = listed != null ? listed.get("items") : null;
+        if (!(itemsObj instanceof java.util.List<?> items) || items.isEmpty()) {
+            return null;
+        }
+        String jobNorm = job.replace('\u00A0', ' ').replaceAll("\\s+", " ").trim().toUpperCase(Locale.ROOT);
+        String jobCompact = jobNorm.replace(" ", "").replace("_", "");
+        Map<?, ?> exact = null;
+        Map<?, ?> bestOverlap = null;
+        int bestScore = -1;
+        for (Object o : items) {
+            if (!(o instanceof Map<?, ?> row)) {
+                continue;
+            }
+            Object nameObj = row.get("ordername");
+            if (nameObj == null) {
+                nameObj = row.get("orderName");
+            }
+            if (nameObj == null) {
+                continue;
+            }
+            String name = String.valueOf(nameObj).replace('\u00A0', ' ').replaceAll("\\s+", " ").trim();
+            String nameU = name.toUpperCase(Locale.ROOT);
+            String nameCompact = nameU.replace(" ", "").replace("_", "");
+            if (nameU.equals(jobNorm) || nameCompact.equals(jobCompact)) {
+                exact = row;
+                break;
+            }
+            int score = 0;
+            for (String t : jobNorm.split("\\s+")) {
+                if (t.length() >= 3 && nameU.contains(t)) {
+                    score++;
+                }
+            }
+            if (score > bestScore) {
+                bestScore = score;
+                bestOverlap = row;
+            }
+        }
+        Map<?, ?> chosen = exact;
+        if (chosen == null && items.size() == 1 && items.get(0) instanceof Map<?, ?> only) {
+            chosen = only;
+        }
+        if (chosen == null && bestOverlap != null && bestScore >= 3) {
+            chosen = bestOverlap;
+        }
+        if (chosen == null) {
+            log.warn(
+                    "listOrders('{}') devolvió {} hits sin nombre usable — no se usa fallback",
+                    job,
+                    items.size());
+            return null;
+        }
+        Object nameObj = chosen.get("ordername");
+        if (nameObj == null) {
+            nameObj = chosen.get("orderName");
+        }
+        String canonical = nameObj != null ? String.valueOf(nameObj).trim() : null;
+        if (canonical != null && !canonical.isBlank()) {
+            log.info("order-manifest fallback listOrders OK job='{}' → '{}'", job, canonical);
+            return canonical;
         }
         return null;
     }
@@ -206,6 +245,7 @@ public class BiesseAgentService {
         Object matcher = resolve.get("matcher");
         Object cands = resolve.get("candidates");
         int n = cands instanceof java.util.List<?> list ? list.size() : 0;
+        Object ordenesCount = resolve.get("ordenesCount");
         if (matcher == null) {
             return "by-job sin campo matcher (module-biesse antiguo). Redeploy module-biesse.";
         }
@@ -214,7 +254,9 @@ public class BiesseAgentService {
         }
         return "by-job matcher="
                 + matcher
-                + " con 0 candidatos. La obra no está en BD obras de ese module-biesse, o el SQL de match falló (ver logs resolveOrderForJob).";
+                + " con 0 candidatos"
+                + (ordenesCount != null ? " (ordenes.count=" + ordenesCount + ")" : "")
+                + ". Si ordenes.count=0, APP/BIESSE_DATASOURCE apunta a otra BD. Si count>0, el nombre en ERP no matchea el job OSI.";
     }
 
     public Map<String, Object> labelZpl(

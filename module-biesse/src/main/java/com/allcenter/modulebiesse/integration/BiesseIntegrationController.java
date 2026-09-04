@@ -78,21 +78,34 @@ public class BiesseIntegrationController {
         internalAuth.requireRead(authorization, internalToken);
         schemaAligner.ensureReady();
         BiesseObrasRepository.OrderJobMatch match = obrasRepository.resolveOrderForJob(jobName);
-        String matcher = "tokens-nbsp-v2";
+        String matcher = "tokens-nbsp-v3";
         if (match.order() == null && !match.ambiguous()) {
             List<Map<String, Object>> webHits =
                     scanService.getOrders(null, null, jobName, null, null, 40, 0);
+            if (webHits.isEmpty()) {
+                String op = BiesseObrasRepository.extractOp(jobName);
+                if (op != null) {
+                    webHits = scanService.getOrders(null, null, op, null, null, 40, 0);
+                }
+            }
             BiesseObrasRepository.OrderJobMatch web =
                     obrasRepository.resolveFromCandidateRows(jobName, webHits);
             if (web.order() != null || web.ambiguous() || !web.candidates().isEmpty()) {
                 match = web;
-                matcher = "web-search-fallback";
+                matcher = "web-search-fallback-v3";
             }
+        }
+        Integer ordenesCount = null;
+        try {
+            ordenesCount = obrasRepository.countOrdenes();
+        } catch (Exception ignored) {
+            // diagnóstico opcional
         }
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("ambiguous", match.ambiguous());
         out.put("found", match.order() != null);
         out.put("matcher", matcher);
+        out.put("ordenesCount", ordenesCount);
         out.put("order", match.order());
         out.put(
                 "candidates",
@@ -124,6 +137,12 @@ public class BiesseIntegrationController {
         if (match.order() == null && !match.ambiguous()) {
             List<Map<String, Object>> webHits =
                     scanService.getOrders(null, null, jobName, null, null, 40, 0);
+            if (webHits.isEmpty()) {
+                String op = BiesseObrasRepository.extractOp(jobName);
+                if (op != null) {
+                    webHits = scanService.getOrders(null, null, op, null, null, 40, 0);
+                }
+            }
             match = obrasRepository.resolveFromCandidateRows(jobName, webHits);
         }
         if (match.ambiguous()) {
