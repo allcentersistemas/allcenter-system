@@ -3,6 +3,7 @@ package com.allcenter.modulesystem.controller;
 import com.allcenter.modulesystem.dto.ClientAuthSessionResponse;
 import com.allcenter.modulesystem.dto.ChangePasswordRequest;
 import com.allcenter.modulesystem.dto.ClientLoginHistoryResponse;
+import com.allcenter.modulesystem.dto.ClientProfileUpdateRequest;
 import com.allcenter.modulesystem.dto.ClientResponse;
 import com.allcenter.modulesystem.dto.LoginRequest;
 import com.allcenter.modulesystem.dto.RefreshTokenRequest;
@@ -18,6 +19,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -64,6 +66,14 @@ public class ClientAuthController {
     @GetMapping("/me")
     public ResponseEntity<ClientResponse> me(@AuthenticationPrincipal ClientUserDetails principal) {
         return ResponseEntity.ok(authService.getProfile(principal.getClientUser().getId()));
+    }
+
+    @PutMapping("/me")
+    public ResponseEntity<ClientResponse> updateMe(
+            @AuthenticationPrincipal ClientUserDetails principal,
+            @Valid @RequestBody ClientProfileUpdateRequest request) {
+        return ResponseEntity.ok(
+                authService.updateProfile(principal.getClientUser().getId(), request));
     }
 
     @GetMapping("/login-history")

@@ -5,6 +5,7 @@ import com.allcenter.modulesystem.dto.ChangePasswordRequest;
 import com.allcenter.modulesystem.dto.ClientAuthSessionResponse;
 import com.allcenter.modulesystem.dto.ClientLoginEventResponse;
 import com.allcenter.modulesystem.dto.ClientLoginHistoryResponse;
+import com.allcenter.modulesystem.dto.ClientProfileUpdateRequest;
 import com.allcenter.modulesystem.dto.ClientRegisterRequest;
 import com.allcenter.modulesystem.dto.ClientResponse;
 import com.allcenter.modulesystem.dto.LoginRequest;
@@ -147,6 +148,9 @@ public class ClientAuthService {
         } else {
             applyNaturalProfile(client, request);
         }
+        if (request.telegramChatId() != null && !request.telegramChatId().isBlank()) {
+            client.setTelegramChatId(request.telegramChatId().trim());
+        }
 
         clientUserRepository.save(client);
         auditService.recordClientAccountCreated(client.getId(), client.getEmail());
@@ -219,6 +223,20 @@ public class ClientAuthService {
                 clientUserRepository
                         .findById(clientUserId)
                         .orElseThrow(() -> new NotFoundException("No existe un cliente con id " + clientUserId));
+        return ClientResponse.from(client);
+    }
+
+    @Transactional
+    public ClientResponse updateProfile(long clientUserId, ClientProfileUpdateRequest request) {
+        ClientUser client =
+                clientUserRepository
+                        .findById(clientUserId)
+                        .orElseThrow(() -> new NotFoundException("No existe un cliente con id " + clientUserId));
+        if (request.telegramChatId() != null) {
+            String chatId = request.telegramChatId().trim();
+            client.setTelegramChatId(chatId.isEmpty() ? null : chatId);
+        }
+        clientUserRepository.save(client);
         return ClientResponse.from(client);
     }
 
