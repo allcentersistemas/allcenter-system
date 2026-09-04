@@ -68,16 +68,41 @@ public class BiesseObrasRepository {
     private LocalDate seguimientoSince;
 
     public Map<String, Object> findOrderById(long orderId) {
-        List<Map<String, Object>> rows =
-                jdbc.queryForList(
-                        """
-                        SELECT orderid, ordername, bookingcode, op_codigo, estado_escaneo,
-                               nparts, partes_totales
-                        FROM ordenes
-                        WHERE orderid = ?
-                        """,
-                        orderId);
-        return rows.isEmpty() ? null : rows.getFirst();
+        try {
+            List<Map<String, Object>> rows =
+                    jdbc.queryForList(
+                            """
+                            SELECT orderid, ordername, bookingcode, op_codigo, estado_escaneo,
+                                   nparts, partes_totales
+                            FROM ordenes
+                            WHERE orderid = ?
+                            """,
+                            orderId);
+            return rows.isEmpty() ? null : rows.getFirst();
+        } catch (DataAccessException ex) {
+            log.warn("findOrderById({}) extras falló: {}", orderId, ex.getMostSpecificCause().getMessage());
+            try {
+                List<Map<String, Object>> rows =
+                        jdbc.queryForList(
+                                """
+                                SELECT orderid, ordername, bookingcode, op_codigo
+                                FROM ordenes
+                                WHERE orderid = ?
+                                """,
+                                orderId);
+                return rows.isEmpty() ? null : rows.getFirst();
+            } catch (DataAccessException ex2) {
+                List<Map<String, Object>> rows =
+                        jdbc.queryForList(
+                                """
+                                SELECT orderid, ordername, bookingcode
+                                FROM ordenes
+                                WHERE orderid = ?
+                                """,
+                                orderId);
+                return rows.isEmpty() ? null : rows.getFirst();
+            }
+        }
     }
 
     public record OrderJobMatch(

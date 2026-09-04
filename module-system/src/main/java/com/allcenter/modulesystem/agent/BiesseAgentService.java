@@ -85,20 +85,42 @@ public class BiesseAgentService {
                     "Obra ambigua para job «" + job + "»");
         }
 
-        // Fallback: misma búsqueda que la lista web (/integration/orders?q=).
+        // Resolver orderId (by-job o lista web) y pedir manifiesto por id — más fiable que re-match por nombre.
         String manifestJob = job;
+        Long orderId = extractOrderId(resolve != null ? resolve.get("order") : null);
         Object order = resolve != null ? resolve.get("order") : null;
-        if (order == null) {
-            String fromList = resolveJobViaListOrders(job);
+        if (orderId == null) {
+            ResolvedOrder fromList = resolveOrderViaListOrders(job);
             if (fromList != null) {
-                manifestJob = fromList;
-                order = Map.of("ordername", fromList);
+                manifestJob = fromList.orderName() != null ? fromList.orderName() : job;
+                orderId = fromList.orderId();
+                order = Map.of("ordername", manifestJob, "orderid", orderId != null ? orderId : 0);
             }
         }
 
-        BiesseObrasClient.ManifestFetch fetch = obrasClient.orderManifestFetch(manifestJob);
+        BiesseObrasClient.ManifestFetch fetch = obrasClient.orderManifestFetch(manifestJob, orderId);
+        if (("missing".equals(fetch.kind()) || "bridge".equals(fetch.kind()))
+                && orderId != null
+                && orderId > 0) {
+            // Reintento solo por id si el primer intento falló con job.
+            fetch = obrasClient.orderManifestFetch(null, orderId);
+        }
         if ("ok".equals(fetch.kind()) && fetch.body() != null) {
-            return fetch.body();
+            Map<String, Object> body = fetch.body();
+            Object parts = body.get("parts");
+            int n = parts instanceof java.util.List<?> list ? list.size() : -1;
+            if (n == 0) {
+                throw new org.springframework.web.server.ResponseStatusException(
+                        org.springframework.http.HttpStatus.NOT_FOUND,
+                        "Manifiesto de obra "
+                                + (orderId != null ? orderId + " " : "")
+                                + "«"
+                                + job
+                                + "» sin partes en ERP (partsRawCount="
+                                + body.get("partsRawCount")
+                                + "). Importe/asocie el XML de piezas.");
+            }
+            return body;
         }
         if ("ambiguous".equals(fetch.kind())) {
             throw new org.springframework.web.server.ResponseStatusException(
@@ -115,29 +137,54 @@ public class BiesseAgentService {
                             + (fetch.detail() != null ? " — " + fetch.detail() : ""));
         }
         String hint = buildManifestNotFoundHint(job, resolve, order);
+        if (fetch.message() != null) {
+            hint = hint + " Detalle: " + fetch.message();
+        }
         throw new org.springframework.web.server.ResponseStatusException(
                 org.springframework.http.HttpStatus.NOT_FOUND,
                 "Manifiesto no encontrado para job «" + job + "». " + hint);
     }
 
-    private String resolveJobViaListOrders(String job) {
+    private static Long extractOrderId(Object orderObj) {
+        if (!(orderObj instanceof Map<?, ?> order)) {
+            return null;
+        }
+        Object id = order.get("orderid");
+        if (id == null) {
+            id = order.get("orderId");
+        }
+        if (id instanceof Number n) {
+            return n.longValue();
+        }
+        if (id != null) {
+            try {
+                return Long.parseLong(String.valueOf(id).trim());
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private record ResolvedOrder(Long orderId, String orderName) {}
+
+    private ResolvedOrder resolveOrderViaListOrders(String job) {
         try {
             Map<String, Object> listed = obrasClient.listOrders(job, 40, 0);
-            String hit = pickCanonicalOrderName(job, listed);
+            ResolvedOrder hit = pickCanonicalOrder(job, listed);
             if (hit != null) {
                 return hit;
             }
-            // Misma OP numérica (p.ej. 31313) como en la UI al buscar parcial.
             String op = extractOpCodigo(job);
             if (op != null && !op.equalsIgnoreCase(job.trim())) {
                 listed = obrasClient.listOrders(op, 40, 0);
-                hit = pickCanonicalOrderName(job, listed);
+                hit = pickCanonicalOrder(job, listed);
                 if (hit != null) {
                     return hit;
                 }
             }
         } catch (Exception e) {
-            log.warn("resolveJobViaListOrders('{}'): {}", job, e.getMessage());
+            log.warn("resolveOrderViaListOrders('{}'): {}", job, e.getMessage());
         }
         return null;
     }
@@ -152,7 +199,7 @@ public class BiesseAgentService {
         return m.find() ? m.group(1).toUpperCase(Locale.ROOT) : null;
     }
 
-    private String pickCanonicalOrderName(String job, Map<String, Object> listed) {
+    private ResolvedOrder pickCanonicalOrder(String job, Map<String, Object> listed) {
         Object itemsObj = listed != null ? listed.get("items") : null;
         if (!(itemsObj instanceof java.util.List<?> items) || items.isEmpty()) {
             return null;
@@ -210,17 +257,28 @@ public class BiesseAgentService {
             nameObj = chosen.get("orderName");
         }
         String canonical = nameObj != null ? String.valueOf(nameObj).trim() : null;
+        Long oid = extractOrderId(chosen);
         if (canonical != null && !canonical.isBlank()) {
-            log.info("order-manifest fallback listOrders OK job='{}' → '{}'", job, canonical);
-            return canonical;
+            log.info(
+                    "order-manifest fallback listOrders OK job='{}' → id={} '{}'",
+                    job,
+                    oid,
+                    canonical);
+            return new ResolvedOrder(oid, canonical);
         }
-        return null;
+        return oid != null ? new ResolvedOrder(oid, null) : null;
     }
 
     private static String buildManifestNotFoundHint(
             String job, Map<String, Object> resolve, Object order) {
         if (order != null) {
-            return "se resolvió la obra, pero el manifiesto no devolvió partes.";
+            return "se resolvió la obra, pero el manifiesto falló al cargar partes"
+                    + (resolve != null && resolve.get("order") instanceof Map<?, ?> m
+                            ? " (orderId="
+                                    + (m.get("orderid") != null ? m.get("orderid") : m.get("orderId"))
+                                    + ")"
+                            : "")
+                    + ".";
         }
         if (resolve == null) {
             return "sin respuesta de by-job.";

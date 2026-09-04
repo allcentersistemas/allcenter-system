@@ -125,60 +125,96 @@ public class BiesseIntegrationController {
 
     /**
      * Manifiesto de obra para impresión local del agente (mapeo OSI P10 → ERP P1, cantidades, textos).
+     * Preferir {@code orderId} si ya se resolvió la obra (evita re-match frágil por nombre).
      */
     @GetMapping("/orders/manifest")
     public ResponseEntity<Map<String, Object>> orderManifest(
             @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
             @RequestHeader(value = BiesseInternalAuth.HEADER_INTERNAL, required = false) String internalToken,
-            @RequestParam String jobName) {
+            @RequestParam(required = false) String jobName,
+            @RequestParam(required = false) Long orderId) {
         internalAuth.requireRead(authorization, internalToken);
         schemaAligner.ensureReady();
-        BiesseObrasRepository.OrderJobMatch match = obrasRepository.resolveOrderForJob(jobName);
-        if (match.order() == null && !match.ambiguous()) {
-            List<Map<String, Object>> webHits =
-                    scanService.getOrders(null, null, jobName, null, null, 40, 0);
-            if (webHits.isEmpty()) {
-                String op = BiesseObrasRepository.extractOp(jobName);
-                if (op != null) {
-                    webHits = scanService.getOrders(null, null, op, null, null, 40, 0);
+
+        Map<String, Object> order = null;
+        if (orderId != null && orderId > 0) {
+            order = obrasRepository.findOrderById(orderId);
+        }
+        if (order == null && jobName != null && !jobName.isBlank()) {
+            BiesseObrasRepository.OrderJobMatch match = obrasRepository.resolveOrderForJob(jobName);
+            if (match.order() == null && !match.ambiguous()) {
+                List<Map<String, Object>> webHits =
+                        scanService.getOrders(null, null, jobName, null, null, 40, 0);
+                if (webHits.isEmpty()) {
+                    String op = BiesseObrasRepository.extractOp(jobName);
+                    if (op != null) {
+                        webHits = scanService.getOrders(null, null, op, null, null, 40, 0);
+                    }
                 }
+                match = obrasRepository.resolveFromCandidateRows(jobName, webHits);
             }
-            match = obrasRepository.resolveFromCandidateRows(jobName, webHits);
+            if (match.ambiguous()) {
+                Map<String, Object> conflict = new LinkedHashMap<>();
+                conflict.put("ambiguous", true);
+                conflict.put(
+                        "candidates",
+                        match.candidates().stream()
+                                .map(
+                                        row -> {
+                                            Map<String, Object> c = new LinkedHashMap<>();
+                                            c.put("orderId", row.get("orderid"));
+                                            c.put("orderName", row.get("ordername"));
+                                            c.put("opCodigo", row.get("op_codigo"));
+                                            return c;
+                                        })
+                                .toList());
+                conflict.put(
+                        "message",
+                        "Varias obras coinciden con el job OSI — corrija el nombre en ERP o en OSI.");
+                return ResponseEntity.status(HttpStatus.CONFLICT).body(conflict);
+            }
+            order = match.order();
         }
-        if (match.ambiguous()) {
-            Map<String, Object> conflict = new LinkedHashMap<>();
-            conflict.put("ambiguous", true);
-            conflict.put(
-                    "candidates",
-                    match.candidates().stream()
-                            .map(
-                                    row -> {
-                                        Map<String, Object> c = new LinkedHashMap<>();
-                                        c.put("orderId", row.get("orderid"));
-                                        c.put("orderName", row.get("ordername"));
-                                        c.put("opCodigo", row.get("op_codigo"));
-                                        return c;
-                                    })
-                            .toList());
-            conflict.put("message", "Varias obras coinciden con el job OSI — corrija el nombre en ERP o en OSI.");
-            return ResponseEntity.status(HttpStatus.CONFLICT).body(conflict);
-        }
-        Map<String, Object> order = match.order();
         if (order == null) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Orden no encontrada para job");
+            throw new ResponseStatusException(
+                    HttpStatus.NOT_FOUND,
+                    orderId != null
+                            ? "Orden no encontrada id=" + orderId
+                            : "Orden no encontrada para job");
         }
-        long orderId = ((Number) order.get("orderid")).longValue();
+        return ResponseEntity.ok(buildOrderManifest(order, jobName));
+    }
+
+    private Map<String, Object> buildOrderManifest(Map<String, Object> order, String jobName) {
+        Object idObj = order.get("orderid");
+        if (idObj == null) {
+            idObj = order.get("orderId");
+        }
+        if (!(idObj instanceof Number idNum)) {
+            throw new ResponseStatusException(
+                    HttpStatus.INTERNAL_SERVER_ERROR, "Orden sin orderid en manifiesto");
+        }
+        long oid = idNum.longValue();
         String orderName = str(order.get("ordername"));
+        if (orderName == null) {
+            orderName = str(order.get("orderName"));
+        }
         String booking = str(order.get("bookingcode"));
-        List<Map<String, Object>> parts = scanRepository.findOrderParts(orderId);
+        if (booking == null) {
+            booking = str(order.get("bookingCode"));
+        }
+        List<Map<String, Object>> parts = scanRepository.findOrderParts(oid);
         List<Map<String, Object>> manifestParts = new ArrayList<>();
+        int seq = 0;
         for (Map<String, Object> part : parts) {
             if (!(part.get("partid") instanceof Number partIdNum)) {
                 continue;
             }
+            seq++;
             int partNumber = intOrZero(part.get("partnumber"));
             if (partNumber <= 0) {
-                continue;
+                // Algunas importaciones dejan partnumber null/0; usar secuencia o dígitos de partcode.
+                partNumber = partNumberFromCode(str(part.get("partcode")), seq);
             }
             String partCode = str(part.get("partcode"));
             List<String> osiKeys = new ArrayList<>();
@@ -213,12 +249,31 @@ public class BiesseIntegrationController {
             manifestParts.add(row);
         }
         Map<String, Object> out = new LinkedHashMap<>();
-        out.put("orderId", orderId);
+        out.put("orderId", oid);
         out.put("orderName", orderName);
         out.put("bookingCode", booking);
-        out.put("jobName", jobName.trim());
+        out.put("jobName", jobName != null ? jobName.trim() : orderName);
+        out.put("partsCount", manifestParts.size());
+        out.put("partsRawCount", parts.size());
         out.put("parts", manifestParts);
-        return ResponseEntity.ok(out);
+        return out;
+    }
+
+    private static int partNumberFromCode(String partCode, int fallbackSeq) {
+        if (partCode != null && !partCode.isBlank()) {
+            String digits = partCode.trim().replaceAll("(?i)^P", "").replaceAll("[^0-9]", "");
+            if (!digits.isEmpty()) {
+                try {
+                    int n = Integer.parseInt(digits);
+                    if (n > 0) {
+                        return n;
+                    }
+                } catch (NumberFormatException ignored) {
+                    // fallback
+                }
+            }
+        }
+        return Math.max(1, fallbackSeq);
     }
 
     @GetMapping("/orders/{orderId}")
