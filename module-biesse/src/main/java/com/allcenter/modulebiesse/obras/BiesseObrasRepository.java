@@ -94,26 +94,33 @@ public class BiesseObrasRepository {
         }
         String op = extractOp(token);
         String compact = compactName(token);
+        log.info(
+                "resolveOrderForJob job='{}' token='{}' compact='{}' op={}",
+                jobName,
+                token,
+                compact,
+                op);
 
+        // TRIM solo quita espacio ASCII; NBSP (CHR(160)) en ordername rompe el = exacto.
         List<Map<String, Object>> exact = queryOrdersForJobMatch(
                 """
                 SELECT orderid, ordername, bookingcode, op_codigo, estado_escaneo,
                        nparts, partes_totales
                 FROM ordenes
-                WHERE UPPER(TRIM(ordername)) = UPPER(?)
-                   OR UPPER(REPLACE(REPLACE(TRIM(ordername), '_', ' '), ' ', '')) = UPPER(?)
-                   OR UPPER(REPLACE(TRIM(ordername), ' ', '')) = UPPER(?)
-                   OR (bookingcode IS NOT NULL AND UPPER(TRIM(bookingcode)) = UPPER(?))
+                WHERE UPPER(TRIM(BOTH FROM REPLACE(COALESCE(ordername, ''), CHR(160), ' '))) = UPPER(?)
+                   OR UPPER(REPLACE(REPLACE(REPLACE(COALESCE(ordername, ''), CHR(160), ''), '_', ''), ' ', '')) = UPPER(?)
+                   OR UPPER(REPLACE(REPLACE(COALESCE(ordername, ''), CHR(160), ' '), ' ', '')) = UPPER(?)
+                   OR (bookingcode IS NOT NULL AND UPPER(TRIM(BOTH FROM REPLACE(bookingcode, CHR(160), ' '))) = UPPER(?))
                 ORDER BY fechacreacion DESC
                 LIMIT 5
                 """,
                 """
                 SELECT orderid, ordername, bookingcode, op_codigo, estado_escaneo
                 FROM ordenes
-                WHERE UPPER(TRIM(ordername)) = UPPER(?)
-                   OR UPPER(REPLACE(REPLACE(TRIM(ordername), '_', ' '), ' ', '')) = UPPER(?)
-                   OR UPPER(REPLACE(TRIM(ordername), ' ', '')) = UPPER(?)
-                   OR (bookingcode IS NOT NULL AND UPPER(TRIM(bookingcode)) = UPPER(?))
+                WHERE UPPER(TRIM(BOTH FROM REPLACE(COALESCE(ordername, ''), CHR(160), ' '))) = UPPER(?)
+                   OR UPPER(REPLACE(REPLACE(REPLACE(COALESCE(ordername, ''), CHR(160), ''), '_', ''), ' ', '')) = UPPER(?)
+                   OR UPPER(REPLACE(REPLACE(COALESCE(ordername, ''), CHR(160), ' '), ' ', '')) = UPPER(?)
+                   OR (bookingcode IS NOT NULL AND UPPER(TRIM(BOTH FROM REPLACE(bookingcode, CHR(160), ' '))) = UPPER(?))
                 ORDER BY fechacreacion DESC
                 LIMIT 5
                 """,
@@ -241,34 +248,64 @@ public class BiesseObrasRepository {
         }
     }
 
-    /** Búsqueda flexible por nombre (tolera NBSP / mayúsculas / espacios). */
+    /**
+     * Misma idea que la lista web ({@code findOrders}): TODOS los tokens del job deben
+     * aparecer en ordername/booking/op (palabra completa tras normalizar no-alfanuméricos).
+     */
     private List<Map<String, Object>> queryOrdersLooseByName(String token, String compact) {
+        String[] tokens = jobSearchTokens(token);
+        if (tokens.length == 0) {
+            return List.of();
+        }
+        String nameNorm = "trim(regexp_replace(REPLACE(COALESCE(ordername, ''), CHR(160), ' '), '[^[:alnum:]]+', ' ', 'g'))";
+        String bookingNorm =
+                "trim(regexp_replace(REPLACE(COALESCE(bookingcode, ''), CHR(160), ' '), '[^[:alnum:]]+', ' ', 'g'))";
+        String opNorm =
+                "trim(regexp_replace(REPLACE(COALESCE(op_codigo, ''), CHR(160), ' '), '[^[:alnum:]]+', ' ', 'g'))";
+        StringBuilder sql = new StringBuilder(
+                """
+                SELECT orderid, ordername, bookingcode, op_codigo, estado_escaneo
+                FROM ordenes
+                WHERE (
+                """);
+        List<Object> args = new ArrayList<>();
+        // Exacto / compacto primero (barato).
+        sql.append(" UPPER(TRIM(BOTH FROM REPLACE(COALESCE(ordername, ''), CHR(160), ' '))) = UPPER(?) ");
+        args.add(token);
+        sql.append(" OR UPPER(REPLACE(REPLACE(REPLACE(COALESCE(ordername, ''), CHR(160), ''), '_', ''), ' ', '')) = UPPER(?) ");
+        args.add(compact);
+        sql.append(" OR ( ");
+        for (int i = 0; i < tokens.length; i++) {
+            if (i > 0) {
+                sql.append(" AND ");
+            }
+            sql.append(" ( ");
+            sql.append("((' ' || lower(").append(nameNorm).append(") || ' ') LIKE ('% ' || lower(?) || ' %'))");
+            args.add(tokens[i]);
+            sql.append(" OR ((' ' || lower(").append(bookingNorm).append(") || ' ') LIKE ('% ' || lower(?) || ' %'))");
+            args.add(tokens[i]);
+            sql.append(" OR ((' ' || lower(").append(opNorm).append(") || ' ') LIKE ('% ' || lower(?) || ' %'))");
+            args.add(tokens[i]);
+            sql.append(" ) ");
+        }
+        sql.append(" ) ) ORDER BY orderid DESC LIMIT 40 ");
         try {
-            return jdbc.queryForList(
-                    """
-                    SELECT orderid, ordername, bookingcode, op_codigo, estado_escaneo
-                    FROM ordenes
-                    WHERE UPPER(TRIM(BOTH FROM REPLACE(COALESCE(ordername, ''), CHR(160), ' '))) = UPPER(?)
-                       OR UPPER(REPLACE(REPLACE(REPLACE(COALESCE(ordername, ''), CHR(160), ''), '_', ''), ' ', '')) = UPPER(?)
-                       OR TRIM(BOTH FROM REPLACE(COALESCE(ordername, ''), CHR(160), ' ')) ILIKE ?
-                    ORDER BY orderid DESC
-                    LIMIT 20
-                    """,
-                    token,
-                    compact,
-                    token);
+            return jdbc.queryForList(sql.toString(), args.toArray());
         } catch (DataAccessException ex) {
             log.warn("resolveOrderForJob loose falló: {}", ex.getMostSpecificCause().getMessage());
             try {
+                // Sin regexp / op_codigo: ILIKE parcial con el nombre completo.
                 return jdbc.queryForList(
                         """
                         SELECT orderid, ordername, bookingcode
                         FROM ordenes
-                        WHERE TRIM(COALESCE(ordername, '')) ILIKE ?
+                        WHERE REPLACE(COALESCE(ordername, ''), CHR(160), ' ') ILIKE ?
+                           OR REPLACE(REPLACE(REPLACE(COALESCE(ordername, ''), CHR(160), ''), '_', ''), ' ', '') ILIKE ?
                         ORDER BY orderid DESC
-                        LIMIT 20
+                        LIMIT 40
                         """,
-                        token);
+                        "%" + token + "%",
+                        "%" + compact + "%");
             } catch (DataAccessException ex2) {
                 log.warn(
                         "resolveOrderForJob loose mínimo falló: {}",
@@ -276,6 +313,28 @@ public class BiesseObrasRepository {
                 return List.of();
             }
         }
+    }
+
+    /** Tokens alfanuméricos del job (igual que búsqueda web de obras). */
+    private static String[] jobSearchTokens(String query) {
+        if (query == null || query.isBlank()) {
+            return new String[0];
+        }
+        String norm =
+                query.trim()
+                        .replace('\u00A0', ' ')
+                        .replace('_', ' ')
+                        .replace('(', ' ')
+                        .replace(')', ' ')
+                        .replaceAll("[^A-Za-z0-9]+", " ")
+                        .trim();
+        if (norm.isEmpty()) {
+            return new String[0];
+        }
+        return java.util.Arrays.stream(norm.split("\\s+"))
+                .map(String::trim)
+                .filter(t -> !t.isEmpty())
+                .toArray(String[]::new);
     }
 
     public Map<String, Object> findOrderForJob(String jobName) {
@@ -375,7 +434,13 @@ public class BiesseObrasRepository {
         if (value == null) {
             return "";
         }
-        return value.replace('_', ' ').replaceAll("\\s+", " ").trim().toUpperCase(Locale.ROOT);
+        return value
+                .replace('\u00A0', ' ')
+                .replace('\u202F', ' ')
+                .replace('_', ' ')
+                .replaceAll("\\s+", " ")
+                .trim()
+                .toUpperCase(Locale.ROOT);
     }
 
     /** Token distintivo tipo K5IZQ / K5DER / K1DER. */

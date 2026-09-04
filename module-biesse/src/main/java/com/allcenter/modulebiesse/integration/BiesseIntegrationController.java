@@ -80,6 +80,8 @@ public class BiesseIntegrationController {
         BiesseObrasRepository.OrderJobMatch match = obrasRepository.resolveOrderForJob(jobName);
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("ambiguous", match.ambiguous());
+        out.put("found", match.order() != null);
+        out.put("matcher", "tokens-nbsp-v2");
         out.put("order", match.order());
         out.put(
                 "candidates",
@@ -93,9 +95,7 @@ public class BiesseIntegrationController {
                                     return c;
                                 })
                         .toList());
-        if (match.order() == null && !match.ambiguous()) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Orden no encontrada para job");
-        }
+        // 200 aunque no haya match: module-system necesita candidatos para diagnosticar 404.
         return ResponseEntity.ok(out);
     }
 

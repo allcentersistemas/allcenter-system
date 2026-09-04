@@ -100,10 +100,22 @@ public class BiesseAgentService {
                             + (fetch.detail() != null ? " — " + fetch.detail() : ""));
         }
         Object order = resolve != null ? resolve.get("order") : null;
-        String hint =
-                order == null
-                        ? "by-job no encontró ninguna obra con ese nombre exacto (sí puede aparecer en la lista web por búsqueda parcial)."
-                        : "by-job sí vio la obra, pero el manifiesto no devolvió partes.";
+        String hint;
+        if (order == null) {
+            Object cands = resolve != null ? resolve.get("candidates") : null;
+            int n = cands instanceof java.util.List<?> list ? list.size() : 0;
+            if (n > 0) {
+                hint =
+                        "by-job no eligió obra (candidatos="
+                                + n
+                                + "). Revise nombres en ERP vs job OSI.";
+            } else {
+                hint =
+                        "by-job no encontró obras (0 candidatos). Redeploy module-biesse si el fix de match no está vivo, o verifique que la obra exista en BD obras.";
+            }
+        } else {
+            hint = "by-job sí vio la obra, pero el manifiesto no devolvió partes.";
+        }
         throw new org.springframework.web.server.ResponseStatusException(
                 org.springframework.http.HttpStatus.NOT_FOUND,
                 "Manifiesto no encontrado para job «" + job + "». " + hint);
