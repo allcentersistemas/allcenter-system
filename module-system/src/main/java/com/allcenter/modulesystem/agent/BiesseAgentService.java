@@ -74,6 +74,9 @@ public class BiesseAgentService {
                             + resolve.get("bridgeError")
                             + (resolve.get("bridgeBody") != null
                                     ? " — " + resolve.get("bridgeBody")
+                                    : "")
+                            + (resolve.get("biesseBaseUrl") != null
+                                    ? " [base=" + resolve.get("biesseBaseUrl") + "]"
                                     : ""));
         }
         if (resolve != null && Boolean.TRUE.equals(resolve.get("ambiguous"))) {
@@ -81,7 +84,19 @@ public class BiesseAgentService {
                     org.springframework.http.HttpStatus.CONFLICT,
                     "Obra ambigua para job «" + job + "»");
         }
-        BiesseObrasClient.ManifestFetch fetch = obrasClient.orderManifestFetch(job);
+
+        // Fallback: misma búsqueda que la lista web (/integration/orders?q=).
+        String manifestJob = job;
+        Object order = resolve != null ? resolve.get("order") : null;
+        if (order == null) {
+            String fromList = resolveJobViaListOrders(job);
+            if (fromList != null) {
+                manifestJob = fromList;
+                order = Map.of("ordername", fromList);
+            }
+        }
+
+        BiesseObrasClient.ManifestFetch fetch = obrasClient.orderManifestFetch(manifestJob);
         if ("ok".equals(fetch.kind()) && fetch.body() != null) {
             return fetch.body();
         }
@@ -99,26 +114,107 @@ public class BiesseAgentService {
                             + fetch.message()
                             + (fetch.detail() != null ? " — " + fetch.detail() : ""));
         }
-        Object order = resolve != null ? resolve.get("order") : null;
-        String hint;
-        if (order == null) {
-            Object cands = resolve != null ? resolve.get("candidates") : null;
-            int n = cands instanceof java.util.List<?> list ? list.size() : 0;
-            if (n > 0) {
-                hint =
-                        "by-job no eligió obra (candidatos="
-                                + n
-                                + "). Revise nombres en ERP vs job OSI.";
-            } else {
-                hint =
-                        "by-job no encontró obras (0 candidatos). Redeploy module-biesse si el fix de match no está vivo, o verifique que la obra exista en BD obras.";
-            }
-        } else {
-            hint = "by-job sí vio la obra, pero el manifiesto no devolvió partes.";
-        }
+        String hint = buildManifestNotFoundHint(job, resolve, order);
         throw new org.springframework.web.server.ResponseStatusException(
                 org.springframework.http.HttpStatus.NOT_FOUND,
                 "Manifiesto no encontrado para job «" + job + "». " + hint);
+    }
+
+    /**
+     * Usa /integration/orders?q= (misma lógica que la UI). Devuelve ordername canónico o null.
+     */
+    private String resolveJobViaListOrders(String job) {
+        try {
+            Map<String, Object> listed = obrasClient.listOrders(job, 40, 0);
+            Object itemsObj = listed != null ? listed.get("items") : null;
+            if (!(itemsObj instanceof java.util.List<?> items) || items.isEmpty()) {
+                return null;
+            }
+            String jobNorm = job.replace('\u00A0', ' ').replaceAll("\\s+", " ").trim().toUpperCase();
+            String jobCompact = jobNorm.replace(" ", "").replace("_", "");
+            Map<?, ?> exact = null;
+            for (Object o : items) {
+                if (!(o instanceof Map<?, ?> row)) {
+                    continue;
+                }
+                Object nameObj = row.get("ordername");
+                if (nameObj == null) {
+                    nameObj = row.get("orderName");
+                }
+                if (nameObj == null) {
+                    continue;
+                }
+                String name = String.valueOf(nameObj).replace('\u00A0', ' ').replaceAll("\\s+", " ").trim();
+                String nameU = name.toUpperCase();
+                String nameCompact = nameU.replace(" ", "").replace("_", "");
+                if (nameU.equals(jobNorm) || nameCompact.equals(jobCompact)) {
+                    exact = row;
+                    break;
+                }
+            }
+            Map<?, ?> chosen = exact;
+            if (chosen == null && items.size() == 1 && items.get(0) instanceof Map<?, ?> only) {
+                chosen = only;
+            }
+            if (chosen == null) {
+                log.warn(
+                        "listOrders('{}') devolvió {} hits sin nombre exacto — no se usa fallback",
+                        job,
+                        items.size());
+                return null;
+            }
+            Object nameObj = chosen.get("ordername");
+            if (nameObj == null) {
+                nameObj = chosen.get("orderName");
+            }
+            String canonical = nameObj != null ? String.valueOf(nameObj).trim() : null;
+            if (canonical != null && !canonical.isBlank()) {
+                log.info("order-manifest fallback listOrders OK job='{}' → '{}'", job, canonical);
+                return canonical;
+            }
+        } catch (Exception e) {
+            log.warn("resolveJobViaListOrders('{}'): {}", job, e.getMessage());
+        }
+        return null;
+    }
+
+    private static String buildManifestNotFoundHint(
+            String job, Map<String, Object> resolve, Object order) {
+        if (order != null) {
+            return "se resolvió la obra, pero el manifiesto no devolvió partes.";
+        }
+        if (resolve == null) {
+            return "sin respuesta de by-job.";
+        }
+        if (Integer.valueOf(404).equals(resolve.get("biesseStatus"))) {
+            String body = resolve.get("bridgeBody") != null ? String.valueOf(resolve.get("bridgeBody")) : "";
+            String base =
+                    resolve.get("biesseBaseUrl") != null
+                            ? String.valueOf(resolve.get("biesseBaseUrl"))
+                            : "?";
+            if (body.toLowerCase().contains("static resource")
+                    || body.toLowerCase().contains("no static")) {
+                return "by-job HTTP 404 (ruta no existe en "
+                        + base
+                        + "). Revise APP_BIESSE_BASE_URL → debe apuntar a module-biesse (p.ej. http://module-biesse:8086), no al gateway :8080.";
+            }
+            return "by-job HTTP 404 desde "
+                    + base
+                    + (body.isBlank() ? "" : " — " + body)
+                    + ". Redeploy module-biesse o corrija APP_BIESSE_BASE_URL / token interno.";
+        }
+        Object matcher = resolve.get("matcher");
+        Object cands = resolve.get("candidates");
+        int n = cands instanceof java.util.List<?> list ? list.size() : 0;
+        if (matcher == null) {
+            return "by-job sin campo matcher (module-biesse antiguo). Redeploy module-biesse.";
+        }
+        if (n > 0) {
+            return "by-job matcher=" + matcher + " no eligió obra (candidatos=" + n + ").";
+        }
+        return "by-job matcher="
+                + matcher
+                + " con 0 candidatos. La obra no está en BD obras de ese module-biesse, o el SQL de match falló (ver logs resolveOrderForJob).";
     }
 
     public Map<String, Object> labelZpl(

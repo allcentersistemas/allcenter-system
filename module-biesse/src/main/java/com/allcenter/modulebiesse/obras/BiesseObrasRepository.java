@@ -216,7 +216,98 @@ public class BiesseObrasRepository {
         if (loose.size() == 1) {
             return new OrderJobMatch(loose.getFirst(), false, loose);
         }
-        return new OrderJobMatch(null, false, loose.isEmpty() ? candidates : loose);
+
+        // Último recurso: ILIKE %token% sin columnas opcionales.
+        List<Map<String, Object>> ilike = queryOrdersIlikeContains(token);
+        MatchPick pickIlike = pickBestOrderMatchDetailed(ilike, token, op);
+        if (pickIlike.order() != null && !pickIlike.ambiguous()) {
+            log.info(
+                    "resolveOrderForJob fallback ILIKE OK job='{}' → orderid={} name='{}'",
+                    token,
+                    pickIlike.order().get("orderid"),
+                    pickIlike.order().get("ordername"));
+            return new OrderJobMatch(pickIlike.order(), false, ilike);
+        }
+        if (pickIlike.ambiguous()) {
+            return new OrderJobMatch(null, true, ilike);
+        }
+        if (ilike.size() == 1) {
+            return new OrderJobMatch(ilike.getFirst(), false, ilike);
+        }
+        return new OrderJobMatch(
+                null, false, !ilike.isEmpty() ? ilike : (loose.isEmpty() ? candidates : loose));
+    }
+
+    /**
+     * Elige obra entre filas ya obtenidas (p.ej. {@code findOrders} / lista web).
+     * Normaliza claves orderid/ordername si vienen en camelCase.
+     */
+    public OrderJobMatch resolveFromCandidateRows(String jobName, List<Map<String, Object>> rows) {
+        if (jobName == null || jobName.isBlank() || rows == null || rows.isEmpty()) {
+            return new OrderJobMatch(null, false, List.of());
+        }
+        String token = normalizeJobToken(jobName);
+        String op = extractOp(token);
+        List<Map<String, Object>> normalized = new ArrayList<>();
+        for (Map<String, Object> row : rows) {
+            Map<String, Object> n = new LinkedHashMap<>(row);
+            if (!n.containsKey("orderid") && n.get("orderId") != null) {
+                n.put("orderid", n.get("orderId"));
+            }
+            if (!n.containsKey("ordername") && n.get("orderName") != null) {
+                n.put("ordername", n.get("orderName"));
+            }
+            if (!n.containsKey("op_codigo") && n.get("opCodigo") != null) {
+                n.put("op_codigo", n.get("opCodigo"));
+            }
+            normalized.add(n);
+        }
+        MatchPick pick = pickBestOrderMatchDetailed(normalized, token, op);
+        if (pick.order() != null && !pick.ambiguous()) {
+            return new OrderJobMatch(pick.order(), false, normalized);
+        }
+        if (pick.ambiguous()) {
+            return new OrderJobMatch(null, true, normalized);
+        }
+        if (normalized.size() == 1) {
+            return new OrderJobMatch(normalized.getFirst(), false, normalized);
+        }
+        return new OrderJobMatch(null, false, normalized);
+    }
+
+    private List<Map<String, Object>> queryOrdersIlikeContains(String token) {
+        if (token == null || token.isBlank()) {
+            return List.of();
+        }
+        try {
+            return jdbc.queryForList(
+                    """
+                    SELECT orderid, ordername, bookingcode, op_codigo
+                    FROM ordenes
+                    WHERE REPLACE(COALESCE(ordername, ''), CHR(160), ' ') ILIKE ?
+                    ORDER BY orderid DESC
+                    LIMIT 40
+                    """,
+                    "%" + token + "%");
+        } catch (DataAccessException ex) {
+            log.warn("resolveOrderForJob ILIKE falló: {}", ex.getMostSpecificCause().getMessage());
+            try {
+                return jdbc.queryForList(
+                        """
+                        SELECT orderid, ordername, bookingcode
+                        FROM ordenes
+                        WHERE ordername ILIKE ?
+                        ORDER BY orderid DESC
+                        LIMIT 40
+                        """,
+                        "%" + token + "%");
+            } catch (DataAccessException ex2) {
+                log.warn(
+                        "resolveOrderForJob ILIKE mínimo falló: {}",
+                        ex2.getMostSpecificCause().getMessage());
+                return List.of();
+            }
+        }
     }
 
     /**

@@ -78,10 +78,21 @@ public class BiesseIntegrationController {
         internalAuth.requireRead(authorization, internalToken);
         schemaAligner.ensureReady();
         BiesseObrasRepository.OrderJobMatch match = obrasRepository.resolveOrderForJob(jobName);
+        String matcher = "tokens-nbsp-v2";
+        if (match.order() == null && !match.ambiguous()) {
+            List<Map<String, Object>> webHits =
+                    scanService.getOrders(null, null, jobName, null, null, 40, 0);
+            BiesseObrasRepository.OrderJobMatch web =
+                    obrasRepository.resolveFromCandidateRows(jobName, webHits);
+            if (web.order() != null || web.ambiguous() || !web.candidates().isEmpty()) {
+                match = web;
+                matcher = "web-search-fallback";
+            }
+        }
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("ambiguous", match.ambiguous());
         out.put("found", match.order() != null);
-        out.put("matcher", "tokens-nbsp-v2");
+        out.put("matcher", matcher);
         out.put("order", match.order());
         out.put(
                 "candidates",
@@ -110,6 +121,11 @@ public class BiesseIntegrationController {
         internalAuth.requireRead(authorization, internalToken);
         schemaAligner.ensureReady();
         BiesseObrasRepository.OrderJobMatch match = obrasRepository.resolveOrderForJob(jobName);
+        if (match.order() == null && !match.ambiguous()) {
+            List<Map<String, Object>> webHits =
+                    scanService.getOrders(null, null, jobName, null, null, 40, 0);
+            match = obrasRepository.resolveFromCandidateRows(jobName, webHits);
+        }
         if (match.ambiguous()) {
             Map<String, Object> conflict = new LinkedHashMap<>();
             conflict.put("ambiguous", true);

@@ -156,9 +156,21 @@ public class BiesseObrasClient {
                             HttpMethod.GET,
                             new HttpEntity<>(headers()),
                             new ParameterizedTypeReference<>() {});
-            return res.getBody() != null ? res.getBody() : emptyResolve();
+            Map<String, Object> body = res.getBody();
+            Map<String, Object> out = body != null ? new HashMap<>(body) : emptyResolve();
+            out.putIfAbsent("biesseBaseUrl", biesseBaseUrl);
+            return out;
         } catch (HttpClientErrorException.NotFound e) {
-            return emptyResolve();
+            log.warn(
+                    "biesse resolveOrderForJob('{}'): HTTP 404 from {} — {}",
+                    jobName,
+                    biesseBaseUrl,
+                    trimBody(e.getResponseBodyAsString()));
+            Map<String, Object> m = emptyResolve();
+            m.put("biesseStatus", 404);
+            m.put("biesseBaseUrl", biesseBaseUrl);
+            m.put("bridgeBody", trimBody(e.getResponseBodyAsString()));
+            return m;
         } catch (HttpClientErrorException e) {
             log.warn(
                     "biesse resolveOrderForJob('{}'): HTTP {} {}",
@@ -168,11 +180,13 @@ public class BiesseObrasClient {
             Map<String, Object> m = emptyResolve();
             m.put("bridgeError", e.getStatusCode().value() + " " + e.getStatusText());
             m.put("bridgeBody", trimBody(e.getResponseBodyAsString()));
+            m.put("biesseBaseUrl", biesseBaseUrl);
             return m;
         } catch (Exception e) {
             log.warn("biesse resolveOrderForJob('{}'): {}", jobName, e.getMessage());
             Map<String, Object> m = emptyResolve();
             m.put("bridgeError", e.getMessage());
+            m.put("biesseBaseUrl", biesseBaseUrl);
             return m;
         }
     }
