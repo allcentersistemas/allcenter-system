@@ -379,7 +379,15 @@ public class BiesseAgentService {
             log.warn("Status job sin obra en ERP: job='{}' machine={}", jobName, machineId);
         }
 
-        repository.updateStatus(machineId, status, orderId);
+        Integer piecesTotal = null;
+        Long prevOrderId = before != null ? longOrNull(before.get("current_order_id")) : null;
+        if (orderId != null && (jobChanged || prevOrderId == null || !orderId.equals(prevOrderId))) {
+            piecesTotal = resolvePiecesTotal(order, orderId);
+        } else if (orderId == null && jobChanged) {
+            repository.clearPiecesTotal(machineId);
+        }
+
+        repository.updateStatus(machineId, status, orderId, piecesTotal);
 
         recordBoardsFromStatusDelta(
                 machineId,
@@ -399,8 +407,12 @@ public class BiesseAgentService {
         String activeCmd = status.activeCommand() != null ? status.activeCommand().trim() : "";
         boolean startProgram =
                 activeCmd.regionMatches(true, 0, "Start program", 0, "Start program".length());
+        boolean paused = "PAUSE".equals(state) || isPauseCommand(activeCmd);
         boolean cutting =
-                "RUN".equals(state) || startProgram || activeCmd.toLowerCase(Locale.ROOT).contains("start program");
+                "RUN".equals(state)
+                        || paused
+                        || startProgram
+                        || activeCmd.toLowerCase(Locale.ROOT).contains("start program");
         boolean jobActive =
                 jobName != null && !jobName.isBlank() && !"SINGLE".equalsIgnoreCase(jobName.trim());
 
@@ -409,7 +421,7 @@ public class BiesseAgentService {
             String source =
                     jobChanged
                             ? "STATUS_JOB"
-                            : (startProgram ? "STATUS_START" : "STATUS_RUN");
+                            : (startProgram ? "STATUS_START" : (paused ? "STATUS_PAUSE" : "STATUS_RUN"));
             markProduccionAndTrace(live, order, status.eventTime(), source);
         }
 
@@ -435,7 +447,9 @@ public class BiesseAgentService {
                 order,
                 status);
 
-        if (("IDLE".equals(state) || "UNKNOWN".equals(state)) && live.get("job_started_at") != null) {
+        if (("IDLE".equals(state) || "UNKNOWN".equals(state))
+                && !"PAUSE".equals(state)
+                && live.get("job_started_at") != null) {
             closeCuttingWindow(live, order, status.eventTime(), "STATUS_IDLE");
         }
 
@@ -631,6 +645,7 @@ public class BiesseAgentService {
         List<LabelDto> labels = new ArrayList<>();
         // Cursor de planchas dentro del batch (varios "Boards done" antes del status).
         final AtomicInteger boardsSessionTotal = new AtomicInteger(-1);
+        final AtomicInteger boardsLastAbsolute = new AtomicInteger(-1);
         final AtomicReference<Boolean> boardsJobRestart = new AtomicReference<>(false);
 
         for (AgentEventDto ev : request.eventsOrEmpty()) {
@@ -653,6 +668,7 @@ public class BiesseAgentService {
                                         ev,
                                         labels,
                                         boardsSessionTotal,
+                                        boardsLastAbsolute,
                                         boardsJobRestart));
                 accepted++;
             } catch (Exception ex) {
@@ -735,6 +751,7 @@ public class BiesseAgentService {
             AgentEventDto ev,
             List<LabelDto> labels,
             AtomicInteger boardsSessionTotal,
+            AtomicInteger boardsLastAbsolute,
             AtomicReference<Boolean> boardsJobRestart) {
         Instant eventTime = BiesseAgentRepository.parseEventTime(ev.eventTime());
         String type = ev.eventType() != null ? ev.eventType().trim() : "";
@@ -858,7 +875,23 @@ public class BiesseAgentService {
             } else {
                 action = "BOARDS_DONE_NO_ORDER";
             }
-            int boardsDelta = parseBoardsDelta(code);
+            int absolute = parseBoardsAbsolute(code);
+            int lastAbs = boardsLastAbsolute.get();
+            int boardsDelta;
+            if (absolute <= 0) {
+                boardsDelta = 1;
+            } else if (lastAbs < 0) {
+                boardsDelta = absolute;
+            } else if (absolute > lastAbs) {
+                boardsDelta = absolute - lastAbs;
+            } else {
+                // Reinicio de patrón (p.ej. 3→1): una plancha nueva.
+                boardsDelta = Math.max(absolute, 1);
+            }
+            if (absolute > 0) {
+                boardsLastAbsolute.set(absolute);
+            }
+
             int sessionTotal = boardsSessionTotal.get();
             if (sessionTotal < 0) {
                 int maxAfter = repository.maxBoardsTotalAfter(machineId, jobName);
@@ -1239,15 +1272,87 @@ public class BiesseAgentService {
                 "STATUS_DELTA");
     }
 
-    private static int parseBoardsDelta(String code) {
+    private static int parseBoardsAbsolute(String code) {
         if (code == null || code.isBlank()) {
-            return 1;
+            return 0;
         }
         try {
-            int n = Integer.parseInt(code.trim());
-            return Math.max(n, 1);
+            return Math.max(Integer.parseInt(code.trim()), 0);
         } catch (NumberFormatException e) {
-            return 1;
+            return 0;
+        }
+    }
+
+    /** @deprecated use {@link #parseBoardsAbsolute} + delta entre absolutos */
+    private static int parseBoardsDelta(String code) {
+        int abs = parseBoardsAbsolute(code);
+        return abs > 0 ? abs : 1;
+    }
+
+    private Integer resolvePiecesTotal(Map<String, Object> order, long orderId) {
+        if (order != null) {
+            Integer fromRow = intOrNull(order.get("partes_totales"));
+            if (fromRow == null) {
+                fromRow = intOrNull(order.get("nparts"));
+            }
+            if (fromRow != null && fromRow > 0) {
+                return fromRow;
+            }
+        }
+        try {
+            BiesseObrasClient.ManifestFetch fetch = obrasClient.orderManifestFetch(null, orderId);
+            if ("ok".equals(fetch.kind()) && fetch.body() != null) {
+                Object parts = fetch.body().get("parts");
+                if (parts instanceof List<?> list) {
+                    int sum = 0;
+                    for (Object p : list) {
+                        if (p instanceof Map<?, ?> m) {
+                            Object c = m.get("cantidad");
+                            if (c instanceof Number n) {
+                                sum += Math.max(n.intValue(), 1);
+                            } else {
+                                sum += 1;
+                            }
+                        }
+                    }
+                    if (sum > 0) {
+                        return sum;
+                    }
+                    Object pc = fetch.body().get("partsCount");
+                    if (pc instanceof Number n && n.intValue() > 0) {
+                        return n.intValue();
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("resolvePiecesTotal({}): {}", orderId, e.getMessage());
+        }
+        return null;
+    }
+
+    private static boolean isPauseCommand(String activeCmd) {
+        if (activeCmd == null || activeCmd.isBlank()) {
+            return false;
+        }
+        String d = activeCmd.toLowerCase(Locale.ROOT);
+        return d.contains("interrupcion")
+                || d.contains("interrupción")
+                || d.contains("interrupt")
+                || d.contains("pausa")
+                || d.contains("pause");
+    }
+
+    private static Long longOrNull(Object o) {
+        if (o instanceof Number n) {
+            return n.longValue();
+        }
+        if (o == null) {
+            return null;
+        }
+        try {
+            return Long.parseLong(String.valueOf(o).trim());
+        } catch (NumberFormatException e) {
+            return null;
         }
     }
 

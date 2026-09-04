@@ -206,9 +206,9 @@ public class BiesseAgentMonitorController {
         LocalDate toDate = parseDateParam(to);
         if (fromDate == null && toDate == null) {
             toDate = LocalDate.now();
-            fromDate = toDate.minusDays(7);
+            fromDate = toDate; // default: solo hoy
         } else if (fromDate == null) {
-            fromDate = toDate.minusDays(7);
+            fromDate = toDate;
         } else if (toDate == null) {
             toDate = LocalDate.now();
         }
@@ -237,9 +237,9 @@ public class BiesseAgentMonitorController {
         LocalDate toDate = parseDateParam(to);
         if (fromDate == null && toDate == null) {
             toDate = LocalDate.now();
-            fromDate = toDate.minusDays(7);
+            fromDate = toDate; // default: solo hoy
         } else if (fromDate == null) {
-            fromDate = toDate.minusDays(7);
+            fromDate = toDate;
         } else if (toDate == null) {
             toDate = LocalDate.now();
         }

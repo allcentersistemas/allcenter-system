@@ -50,7 +50,7 @@ public class BiesseAgentRepository {
                     log_path = COALESCE(?, log_path),
                     pending_queue_size = COALESCE(?, pending_queue_size),
                     log_byte_offset = COALESCE(?, log_byte_offset),
-                    health_status = COALESCE(?, health_status),
+                    health_status = CASE WHEN ? IS NOT NULL THEN ? ELSE health_status END,
                     last_error = ?,
                     last_heartbeat_at = CURRENT_TIMESTAMP
                 WHERE machine_id = ?
@@ -65,11 +65,17 @@ public class BiesseAgentRepository {
                 req.pendingQueueSize(),
                 req.logByteOffset(),
                 req.healthStatus(),
+                req.healthStatus(),
                 req.lastError(),
                 machineId);
     }
 
     public void updateStatus(int machineId, BiesseAgentDtos.StatusPayload status, Long orderId) {
+        updateStatus(machineId, status, orderId, null);
+    }
+
+    public void updateStatus(
+            int machineId, BiesseAgentDtos.StatusPayload status, Long orderId, Integer piecesTotal) {
         // UNKNOWN/vacío no pisa un estado OSI conocido (IDLE/RUN/…).
         String rawState = status.state();
         String stateParam =
@@ -88,10 +94,11 @@ public class BiesseAgentRepository {
                     last_part = ?,
                     boards_done = ?,
                     pieces_produced = ?,
+                    pieces_total = COALESCE(?, pieces_total),
                     osi_session_id = ?,
                     pending_queue_size = COALESCE(?, pending_queue_size),
                     log_byte_offset = COALESCE(?, log_byte_offset),
-                    health_status = COALESCE(?, health_status),
+                    health_status = CASE WHEN ? IS NOT NULL THEN ? ELSE health_status END,
                     current_order_id = ?,
                     last_status_at = CURRENT_TIMESTAMP
                 WHERE machine_id = ?
@@ -102,12 +109,18 @@ public class BiesseAgentRepository {
                 status.lastPart(),
                 status.boardsDone(),
                 status.piecesProduced(),
+                piecesTotal,
                 status.osiSessionId(),
                 status.pendingQueueSize(),
                 status.logByteOffset(),
                 status.healthStatus(),
+                status.healthStatus(),
                 orderId,
                 machineId);
+    }
+
+    public void clearPiecesTotal(int machineId) {
+        jdbc.update("UPDATE biesse_agent_machine SET pieces_total = NULL WHERE machine_id = ?", machineId);
     }
 
     public void markJobStarted(int machineId, Long orderId, Instant startedAt) {
@@ -379,7 +392,7 @@ public class BiesseAgentRepository {
                          ) > CURRENT_TIMESTAMP - (? * INTERVAL '1 second')
                        ) AS online,
                        state, job_name, pattern_name,
-                       last_part, boards_done, pieces_produced, osi_session_id,
+                       last_part, boards_done, pieces_produced, pieces_total, osi_session_id,
                        printer_name, printer_enabled, plant_name, hostname, machine_type,
                        health_status, last_error, agent_version, compatible_profile,
                        pending_queue_size, log_byte_offset,

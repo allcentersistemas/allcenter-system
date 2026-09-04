@@ -123,6 +123,8 @@ public class BiesseAgentSchemaAligner {
         jdbc.execute(
                 "ALTER TABLE biesse_agent_machine ADD COLUMN IF NOT EXISTS machine_type VARCHAR(40) DEFAULT 'SECCIONADOR'");
         jdbc.execute(
+                "ALTER TABLE biesse_agent_machine ADD COLUMN IF NOT EXISTS pieces_total INTEGER");
+        jdbc.execute(
                 "CREATE INDEX IF NOT EXISTS idx_biesse_agent_event_machine "
                         + "ON biesse_agent_event(machine_id, created_at DESC)");
         jdbc.execute(
