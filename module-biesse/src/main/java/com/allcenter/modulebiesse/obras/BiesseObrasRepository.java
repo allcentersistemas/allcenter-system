@@ -10,6 +10,7 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -18,6 +19,7 @@ import org.springframework.stereotype.Repository;
 /** Acceso a órdenes/partes/trazabilidad en BD {@code obras} (sin tablas de agente). */
 @Repository
 @RequiredArgsConstructor
+@Slf4j
 public class BiesseObrasRepository {
 
     public static final String ESTADO_OPTIMIZADO = "OPTIMIZADO";
@@ -181,7 +183,33 @@ public class BiesseObrasRepository {
                             compact));
         }
         MatchPick pick = pickBestOrderMatchDetailed(candidates, token, op);
-        return new OrderJobMatch(pick.order(), pick.ambiguous(), candidates);
+        if (pick.order() != null && !pick.ambiguous()) {
+            return new OrderJobMatch(pick.order(), false, candidates);
+        }
+        if (pick.ambiguous()) {
+            return new OrderJobMatch(null, true, candidates);
+        }
+
+        // Fallback: misma idea que la lista web (ILIKE / espacios raros). Evita 404 cuando
+        // el nombre en BD tiene NBSP u el SELECT estricto falló por columnas opcionales.
+        List<Map<String, Object>> loose = queryOrdersLooseByName(token, compact);
+        MatchPick pickLoose = pickBestOrderMatchDetailed(loose, token, op);
+        if (pickLoose.order() != null && !pickLoose.ambiguous()) {
+            log.info(
+                    "resolveOrderForJob fallback loose OK job='{}' → orderid={} name='{}'",
+                    token,
+                    pickLoose.order().get("orderid"),
+                    pickLoose.order().get("ordername"));
+            return new OrderJobMatch(pickLoose.order(), false, loose);
+        }
+        if (pickLoose.ambiguous()) {
+            return new OrderJobMatch(null, true, loose);
+        }
+        // Un solo resultado por búsqueda parcial de nombre completo → aceptar.
+        if (loose.size() == 1) {
+            return new OrderJobMatch(loose.getFirst(), false, loose);
+        }
+        return new OrderJobMatch(null, false, loose.isEmpty() ? candidates : loose);
     }
 
     /**
@@ -192,17 +220,60 @@ public class BiesseObrasRepository {
         try {
             return jdbc.queryForList(sqlWithExtras, args);
         } catch (DataAccessException ex) {
+            log.warn("resolveOrderForJob SQL extras falló: {}", ex.getMostSpecificCause().getMessage());
             try {
                 return jdbc.queryForList(sqlMinimal, args);
             } catch (DataAccessException ex2) {
-                // Último recurso: sin ORDER BY fechacreacion (esquemas muy viejos).
+                log.warn(
+                        "resolveOrderForJob SQL minimal falló: {}",
+                        ex2.getMostSpecificCause().getMessage());
                 String noOrderBy =
                         sqlMinimal.replaceAll("(?is)\\s+ORDER BY\\s+fechacreacion\\s+DESC\\s*", " ");
                 try {
                     return jdbc.queryForList(noOrderBy, args);
                 } catch (DataAccessException ex3) {
+                    log.warn(
+                            "resolveOrderForJob SQL sin ORDER BY falló: {}",
+                            ex3.getMostSpecificCause().getMessage());
                     return List.of();
                 }
+            }
+        }
+    }
+
+    /** Búsqueda flexible por nombre (tolera NBSP / mayúsculas / espacios). */
+    private List<Map<String, Object>> queryOrdersLooseByName(String token, String compact) {
+        try {
+            return jdbc.queryForList(
+                    """
+                    SELECT orderid, ordername, bookingcode, op_codigo, estado_escaneo
+                    FROM ordenes
+                    WHERE UPPER(TRIM(BOTH FROM REPLACE(COALESCE(ordername, ''), CHR(160), ' '))) = UPPER(?)
+                       OR UPPER(REPLACE(REPLACE(REPLACE(COALESCE(ordername, ''), CHR(160), ''), '_', ''), ' ', '')) = UPPER(?)
+                       OR TRIM(BOTH FROM REPLACE(COALESCE(ordername, ''), CHR(160), ' ')) ILIKE ?
+                    ORDER BY orderid DESC
+                    LIMIT 20
+                    """,
+                    token,
+                    compact,
+                    token);
+        } catch (DataAccessException ex) {
+            log.warn("resolveOrderForJob loose falló: {}", ex.getMostSpecificCause().getMessage());
+            try {
+                return jdbc.queryForList(
+                        """
+                        SELECT orderid, ordername, bookingcode
+                        FROM ordenes
+                        WHERE TRIM(COALESCE(ordername, '')) ILIKE ?
+                        ORDER BY orderid DESC
+                        LIMIT 20
+                        """,
+                        token);
+            } catch (DataAccessException ex2) {
+                log.warn(
+                        "resolveOrderForJob loose mínimo falló: {}",
+                        ex2.getMostSpecificCause().getMessage());
+                return List.of();
             }
         }
     }
@@ -318,8 +389,22 @@ public class BiesseObrasRepository {
     }
 
     private static String normalizeJobToken(String jobName) {
-        // OSI a veces manda _ y espacios dobles; unificar con ordername ERP.
-        String t = jobName.trim().replace('_', ' ').replaceAll("\\s+", " ");
+        // OSI / copiar-pegar: NBSP, zero-width, guiones raros y espacios dobles.
+        String t =
+                jobName
+                        .replace('\u00A0', ' ')
+                        .replace('\u202F', ' ')
+                        .replace("\u200B", "")
+                        .replace("\uFEFF", "")
+                        .replace('\u2013', '-')
+                        .replace('\u2014', '-')
+                        .replace('\u2018', '\'')
+                        .replace('\u2019', '\'')
+                        .replace('\u201C', '"')
+                        .replace('\u201D', '"')
+                        .trim()
+                        .replace('_', ' ')
+                        .replaceAll("\\s+", " ");
         // Quitar sufijo de patrón tipo ".001" pegado al nombre.
         Matcher suffix = PATTERN_SUFFIX.matcher(t);
         if (suffix.find()) {
