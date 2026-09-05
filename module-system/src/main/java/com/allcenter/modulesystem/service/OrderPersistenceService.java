@@ -569,7 +569,7 @@ public class OrderPersistenceService {
     @Transactional
     public OrderDtos.ProyectoResponse cancelProjectForEmployee(Long proyectoId) {
         ProyectoOptimizacion proyecto = requireProject(proyectoId);
-        cancelProjectInternal(proyecto);
+        cancelProjectInternal(proyecto, true);
         ProyectoOptimizacion saved = proyectoRepository.save(proyecto);
         recordProyectoAudit(AuditAction.UPDATE, saved, "Proyecto cancelado por empleado");
         return toProyectoResponse(saved, true);
@@ -578,7 +578,7 @@ public class OrderPersistenceService {
     @Transactional
     public OrderDtos.ProyectoResponse cancelProjectForClient(long clientUserId, Long proyectoId) {
         ProyectoOptimizacion proyecto = requireOwnedProject(clientUserId, proyectoId);
-        cancelProjectInternal(proyecto);
+        cancelProjectInternal(proyecto, false);
         ProyectoOptimizacion saved = proyectoRepository.save(proyecto);
         recordProyectoAudit(AuditAction.UPDATE, saved, "Proyecto cancelado por cliente portal");
         return toProyectoResponse(saved, false);
@@ -1193,17 +1193,31 @@ public class OrderPersistenceService {
                 .replace("\"", "&quot;");
     }
 
-    private void cancelProjectInternal(ProyectoOptimizacion proyecto) {
+    /**
+     * @param asEmployee true = Gestión/Ventas (puede cancelar cotizado y post-venta salvo entregado);
+     *                   false = portal cliente (solo ENVIADO / EN_ATENCION).
+     */
+    private void cancelProjectInternal(ProyectoOptimizacion proyecto, boolean asEmployee) {
         ProyectoEstado estado = proyecto.getEstado();
-        if (estado != null && estado.isPostVenta()) {
-            throw new IllegalArgumentException("No se puede cancelar un proyecto vendido o en seguimiento.");
-        }
         if (estado == ProyectoEstado.CANCELADO) {
             throw new IllegalArgumentException("El proyecto ya está cancelado.");
         }
-        if (estado == ProyectoEstado.COTIZADO) {
-            throw new IllegalArgumentException(
-                    "No se puede cancelar un proyecto ya cotizado. Contacte a ventas.");
+        if (estado == ProyectoEstado.ENTREGADO) {
+            throw new IllegalArgumentException("No se puede cancelar un proyecto ya entregado.");
+        }
+        if (!asEmployee) {
+            if (estado != null && estado.isPostVenta()) {
+                throw new IllegalArgumentException("No se puede cancelar un proyecto vendido o en seguimiento.");
+            }
+            if (estado == ProyectoEstado.COTIZADO) {
+                throw new IllegalArgumentException(
+                        "No se puede cancelar un proyecto ya cotizado. Contacte a ventas.");
+            }
+            if (estado != null
+                    && estado != ProyectoEstado.ENVIADO
+                    && estado != ProyectoEstado.EN_ATENCION) {
+                throw new IllegalArgumentException("Solo puede cancelar proyectos en enviado o en atención.");
+            }
         }
         applyEstadoChange(proyecto, ProyectoEstado.CANCELADO);
     }

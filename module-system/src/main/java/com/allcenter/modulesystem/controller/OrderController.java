@@ -239,7 +239,7 @@ public class OrderController {
     }
 
     @PostMapping("/proyectos/{proyectoId}/cancelar")
-    @PreAuthorize("@portalAuth.canCancel() or @portalAuth.canVentasGestion()")
+    @PreAuthorize("@portalAuth.canCancel() or @portalAuth.canVentasGestion() or @portalAuth.canGestion()")
     public OrderDtos.ProyectoResponse cancelarProyecto(@PathVariable Long proyectoId) {
         return service.cancelProjectForEmployee(proyectoId);
     }
