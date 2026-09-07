@@ -441,9 +441,15 @@ public class OrderPersistenceService {
             ProyectoOptimizacion current = proyectoRepository.findById(proyecto.getId()).orElse(proyecto);
             String estadoEscaneo =
                     firstNonBlank(str(obra.get("estado_escaneo")), str(obra.get("estadoEscaneo")));
-            maybeAdvanceFromObraEstado(
+            // Anidar XML/obra: como mínimo OPTIMIZADO. Si la obra ya tiene un estado
+            // operativo más avanzado (PRODUCCION…ENTREGADO), se respeta ese.
+            ProyectoEstado target = targetFromObraEstado(estadoEscaneo);
+            if (target == null) {
+                target = ProyectoEstado.OPTIMIZADO;
+            }
+            advanceFulfillmentInternal(
                     current,
-                    estadoEscaneo,
+                    target,
                     opCodigo,
                     "Obra Biesse asignada ("
                             + (orderName != null ? orderName : ("#" + biesseOrderId))
@@ -546,7 +552,8 @@ public class OrderPersistenceService {
             case "LISTO_PARA_ENTREGAR", "COMPLETADA", "COMPLETADO" -> ProyectoEstado.LISTO_PARA_ENTREGAR;
             case "DESPACHO", "EN_PROCESO" -> ProyectoEstado.DESPACHO;
             case "PRODUCCION" -> ProyectoEstado.PRODUCCION;
-            case "OPTIMIZADO" -> ProyectoEstado.OPTIMIZADO;
+            // PENDIENTE = XML recién creado / sin arrancar en planta → trata como OPTIMIZADO
+            case "OPTIMIZADO", "PENDIENTE" -> ProyectoEstado.OPTIMIZADO;
             default -> null;
         };
     }
