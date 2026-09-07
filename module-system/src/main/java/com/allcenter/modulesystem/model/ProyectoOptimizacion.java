@@ -60,6 +60,9 @@ public class ProyectoOptimizacion {
     @Column(name = "plano_archivo", length = 512)
     private String planoArchivo;
 
+    @Column(name = "xml_corte_archivo", length = 512)
+    private String xmlCorteArchivo;
+
     @Column(name = "fecha_estado_enviado")
     private LocalDateTime fechaEstadoEnviado;
 

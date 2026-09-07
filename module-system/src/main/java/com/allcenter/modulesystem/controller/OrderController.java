@@ -303,6 +303,14 @@ public class OrderController {
         return service.uploadPlano(principal.getEmployee().getId(), proyectoId, file);
     }
 
+    /** XML de corte manual (OP con "S" / venta): requiere proyecto VENDIDO; pasa a OPTIMIZADO. */
+    @PostMapping(value = "/proyectos/{proyectoId}/xml-corte", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("@portalAuth.canCreate() or @portalAuth.canGestionOrVentasGestion()")
+    public OrderDtos.ProyectoResponse uploadXmlCorte(
+            @PathVariable Long proyectoId, @RequestParam("file") MultipartFile file) {
+        return service.uploadXmlCorte(proyectoId, file);
+    }
+
     @GetMapping("/proyectos/{proyectoId}/planos")
     @PreAuthorize("@portalAuth.canRead()")
     public ResponseEntity<Resource> downloadPlanos(@PathVariable Long proyectoId) {

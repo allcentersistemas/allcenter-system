@@ -50,6 +50,7 @@ public class FulfillmentService {
                 orderPersistenceService.advanceFulfillmentInternal(
                         current,
                         ProyectoEstado.DESPACHO,
+                        orden.getOpCodigo(),
                         "Primera pieza escaneada en Android (" + label + ")");
                 current = proyectoRepository.findById(current.getId()).orElse(current);
             }
@@ -60,6 +61,7 @@ public class FulfillmentService {
                 orderPersistenceService.advanceFulfillmentInternal(
                         current,
                         ProyectoEstado.LISTO_PARA_ENTREGAR,
+                        orden.getOpCodigo(),
                         "Todas las piezas fueron escaneadas en Android (" + label + ")");
             }
         }
@@ -85,6 +87,7 @@ public class FulfillmentService {
             orderPersistenceService.advanceFulfillmentInternal(
                     current,
                     ProyectoEstado.PRODUCCION,
+                    orden.getOpCodigo(),
                     "Obra en producción (agente seccionadora: " + label + ")");
         }
     }
@@ -118,6 +121,7 @@ public class FulfillmentService {
                     orderPersistenceService.advanceFulfillmentInternal(
                             current,
                             ProyectoEstado.ENTREGADO,
+                            orden.getOpCodigo(),
                             "Marcado entregado desde Android (" + firstNonBlank(orderName, bookingCode) + ")");
             if (ok) {
                 advanced = true;
@@ -172,6 +176,7 @@ public class FulfillmentService {
                 orderPersistenceService.advanceFulfillmentInternal(
                         current,
                         ProyectoEstado.ENTREGADO,
+                        orden.getOpCodigo(),
                         "Marcado entregado desde Seguimiento (obra #" + biesseOrderId + ")");
             }
         }

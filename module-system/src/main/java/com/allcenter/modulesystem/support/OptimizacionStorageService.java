@@ -536,6 +536,42 @@ public class OptimizacionStorageService {
         return searchRoot.resolve("planos").resolve(Long.toString(proyectoId));
     }
 
+    /** XML de corte subido manualmente por un empleado (Mis proyectos → detalle, requiere VENDIDO). */
+    public String saveXmlCorte(long proyectoId, MultipartFile file) throws IOException {
+        if (file == null || file.isEmpty()) {
+            throw new ResponseStatusException(BAD_REQUEST, "Archivo vacío");
+        }
+        String original = file.getOriginalFilename();
+        String lower = original == null ? "" : original.toLowerCase(Locale.ROOT);
+        if (!lower.endsWith(".xml")) {
+            throw new ResponseStatusException(BAD_REQUEST, "El archivo debe ser un XML (.xml).");
+        }
+        ensureReady();
+        String name = UUID.randomUUID().toString().toLowerCase(Locale.ROOT) + ".xml";
+        Path dir = xmlCorteDir(root, proyectoId);
+        Files.createDirectories(dir);
+        // Un solo XML por proyecto: limpia archivos previos en la carpeta.
+        try (Stream<Path> stream = Files.list(dir)) {
+            stream.filter(OptimizacionStorageService::isReadableFile).forEach(p -> {
+                try {
+                    Files.deleteIfExists(p);
+                } catch (IOException ignored) {
+                    // best effort
+                }
+            });
+        } catch (IOException ignored) {
+            // best effort
+        }
+        Path target = dir.resolve(name);
+        file.transferTo(target.toFile());
+        log.info("XML de corte guardado proyecto {} en {}", proyectoId, target);
+        return name;
+    }
+
+    private static Path xmlCorteDir(Path searchRoot, long proyectoId) {
+        return searchRoot.resolve("xml-corte").resolve(Long.toString(proyectoId));
+    }
+
     private static boolean isReadableFile(Path path) {
         return path != null && Files.isRegularFile(path);
     }

@@ -187,17 +187,31 @@ public class OrderPersistenceService {
     @Transactional
     public OrderDtos.ProyectoResponse advanceFulfillment(Long proyectoId, ProyectoEstado target, String reason) {
         ProyectoOptimizacion proyecto = requireProject(proyectoId);
-        advanceFulfillmentInternal(proyecto, target, reason);
+        advanceFulfillmentInternal(proyecto, target, null, reason);
         return toProyectoResponse(proyecto, true);
     }
 
+    /**
+     * OP sin prefijo "S" = corte directo (no es venta): puede llegar a OPTIMIZADO sin haber
+     * pasado por VENDIDO. OP con "S" (o sin código) = venta: exige el flujo comercial completo.
+     */
+    private static boolean esVenta(String opCodigo) {
+        String c = opCodigo == null ? "" : opCodigo.trim();
+        return c.isEmpty() || c.toUpperCase().startsWith("S");
+    }
+
     @Transactional
-    public boolean advanceFulfillmentInternal(ProyectoOptimizacion proyecto, ProyectoEstado target, String reason) {
+    public boolean advanceFulfillmentInternal(
+            ProyectoOptimizacion proyecto, ProyectoEstado target, String opCodigo, String reason) {
         if (proyecto == null || target == null) {
             return false;
         }
         ProyectoEstado current = proyecto.getEstado();
-        if (current == null || !current.isPostVenta()) {
+        if (current == null) {
+            return false;
+        }
+        boolean skipVentaGate = target == ProyectoEstado.OPTIMIZADO && !esVenta(opCodigo);
+        if (!skipVentaGate && !current.isPostVenta()) {
             return false;
         }
         if (!current.canAdvanceTo(target)) {
@@ -430,6 +444,7 @@ public class OrderPersistenceService {
             maybeAdvanceFromObraEstado(
                     current,
                     estadoEscaneo,
+                    opCodigo,
                     "Obra Biesse asignada ("
                             + (orderName != null ? orderName : ("#" + biesseOrderId))
                             + ")");
@@ -459,18 +474,26 @@ public class OrderPersistenceService {
             current = proyectoRepository.findById(proyecto.getId()).orElse(current);
             String estadoEscaneo = resolveEstadoEscaneo(orden, biesseById);
             maybeAdvanceFromObraEstado(
-                    current, estadoEscaneo, "Post-venta: obra Biesse ya ligada al marcar VENDIDO");
+                    current,
+                    estadoEscaneo,
+                    orden.getOpCodigo(),
+                    "Post-venta: obra Biesse ya ligada al marcar VENDIDO");
         }
     }
 
     /**
-     * Si hay obras Biesse ligadas ya optimizadas / en producción, avanza el proyecto
-     * (VENDIDO → OPTIMIZADO → PRODUCCION) para poblar el tablero de seguimiento.
+     * Si hay obras Biesse ligadas ya optimizadas / en producción, avanza el proyecto para poblar
+     * el tablero de seguimiento. Incluye estados pre-venta porque las OP sin prefijo "S" (corte
+     * directo, no son venta) pueden llegar a OPTIMIZADO sin haber pasado por VENDIDO — ver
+     * {@link #advanceFulfillmentInternal}.
      */
     private void syncSeguimientoFromLinkedObras() {
         List<ProyectoOptimizacion> candidates =
                 proyectoRepository.findByEstadoInOrderByFechacreacionDesc(
                         List.of(
+                                ProyectoEstado.ENVIADO,
+                                ProyectoEstado.EN_ATENCION,
+                                ProyectoEstado.COTIZADO,
                                 ProyectoEstado.VENDIDO,
                                 ProyectoEstado.OPTIMIZADO,
                                 ProyectoEstado.PRODUCCION,
@@ -499,17 +522,18 @@ public class OrderPersistenceService {
             maybeAdvanceFromObraEstado(
                     current,
                     estadoEscaneo,
+                    orden.getOpCodigo(),
                     "Sync seguimiento desde obra Biesse");
         }
     }
 
     private void maybeAdvanceFromObraEstado(
-            ProyectoOptimizacion proyecto, String estadoEscaneo, String reason) {
+            ProyectoOptimizacion proyecto, String estadoEscaneo, String opCodigo, String reason) {
         ProyectoEstado target = targetFromObraEstado(estadoEscaneo);
         if (target == null || proyecto == null) {
             return;
         }
-        advanceFulfillmentInternal(proyecto, target, reason);
+        advanceFulfillmentInternal(proyecto, target, opCodigo, reason);
     }
 
     private static ProyectoEstado targetFromObraEstado(String estadoEscaneo) {
@@ -695,6 +719,32 @@ public class OrderPersistenceService {
             throw new IllegalArgumentException(ex.getReason() != null ? ex.getReason() : "No se pudo guardar los planos.");
         } catch (java.io.IOException ex) {
             throw new IllegalArgumentException("No se pudo guardar los planos.");
+        }
+    }
+
+    /**
+     * XML de corte subido manualmente (OP con "S" / venta): solo guarda el archivo y pasa a
+     * OPTIMIZADO — no reprocesa el XML como hace la sincronización de planta. Requiere que el
+     * proyecto ya esté VENDIDO.
+     */
+    @Transactional
+    public OrderDtos.ProyectoResponse uploadXmlCorte(
+            Long proyectoId, org.springframework.web.multipart.MultipartFile file) {
+        ProyectoOptimizacion proyecto = requireProject(proyectoId);
+        if (proyecto.getEstado() != ProyectoEstado.VENDIDO) {
+            throw new IllegalArgumentException("Solo se puede subir el XML de corte de un proyecto vendido.");
+        }
+        try {
+            String filename = optimizacionStorage.saveXmlCorte(proyectoId, file);
+            proyecto.setXmlCorteArchivo(filename);
+            applyEstadoChange(proyecto, ProyectoEstado.OPTIMIZADO);
+            ProyectoOptimizacion saved = proyectoRepository.save(proyecto);
+            recordProyectoAudit(AuditAction.UPDATE, saved, "XML de corte subido; estado OPTIMIZADO");
+            return toProyectoResponse(saved, true);
+        } catch (org.springframework.web.server.ResponseStatusException ex) {
+            throw new IllegalArgumentException(ex.getReason() != null ? ex.getReason() : "No se pudo guardar el XML.");
+        } catch (java.io.IOException ex) {
+            throw new IllegalArgumentException("No se pudo guardar el XML.");
         }
     }
 
