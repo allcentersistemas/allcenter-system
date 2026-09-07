@@ -541,17 +541,30 @@ public class OrderPersistenceService {
     }
 
     private List<ProyectoOptimizacion> listSeguimientoProjects() {
-        return proyectoRepository.findByEstadoInOrderByFechacreacionDesc(
-                List.of(
-                        ProyectoEstado.ENVIADO,
-                        ProyectoEstado.EN_ATENCION,
-                        ProyectoEstado.COTIZADO,
-                        ProyectoEstado.VENDIDO,
-                        ProyectoEstado.OPTIMIZADO,
-                        ProyectoEstado.PRODUCCION,
-                        ProyectoEstado.DESPACHO,
-                        ProyectoEstado.LISTO_PARA_ENTREGAR,
-                        ProyectoEstado.ENTREGADO));
+        List<ProyectoOptimizacion> all =
+                proyectoRepository.findByEstadoInOrderByFechacreacionDesc(
+                        List.of(
+                                ProyectoEstado.ENVIADO,
+                                ProyectoEstado.EN_ATENCION,
+                                ProyectoEstado.COTIZADO,
+                                ProyectoEstado.VENDIDO,
+                                ProyectoEstado.OPTIMIZADO,
+                                ProyectoEstado.PRODUCCION,
+                                ProyectoEstado.DESPACHO,
+                                ProyectoEstado.LISTO_PARA_ENTREGAR,
+                                ProyectoEstado.ENTREGADO));
+        LocalDate today = LocalDate.now();
+        List<ProyectoOptimizacion> out = new ArrayList<>();
+        for (ProyectoOptimizacion p : all) {
+            if (p.getEstado() == ProyectoEstado.ENTREGADO) {
+                LocalDateTime fe = p.getFechaEstadoEntregado();
+                if (fe == null || !fe.toLocalDate().equals(today)) {
+                    continue;
+                }
+            }
+            out.add(p);
+        }
+        return out;
     }
 
     private void maybeAdvanceAfterVendido(ProyectoOptimizacion proyecto) {
