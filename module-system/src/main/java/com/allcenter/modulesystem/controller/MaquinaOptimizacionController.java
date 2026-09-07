@@ -6,6 +6,7 @@ import jakarta.persistence.EntityNotFoundException;
 import java.util.List;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -38,11 +39,13 @@ public class MaquinaOptimizacionController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
+    @PreAuthorize("@portalAuth.canCreate() or @portalAuth.canGestionOrVentasGestion()")
     public OrderDtos.MaquinaResponse create(@RequestBody OrderDtos.MaquinaPayload payload) {
         return service.create(payload);
     }
 
     @PatchMapping("/{id}")
+    @PreAuthorize("@portalAuth.canCreate() or @portalAuth.canGestionOrVentasGestion()")
     public OrderDtos.MaquinaResponse update(
             @PathVariable Long id, @RequestBody OrderDtos.MaquinaPayload payload) {
         return service.update(id, payload);

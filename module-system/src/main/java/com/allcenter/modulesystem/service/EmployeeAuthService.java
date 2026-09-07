@@ -52,6 +52,7 @@ public class EmployeeAuthService {
     private final RegistrationProperties registrationProperties;
     private final FirstSetupProperties firstSetupProperties;
     private final AuthEndpointProperties authEndpointProperties;
+    private final com.allcenter.modulesystem.security.LoginRateLimiter loginRateLimiter;
 
     public EmployeeAuthService(
             EmployeeRepository employeeRepository,
@@ -65,7 +66,8 @@ public class EmployeeAuthService {
             AuditService auditService,
             RegistrationProperties registrationProperties,
             FirstSetupProperties firstSetupProperties,
-            AuthEndpointProperties authEndpointProperties) {
+            AuthEndpointProperties authEndpointProperties,
+            com.allcenter.modulesystem.security.LoginRateLimiter loginRateLimiter) {
         this.employeeRepository = employeeRepository;
         this.roleRepository = roleRepository;
         this.passwordEncoder = passwordEncoder;
@@ -78,6 +80,7 @@ public class EmployeeAuthService {
         this.registrationProperties = registrationProperties;
         this.firstSetupProperties = firstSetupProperties;
         this.authEndpointProperties = authEndpointProperties;
+        this.loginRateLimiter = loginRateLimiter;
     }
 
     @Transactional(readOnly = true)
@@ -149,13 +152,20 @@ public class EmployeeAuthService {
     @Transactional
     public EmployeeAuthSessionResponse login(LoginRequest request, ClientRequestInfo connection) {
         String username = normalizeLoginUsername(request.username());
+        String rateLimitKey =
+                com.allcenter.modulesystem.security.LoginRateLimiter.key(
+                        "employee", username, connection == null ? null : connection.clientIp());
+        loginRateLimiter.checkAllowed(rateLimitKey);
         try {
             Authentication auth =
                     authenticationManager.authenticate(
                             new UsernamePasswordAuthenticationToken(username, request.password()));
             EmployeeUserDetails principal = (EmployeeUserDetails) auth.getPrincipal();
-            return completeLoginSession(principal, connection);
+            EmployeeAuthSessionResponse response = completeLoginSession(principal, connection);
+            loginRateLimiter.recordSuccess(rateLimitKey);
+            return response;
         } catch (RuntimeException ex) {
+            loginRateLimiter.recordFailure(rateLimitKey);
             auditService.recordLoginFailure(username, ex.getMessage());
             throw ex;
         }

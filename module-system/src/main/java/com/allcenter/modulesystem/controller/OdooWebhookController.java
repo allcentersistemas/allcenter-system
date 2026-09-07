@@ -5,19 +5,24 @@ import com.allcenter.modulesystem.service.OdooWebhookService;
 import jakarta.servlet.http.HttpServletRequest;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 @RestController
 @RequiredArgsConstructor
@@ -25,18 +30,40 @@ public class OdooWebhookController {
 
     private final OdooWebhookService odooWebhookService;
 
+    /** Vacío = sin verificación (compatibilidad); si se configura, exige {@code X-Odoo-Secret}. */
+    @Value("${app.odoo.webhook-secret:}")
+    private String webhookSecret;
+
     @PostMapping(
             value = "/webhook/odoo-orden-compra",
             consumes = {MediaType.APPLICATION_JSON_VALUE, MediaType.TEXT_PLAIN_VALUE, MediaType.ALL_VALUE})
-    public ResponseEntity<Map<String, Object>> ordenCompra(HttpServletRequest request) throws IOException {
+    public ResponseEntity<Map<String, Object>> ordenCompra(
+            @RequestHeader(value = "X-Odoo-Secret", required = false) String secret, HttpServletRequest request)
+            throws IOException {
+        requireSecret(secret);
         return ingest("ORDEN_COMPRA", request);
     }
 
     @PostMapping(
             value = "/webhook/odoo-pago",
             consumes = {MediaType.APPLICATION_JSON_VALUE, MediaType.TEXT_PLAIN_VALUE, MediaType.ALL_VALUE})
-    public ResponseEntity<Map<String, Object>> pago(HttpServletRequest request) throws IOException {
+    public ResponseEntity<Map<String, Object>> pago(
+            @RequestHeader(value = "X-Odoo-Secret", required = false) String secret, HttpServletRequest request)
+            throws IOException {
+        requireSecret(secret);
         return ingest("PAGO", request);
+    }
+
+    private void requireSecret(String got) {
+        if (webhookSecret == null || webhookSecret.isBlank()) {
+            return;
+        }
+        String expected = webhookSecret.trim();
+        String actual = got != null ? got.trim() : "";
+        if (!MessageDigest.isEqual(
+                expected.getBytes(StandardCharsets.UTF_8), actual.getBytes(StandardCharsets.UTF_8))) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Webhook secret inválido");
+        }
     }
 
     @GetMapping("/api/admin/odoo-webhooks")

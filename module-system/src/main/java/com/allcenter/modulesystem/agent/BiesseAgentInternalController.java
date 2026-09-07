@@ -1,5 +1,7 @@
 package com.allcenter.modulesystem.agent;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
@@ -51,7 +53,11 @@ public class BiesseAgentInternalController {
     private void requireInternal(String token) {
         String expected = internalToken != null ? internalToken.trim() : "";
         String got = token != null ? token.trim() : "";
-        if (expected.isBlank() || !expected.equals(got)) {
+        boolean matches =
+                !expected.isBlank()
+                        && MessageDigest.isEqual(
+                                expected.getBytes(StandardCharsets.UTF_8), got.getBytes(StandardCharsets.UTF_8));
+        if (!matches) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Token interno inválido");
         }
     }

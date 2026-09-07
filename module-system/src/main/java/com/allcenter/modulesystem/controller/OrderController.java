@@ -55,6 +55,7 @@ public class OrderController {
     }
 
     @GetMapping({"/proyectos", "/projects"})
+    @PreAuthorize("@portalAuth.canRead()")
     public List<OrderDtos.ProyectoResumenResponse> listProyectos(
             @AuthenticationPrincipal EmployeeUserDetails principal,
             @RequestParam(defaultValue = "todos") String scope,
@@ -77,12 +78,14 @@ public class OrderController {
 
     @PostMapping({"/proyectos", "/projects"})
     @ResponseStatus(HttpStatus.CREATED)
+    @PreAuthorize("@portalAuth.canCreate() or @portalAuth.canGestionOrVentasGestion()")
     public OrderDtos.ProyectoResponse createProyecto(@RequestBody OrderDtos.ProyectoPayload payload) {
         return service.saveProyecto(payload);
     }
 
     @PostMapping("/proyectos/guardar-completo")
     @ResponseStatus(HttpStatus.CREATED)
+    @PreAuthorize("@portalAuth.canCreate() or @portalAuth.canGestionOrVentasGestion()")
     public OrderDtos.ProyectoConOrdenesResponse saveFullProject(
             @RequestBody OrderDtos.ProyectoCompuestoPayload payload) {
         return service.saveProjectTreeForEmployee(payload);
@@ -90,6 +93,7 @@ public class OrderController {
 
     @PostMapping("/proyectos/{proyectoId}/ordenes")
     @ResponseStatus(HttpStatus.CREATED)
+    @PreAuthorize("@portalAuth.canCreate() or @portalAuth.canGestionOrVentasGestion()")
     public OrderDtos.OrdenResponse createOrden(
             @PathVariable Long proyectoId,
             @RequestBody OrderDtos.OrdenPayload payload) {
@@ -98,6 +102,7 @@ public class OrderController {
 
     @PostMapping("/projects/{proyectoId}/orders")
     @ResponseStatus(HttpStatus.CREATED)
+    @PreAuthorize("@portalAuth.canCreate() or @portalAuth.canGestionOrVentasGestion()")
     public OrderDtos.OrdenResponse createOrdenLegacy(
             @PathVariable Long proyectoId,
             @RequestBody OrderDtos.OrdenPayload payload) {
@@ -105,6 +110,7 @@ public class OrderController {
     }
 
     @PutMapping("/ordenes/{ordenId}/detalles")
+    @PreAuthorize("@portalAuth.canCreate() or @portalAuth.canGestionOrVentasGestion()")
     public List<OrderDtos.DetalleResponse> replaceDetalles(
             @PathVariable Long ordenId,
             @RequestBody List<OrderDtos.DetallePayload> payload) {
@@ -112,6 +118,7 @@ public class OrderController {
     }
 
     @PutMapping("/orders/{ordenId}/details")
+    @PreAuthorize("@portalAuth.canCreate() or @portalAuth.canGestionOrVentasGestion()")
     public List<OrderDtos.DetalleResponse> replaceDetallesLegacy(
             @PathVariable Long ordenId,
             @RequestBody List<OrderDtos.DetallePayload> payload) {
@@ -119,11 +126,13 @@ public class OrderController {
     }
 
     @GetMapping("/proyectos/seguimiento")
+    @PreAuthorize("@portalAuth.canRead()")
     public java.util.List<OrderDtos.ProyectoResumenResponse> listSeguimiento() {
         return service.listSeguimiento();
     }
 
     @GetMapping("/proyectos/seguimiento/ops")
+    @PreAuthorize("@portalAuth.canRead()")
     public java.util.List<OrderDtos.SeguimientoOpResponse> listSeguimientoByOp() {
         return service.listSeguimientoByOp();
     }
@@ -131,6 +140,7 @@ public class OrderController {
     /** Tablero Resumen → Seguimiento: una card por XML/obra (estado_escaneo).
      * @param since fecha mínima yyyy-MM-dd (opcional; default en module-biesse). */
     @GetMapping("/obras/seguimiento")
+    @PreAuthorize("@portalAuth.canRead()")
     public java.util.List<OrderDtos.SeguimientoObraResponse> listSeguimientoObras(
             @RequestParam(required = false) String since) {
         return service.listSeguimientoObras(since);
@@ -138,11 +148,13 @@ public class OrderController {
 
     /** Canal en vivo (SSE) del tablero de seguimiento. Emite {@code snapshot} y {@code update}. */
     @GetMapping(value = "/obras/seguimiento/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @PreAuthorize("@portalAuth.canRead()")
     public SseEmitter streamSeguimientoObras(@RequestParam(required = false) String since) {
         return seguimientoLiveHub.connect(since);
     }
 
     @PostMapping("/obras/{biesseOrderId}/entregado")
+    @PreAuthorize("@portalAuth.canUpdate() or @portalAuth.canGestionOrVentasGestion()")
     public OrderDtos.FulfillmentActionResponse markObraEntregado(@PathVariable long biesseOrderId) {
         return fulfillmentService.markEntregadoByBiesseOrderId(biesseOrderId);
     }
@@ -165,6 +177,7 @@ public class OrderController {
     }
 
     @GetMapping({"/proyectos/{proyectoId}", "/projects/{proyectoId}"})
+    @PreAuthorize("@portalAuth.canRead()")
     public OrderDtos.ProyectoConOrdenesResponse getProyecto(@PathVariable Long proyectoId) {
         return service.getProjectTree(proyectoId);
     }
@@ -183,6 +196,7 @@ public class OrderController {
     }
 
     @PostMapping("/proyectos/{proyectoId}/capturar")
+    @PreAuthorize("@portalAuth.canCreate() or @portalAuth.canGestionOrVentasGestion()")
     public OrderDtos.ProyectoResponse capturarProyecto(
             @AuthenticationPrincipal EmployeeUserDetails principal,
             @PathVariable Long proyectoId) {
@@ -191,6 +205,7 @@ public class OrderController {
 
     @PatchMapping("/proyectos/{proyectoId}/estado")
     @Deprecated
+    @PreAuthorize("@portalAuth.canUpdate() or @portalAuth.canGestionOrVentasGestion()")
     public OrderDtos.ProyectoResponse updateEstado(
             @PathVariable Long proyectoId,
             @RequestBody OrderDtos.ProyectoEstadoPayload payload) {
@@ -206,6 +221,7 @@ public class OrderController {
     }
 
     @PostMapping("/proyectos/{proyectoId}/vendido")
+    @PreAuthorize("@portalAuth.canCreate() or @portalAuth.canGestionOrVentasGestion()")
     public OrderDtos.ProyectoResponse markVendido(
             @AuthenticationPrincipal EmployeeUserDetails principal,
             @PathVariable Long proyectoId) {
@@ -213,12 +229,14 @@ public class OrderController {
     }
 
     @PostMapping("/proyectos/{proyectoId}/entregado")
+    @PreAuthorize("@portalAuth.canUpdate() or @portalAuth.canGestionOrVentasGestion()")
     public OrderDtos.ProyectoResponse markEntregado(@PathVariable Long proyectoId) {
         return service.advanceFulfillment(
                 proyectoId, com.allcenter.modulesystem.model.ProyectoEstado.ENTREGADO, "Marcado entregado manualmente");
     }
 
     @PostMapping("/fulfillment/android-scan")
+    @PreAuthorize("@portalAuth.canCreate()")
     public void androidScanProgress(@RequestBody OrderDtos.AndroidScanProgressPayload payload) {
         if (payload == null) {
             return;
@@ -230,6 +248,7 @@ public class OrderController {
     }
 
     @PostMapping("/fulfillment/android-entregado")
+    @PreAuthorize("@portalAuth.canCreate()")
     public OrderDtos.FulfillmentActionResponse markEntregadoFromAndroid(
             @RequestBody OrderDtos.AndroidOrderRefPayload payload) {
         if (payload == null) {
@@ -245,6 +264,7 @@ public class OrderController {
     }
 
     @PatchMapping("/proyectos/{proyectoId}/maquina")
+    @PreAuthorize("@portalAuth.canCreate() or @portalAuth.canGestionOrVentasGestion()")
     public OrderDtos.ProyectoResponse updateMaquina(
             @PathVariable Long proyectoId,
             @RequestBody OrderDtos.ProyectoMaquinaPayload payload) {
@@ -252,6 +272,7 @@ public class OrderController {
     }
 
     @PostMapping(value = "/proyectos/{proyectoId}/cotizacion", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("@portalAuth.canCreate() or @portalAuth.canGestionOrVentasGestion()")
     public OrderDtos.ProyectoResponse uploadCotizacion(
             @AuthenticationPrincipal EmployeeUserDetails principal,
             @PathVariable Long proyectoId,
@@ -260,6 +281,7 @@ public class OrderController {
     }
 
     @GetMapping("/proyectos/{proyectoId}/cotizacion")
+    @PreAuthorize("@portalAuth.canRead()")
     public ResponseEntity<Resource> downloadCotizacion(@PathVariable Long proyectoId) {
         OrderDtos.ProyectoConOrdenesResponse tree = service.getProjectTree(proyectoId);
         String filename = tree.project().cotizacionArchivo();
@@ -273,6 +295,7 @@ public class OrderController {
     }
 
     @PostMapping(value = "/proyectos/{proyectoId}/planos", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("@portalAuth.canCreate() or @portalAuth.canGestionOrVentasGestion()")
     public OrderDtos.ProyectoResponse uploadPlanos(
             @AuthenticationPrincipal EmployeeUserDetails principal,
             @PathVariable Long proyectoId,
@@ -281,6 +304,7 @@ public class OrderController {
     }
 
     @GetMapping("/proyectos/{proyectoId}/planos")
+    @PreAuthorize("@portalAuth.canRead()")
     public ResponseEntity<Resource> downloadPlanos(@PathVariable Long proyectoId) {
         OrderDtos.ProyectoConOrdenesResponse tree = service.getProjectTree(proyectoId);
         String filename = tree.project().planoArchivo();

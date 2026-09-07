@@ -60,7 +60,7 @@ public class RmApiController {
     public RmApiModels.Created postVehiculo(MultipartHttpServletRequest request) throws IOException {
         MultipartFile data = requireDataPart(request);
         List<MultipartFile> photos = request.getFiles("photos");
-        String user = trimHeaderEmail(request);
+        String user = resolveActorEmail();
         return registroService.createRegistroVehiculo(data.getBytes(), photos, user);
     }
 
@@ -97,7 +97,7 @@ public class RmApiController {
     public RmApiModels.Created postEntrada(MultipartHttpServletRequest request) throws IOException {
         MultipartFile data = requireDataPart(request);
         List<MultipartFile> photos = request.getFiles("photos");
-        String user = trimHeaderEmail(request);
+        String user = resolveActorEmail();
         return registroService.createRegistroEntrada(data.getBytes(), photos, user);
     }
 
@@ -107,7 +107,7 @@ public class RmApiController {
     public RmApiModels.Created postIngresoCompleto(MultipartHttpServletRequest request) throws IOException {
         MultipartFile data = requireDataPart(request);
         List<MultipartFile> photos = request.getFiles("photos");
-        String user = trimHeaderEmail(request);
+        String user = resolveActorEmail();
         Long branchId =
                 employeeResolver.resolve(request).map(AuthenticatedEmployeeResolver.Context::branchId).orElse(null);
         return registroService.createIngresoCompleto(data.getBytes(), photos, user, branchId);
@@ -119,7 +119,7 @@ public class RmApiController {
     public RmApiModels.Created postSalidaCompleto(MultipartHttpServletRequest request) throws IOException {
         MultipartFile data = requireDataPart(request);
         List<MultipartFile> photos = request.getFiles("photos");
-        String user = trimHeaderEmail(request);
+        String user = resolveActorEmail();
         Long branchId =
                 employeeResolver.resolve(request).map(AuthenticatedEmployeeResolver.Context::branchId).orElse(null);
         return registroService.createSalidaCompleto(data.getBytes(), photos, user, branchId);
@@ -151,7 +151,7 @@ public class RmApiController {
             @PathVariable long id,
             @RequestBody RmPayloadModels.CancelPayload body,
             HttpServletRequest request) {
-        registroService.cancelRegistroEntrada(id, body, trimHeaderEmail(request));
+        registroService.cancelRegistroEntrada(id, body, resolveActorEmail());
         return new RmApiModels.Created(id);
     }
 
@@ -160,7 +160,7 @@ public class RmApiController {
     public RmApiModels.Created postSalida(MultipartHttpServletRequest request) throws IOException {
         MultipartFile data = requireDataPart(request);
         List<MultipartFile> photos = request.getFiles("photos");
-        String user = trimHeaderEmail(request);
+        String user = resolveActorEmail();
         Long branchId =
                 employeeResolver.resolve(request).map(AuthenticatedEmployeeResolver.Context::branchId).orElse(null);
         return registroService.createRegistroSalida(data.getBytes(), photos, user, branchId);
@@ -192,7 +192,7 @@ public class RmApiController {
             @PathVariable long id,
             @RequestBody RmPayloadModels.CancelPayload body,
             HttpServletRequest request) {
-        registroService.cancelRegistroSalida(id, body, trimHeaderEmail(request));
+        registroService.cancelRegistroSalida(id, body, resolveActorEmail());
         return new RmApiModels.Created(id);
     }
 
@@ -201,7 +201,7 @@ public class RmApiController {
     public RmApiModels.Created postActa(MultipartHttpServletRequest request) throws IOException {
         MultipartFile data = requireDataPart(request);
         List<MultipartFile> photos = request.getFiles("photos");
-        String user = trimHeaderEmail(request);
+        String user = resolveActorEmail();
         return registroService.createActaConformidad(data.getBytes(), photos, user);
     }
 
@@ -237,7 +237,7 @@ public class RmApiController {
             @PathVariable long id,
             @RequestBody RmPayloadModels.CancelPayload body,
             HttpServletRequest request) {
-        registroService.cancelActaConformidad(id, body, trimHeaderEmail(request));
+        registroService.cancelActaConformidad(id, body, resolveActorEmail());
         return new RmApiModels.Created(id);
     }
 
@@ -362,13 +362,23 @@ public class RmApiController {
         return data;
     }
 
-    private static String trimHeaderEmail(HttpServletRequest request) {
-        String h = request.getHeader("X-User-Email");
-        if (h == null) {
-            return null;
+    /**
+     * Email del empleado autenticado (nunca de una cabecera enviada por el cliente) — usado para
+     * atribuir autoría en actas/entradas/salidas de almacén.
+     */
+    private static String resolveActorEmail() {
+        org.springframework.security.core.Authentication auth =
+                org.springframework.security.core.context.SecurityContextHolder.getContext()
+                        .getAuthentication();
+        if (auth != null
+                && auth.getPrincipal()
+                        instanceof com.allcenter.modulesystem.security.EmployeeUserDetails details) {
+            com.allcenter.modulesystem.model.Employee employee = details.getEmployee();
+            if (employee != null && employee.getEmail() != null && !employee.getEmail().isBlank()) {
+                return employee.getEmail().trim();
+            }
         }
-        String t = h.trim();
-        return t.isEmpty() ? null : t.substring(0, Math.min(320, t.length()));
+        return null;
     }
 
     private static String mediaApiPath(String kind, long recordId, String filename) {

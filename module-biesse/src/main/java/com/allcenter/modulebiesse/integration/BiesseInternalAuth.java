@@ -1,6 +1,8 @@
 package com.allcenter.modulebiesse.integration;
 
 import com.allcenter.security.BiessePortalRoleAuthorization;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
@@ -43,7 +45,9 @@ public class BiesseInternalAuth {
         if (!StringUtils.hasText(internalToken) || !StringUtils.hasText(header)) {
             return false;
         }
-        return internalToken.equals(header.trim());
+        return MessageDigest.isEqual(
+                internalToken.getBytes(StandardCharsets.UTF_8),
+                header.trim().getBytes(StandardCharsets.UTF_8));
     }
 
     public void denyIfNoAuth(String authorization, String internalHeader) {

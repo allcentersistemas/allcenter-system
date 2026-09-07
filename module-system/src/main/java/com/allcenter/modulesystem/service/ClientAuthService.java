@@ -50,6 +50,7 @@ public class ClientAuthService {
     private final ClientRefreshTokenService refreshTokenService;
     private final AuthenticationManager authenticationManager;
     private final AuditService auditService;
+    private final com.allcenter.modulesystem.security.LoginRateLimiter loginRateLimiter;
 
     public ClientAuthService(
             ClientUserRepository clientUserRepository,
@@ -59,7 +60,8 @@ public class ClientAuthService {
             AuthEndpointProperties authEndpointProperties,
             ClientRefreshTokenService refreshTokenService,
             @Qualifier("clientAuthenticationManager") AuthenticationManager authenticationManager,
-            AuditService auditService) {
+            AuditService auditService,
+            com.allcenter.modulesystem.security.LoginRateLimiter loginRateLimiter) {
         this.clientUserRepository = clientUserRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
@@ -68,16 +70,22 @@ public class ClientAuthService {
         this.refreshTokenService = refreshTokenService;
         this.authenticationManager = authenticationManager;
         this.auditService = auditService;
+        this.loginRateLimiter = loginRateLimiter;
     }
 
     @Transactional
     public ClientAuthSessionResponse login(LoginRequest request, ClientRequestInfo connection) {
         String login = request.username().trim();
+        String rateLimitKey =
+                com.allcenter.modulesystem.security.LoginRateLimiter.key(
+                        "client", login, connection == null ? null : connection.clientIp());
+        loginRateLimiter.checkAllowed(rateLimitKey);
         Optional<ClientUser> found =
                 clientUserRepository
                         .findByEmailIgnoreCase(login)
                         .or(() -> clientUserRepository.findByUsernameIgnoreCase(login));
         if (found.isEmpty()) {
+            loginRateLimiter.recordFailure(rateLimitKey);
             auditService.recordClientLoginFailure(login, "Credenciales invalidas");
             throw new BadRequestException("Credenciales invalidas");
         }
@@ -87,8 +95,11 @@ public class ClientAuthService {
                     authenticationManager.authenticate(
                             new UsernamePasswordAuthenticationToken(client.getEmail(), request.password()));
             ClientUserDetails principal = (ClientUserDetails) auth.getPrincipal();
-            return completeLoginSession(principal, connection);
+            ClientAuthSessionResponse response = completeLoginSession(principal, connection);
+            loginRateLimiter.recordSuccess(rateLimitKey);
+            return response;
         } catch (RuntimeException ex) {
+            loginRateLimiter.recordFailure(rateLimitKey);
             auditService.recordClientLoginFailure(client.getEmail(), ex.getMessage());
             throw ex;
         }
