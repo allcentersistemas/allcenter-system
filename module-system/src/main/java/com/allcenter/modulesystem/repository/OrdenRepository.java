@@ -30,4 +30,12 @@ public interface OrdenRepository extends JpaRepository<Orden, Long> {
             ORDER BY o.opCodigo ASC, o.id ASC
             """)
     List<Orden> findLinkedByProyectoIds(@Param("proyectoIds") List<Long> proyectoIds);
+
+    @Query(
+            """
+            SELECT o FROM Orden o
+            WHERE o.proyectoOptimizacionId.id IN :proyectoIds
+            ORDER BY o.proyectoOptimizacionId.id ASC, o.id ASC
+            """)
+    List<Orden> findByProyectoIds(@Param("proyectoIds") List<Long> proyectoIds);
 }

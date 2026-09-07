@@ -242,6 +242,62 @@ public class OrderPersistenceService {
                 .toList();
     }
 
+    /**
+     * Tablero Seguimiento: proyectos con sus órdenes/XML.
+     * El {@code estado} del proyecto es el cuello de botella (mínimo) de sus órdenes.
+     */
+    @Transactional
+    public List<OrderDtos.SeguimientoProyectoBoardItem> listSeguimientoProyectosBoard() {
+        syncSeguimientoFromLinkedObras();
+        List<ProyectoOptimizacion> proyectos = listSeguimientoProjects();
+        if (proyectos.isEmpty()) {
+            return List.of();
+        }
+        Map<Long, ProyectoOptimizacion> byId = new LinkedHashMap<>();
+        for (ProyectoOptimizacion p : proyectos) {
+            byId.put(p.getId(), p);
+        }
+        List<Orden> allOrdenes = ordenRepository.findByProyectoIds(List.copyOf(byId.keySet()));
+        Map<Long, List<Orden>> ordenesByProyecto = new LinkedHashMap<>();
+        for (Long id : byId.keySet()) {
+            ordenesByProyecto.put(id, new ArrayList<>());
+        }
+        for (Orden orden : allOrdenes) {
+            if (orden.getProyectoOptimizacionId() == null || orden.getProyectoOptimizacionId().getId() == null) {
+                continue;
+            }
+            Long pid = orden.getProyectoOptimizacionId().getId();
+            if (!ordenesByProyecto.containsKey(pid)) {
+                continue;
+            }
+            ordenesByProyecto.get(pid).add(orden);
+        }
+        Map<Long, Map<String, Object>> biesseById = new HashMap<>();
+        List<OrderDtos.SeguimientoProyectoBoardItem> out = new ArrayList<>();
+        for (ProyectoOptimizacion proyecto : proyectos) {
+            List<Orden> ordenes = ordenesByProyecto.getOrDefault(proyecto.getId(), List.of());
+            List<OrderDtos.SeguimientoOrdenBoardItem> items = new ArrayList<>();
+            int conXml = 0;
+            for (Orden orden : ordenes) {
+                OrderDtos.SeguimientoOrdenBoardItem item = toSeguimientoOrdenBoardItem(orden, biesseById);
+                if (item.biesseOrderId() != null) {
+                    conXml++;
+                }
+                items.add(item);
+            }
+            out.add(
+                    new OrderDtos.SeguimientoProyectoBoardItem(
+                            proyecto.getId(),
+                            proyecto.getNombre(),
+                            proyecto.getCliente(),
+                            estadoLabel(proyecto.getEstado()),
+                            items.size(),
+                            conXml,
+                            items));
+        }
+        return out;
+    }
+
     @Transactional(readOnly = true)
     public List<OrderDtos.SeguimientoOpResponse> listSeguimientoByOp() {
         List<ProyectoOptimizacion> proyectos = listSeguimientoProjects();
@@ -399,7 +455,14 @@ public class OrderPersistenceService {
             orden.setBiesseOrderId(null);
             orden.setBiesseOrderName(null);
             orden.setOpCodigo(null);
-            return toOrdenResponse(ordenRepository.save(orden));
+            Orden cleared = ordenRepository.save(orden);
+            ProyectoOptimizacion proyecto = cleared.getProyectoOptimizacionId();
+            if (proyecto != null && proyecto.getId() != null) {
+                reconcileProyectoEstadoFromOrdenes(
+                        proyectoRepository.findById(proyecto.getId()).orElse(proyecto),
+                        "Obra Biesse desvinculada de orden #" + cleared.getId());
+            }
+            return toOrdenResponse(cleared);
         }
         Map<String, Object> obra = biesseObrasClient.findOrderById(biesseOrderId);
         if (obra == null) {
@@ -438,22 +501,14 @@ public class OrderPersistenceService {
                         + " asignada a orden #"
                         + saved.getId());
         if (proyecto != null && proyecto.getId() != null) {
-            ProyectoOptimizacion current = proyectoRepository.findById(proyecto.getId()).orElse(proyecto);
-            String estadoEscaneo =
-                    firstNonBlank(str(obra.get("estado_escaneo")), str(obra.get("estadoEscaneo")));
-            // Anidar XML/obra: como mínimo OPTIMIZADO. Si la obra ya tiene un estado
-            // operativo más avanzado (PRODUCCION…ENTREGADO), se respeta ese.
-            ProyectoEstado target = targetFromObraEstado(estadoEscaneo);
-            if (target == null) {
-                target = ProyectoEstado.OPTIMIZADO;
-            }
-            advanceFulfillmentInternal(
-                    current,
-                    target,
-                    opCodigo,
+            // El proyecto solo avanza cuando TODAS las órdenes alcanzan el estado
+            // (cuello de botella). Anidar un XML no basta si quedan órdenes sin vincular.
+            reconcileProyectoEstadoFromOrdenes(
+                    proyectoRepository.findById(proyecto.getId()).orElse(proyecto),
                     "Obra Biesse asignada ("
                             + (orderName != null ? orderName : ("#" + biesseOrderId))
-                            + ")");
+                            + ") a orden #"
+                            + saved.getId());
         }
         return toOrdenResponse(saved);
     }
@@ -473,25 +528,14 @@ public class OrderPersistenceService {
         if (proyecto == null || proyecto.getId() == null) {
             return;
         }
-        List<Orden> linked = ordenRepository.findLinkedByProyectoIds(List.of(proyecto.getId()));
-        Map<Long, Map<String, Object>> biesseById = new HashMap<>();
-        ProyectoOptimizacion current = proyecto;
-        for (Orden orden : linked) {
-            current = proyectoRepository.findById(proyecto.getId()).orElse(current);
-            String estadoEscaneo = resolveEstadoEscaneo(orden, biesseById);
-            maybeAdvanceFromObraEstado(
-                    current,
-                    estadoEscaneo,
-                    orden.getOpCodigo(),
-                    "Post-venta: obra Biesse ya ligada al marcar VENDIDO");
-        }
+        reconcileProyectoEstadoFromOrdenes(
+                proyectoRepository.findById(proyecto.getId()).orElse(proyecto),
+                "Post-venta: reconciliar estado desde órdenes/XML");
     }
 
     /**
-     * Si hay obras Biesse ligadas ya optimizadas / en producción, avanza el proyecto para poblar
-     * el tablero de seguimiento. Incluye estados pre-venta porque las OP sin prefijo "S" (corte
-     * directo, no son venta) pueden llegar a OPTIMIZADO sin haber pasado por VENDIDO — ver
-     * {@link #advanceFulfillmentInternal}.
+     * Reconcilia el estado CRM del proyecto como cuello de botella de TODAS sus órdenes:
+     * solo pasa a OPTIMIZADO (o más) cuando todas tienen XML y alcanzaron ese estado.
      */
     private void syncSeguimientoFromLinkedObras() {
         List<ProyectoOptimizacion> candidates =
@@ -503,43 +547,100 @@ public class OrderPersistenceService {
                                 ProyectoEstado.VENDIDO,
                                 ProyectoEstado.OPTIMIZADO,
                                 ProyectoEstado.PRODUCCION,
-                                ProyectoEstado.DESPACHO));
+                                ProyectoEstado.DESPACHO,
+                                ProyectoEstado.LISTO_PARA_ENTREGAR));
         if (candidates.isEmpty()) {
             return;
         }
-        Map<Long, ProyectoOptimizacion> byId = new LinkedHashMap<>();
         for (ProyectoOptimizacion p : candidates) {
-            byId.put(p.getId(), p);
-        }
-        List<Orden> linked = ordenRepository.findLinkedByProyectoIds(List.copyOf(byId.keySet()));
-        Map<Long, Map<String, Object>> biesseById = new HashMap<>();
-        for (Orden orden : linked) {
-            ProyectoOptimizacion proyecto = orden.getProyectoOptimizacionId();
-            if (proyecto == null || proyecto.getId() == null) {
+            if (p == null || p.getId() == null) {
                 continue;
             }
-            ProyectoOptimizacion current = byId.get(proyecto.getId());
-            if (current == null) {
-                continue;
-            }
-            current = proyectoRepository.findById(current.getId()).orElse(current);
-            byId.put(current.getId(), current);
-            String estadoEscaneo = resolveEstadoEscaneo(orden, biesseById);
-            maybeAdvanceFromObraEstado(
-                    current,
-                    estadoEscaneo,
-                    orden.getOpCodigo(),
-                    "Sync seguimiento desde obra Biesse");
+            ProyectoOptimizacion current = proyectoRepository.findById(p.getId()).orElse(p);
+            reconcileProyectoEstadoFromOrdenes(current, "Sync seguimiento por órdenes del proyecto");
         }
     }
 
-    private void maybeAdvanceFromObraEstado(
-            ProyectoOptimizacion proyecto, String estadoEscaneo, String opCodigo, String reason) {
-        ProyectoEstado target = targetFromObraEstado(estadoEscaneo);
-        if (target == null || proyecto == null) {
-            return;
+    /**
+     * Estado operativo del proyecto = mínimo de sus órdenes.
+     * <ul>
+     *   <li>Si alguna orden no tiene XML → no puede pasar de {@code VENDIDO}.</li>
+     *   <li>Si todas tienen XML → mínimo de sus {@code estado_escaneo}
+     *       (vacío/PENDIENTE cuenta como OPTIMIZADO).</li>
+     * </ul>
+     */
+    @Transactional
+    public boolean reconcileProyectoEstadoFromOrdenes(ProyectoOptimizacion proyecto, String reason) {
+        if (proyecto == null || proyecto.getId() == null) {
+            return false;
         }
-        advanceFulfillmentInternal(proyecto, target, opCodigo, reason);
+        ProyectoOptimizacion current =
+                proyectoRepository.findById(proyecto.getId()).orElse(proyecto);
+        ProyectoEstado prev = current.getEstado();
+        if (prev == null || prev == ProyectoEstado.CANCELADO || prev == ProyectoEstado.ENTREGADO) {
+            return false;
+        }
+
+        List<Orden> ordenes =
+                ordenRepository.findByProyectoOptimizacionId_IdOrderByIdAsc(current.getId());
+        if (ordenes.isEmpty()) {
+            return false;
+        }
+
+        Map<Long, Map<String, Object>> biesseById = new HashMap<>();
+        boolean missingXml = false;
+        ProyectoEstado bottleneck = null;
+        boolean allCorteDirecto = true;
+        for (Orden orden : ordenes) {
+            if (esVenta(orden.getOpCodigo())) {
+                allCorteDirecto = false;
+            }
+            if (orden.getBiesseOrderId() == null) {
+                missingXml = true;
+                continue;
+            }
+            String escaneo = resolveEstadoEscaneo(orden, biesseById);
+            ProyectoEstado mapped = targetFromObraEstado(escaneo);
+            if (mapped == null) {
+                mapped = ProyectoEstado.OPTIMIZADO;
+            }
+            if (bottleneck == null || mapped.ordinal() < bottleneck.ordinal()) {
+                bottleneck = mapped;
+            }
+        }
+
+        ProyectoEstado target;
+        if (missingXml || bottleneck == null) {
+            // Falta anidar alguna orden: el proyecto no puede estar OPTIMIZADO+.
+            if (prev == ProyectoEstado.VENDIDO || prev.isPostVenta()) {
+                target = ProyectoEstado.VENDIDO;
+            } else {
+                return false;
+            }
+        } else {
+            target = bottleneck;
+        }
+
+        if (target == prev) {
+            return false;
+        }
+
+        // Estados comerciales previos a VENDIDO: solo corte directo puede saltar a operativo.
+        if (prev.ordinal() < ProyectoEstado.VENDIDO.ordinal()
+                && !(allCorteDirecto && target.ordinal() >= ProyectoEstado.OPTIMIZADO.ordinal())) {
+            return false;
+        }
+
+        applyEstadoChange(current, target);
+        proyectoRepository.save(current);
+        recordProyectoAudit(
+                AuditAction.UPDATE,
+                current,
+                (reason == null || reason.isBlank() ? "Reconciliar proyecto" : reason)
+                        + "; estado "
+                        + target.name()
+                        + " (cuello de botella de órdenes)");
+        return true;
     }
 
     private static ProyectoEstado targetFromObraEstado(String estadoEscaneo) {
@@ -1373,6 +1474,69 @@ public class OrderPersistenceService {
                 orden.getBiesseOrderName(),
                 estadoEscaneo,
                 porcentaje);
+    }
+
+    private OrderDtos.SeguimientoOrdenBoardItem toSeguimientoOrdenBoardItem(
+            Orden orden, Map<Long, Map<String, Object>> biesseById) {
+        String estadoEscaneo = null;
+        Double porcentaje = null;
+        String avanceLabel = null;
+        String seccionador = null;
+        Double porcentajeCorte = null;
+        String avanceCorteLabel = null;
+        Long biesseId = orden.getBiesseOrderId();
+        if (biesseId != null) {
+            Map<String, Object> obra =
+                    biesseById.computeIfAbsent(
+                            biesseId,
+                            id -> {
+                                Map<String, Object> found = biesseObrasClient.findOrderById(id);
+                                return found != null ? found : Map.of();
+                            });
+            if (!obra.isEmpty()) {
+                estadoEscaneo =
+                        firstNonBlank(str(obra.get("estado_escaneo")), str(obra.get("estadoEscaneo")));
+                if (estadoEscaneo != null) {
+                    estadoEscaneo = estadoEscaneo.trim().toUpperCase();
+                    if ("COMPLETADA".equals(estadoEscaneo) || "COMPLETADO".equals(estadoEscaneo)) {
+                        estadoEscaneo = "LISTO_PARA_ENTREGAR";
+                    }
+                }
+                Object pct = obra.get("porcentaje_completado");
+                if (pct == null) {
+                    pct = obra.get("porcentaje");
+                }
+                if (pct instanceof Number n) {
+                    porcentaje = n.doubleValue();
+                }
+                avanceLabel =
+                        firstNonBlank(str(obra.get("avanceLabel")), str(obra.get("avance_label")));
+                seccionador = str(obra.get("seccionador"));
+                Object pc = obra.get("porcentajeCorte");
+                if (pc == null) {
+                    pc = obra.get("porcentaje_corte");
+                }
+                if (pc instanceof Number n) {
+                    porcentajeCorte = n.doubleValue();
+                }
+                avanceCorteLabel =
+                        firstNonBlank(
+                                str(obra.get("avanceCorteLabel")),
+                                str(obra.get("avance_corte_label")));
+            }
+        }
+        return new OrderDtos.SeguimientoOrdenBoardItem(
+                orden.getId(),
+                orden.getOrderCode(),
+                orden.getBiesseOrderId(),
+                orden.getBiesseOrderName(),
+                orden.getOpCodigo(),
+                estadoEscaneo,
+                porcentaje,
+                avanceLabel,
+                seccionador,
+                porcentajeCorte,
+                avanceCorteLabel);
     }
 
     private OrderDtos.DetalleResponse toDetalleResponse(OrdenDetalle detalle) {

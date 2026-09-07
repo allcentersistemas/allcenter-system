@@ -131,6 +131,13 @@ public class OrderController {
         return service.listSeguimiento();
     }
 
+    /** Tablero Seguimiento: proyectos con órdenes/XML (estado de proyecto = cuello de botella). */
+    @GetMapping("/proyectos/seguimiento/board")
+    @PreAuthorize("@portalAuth.canRead()")
+    public java.util.List<OrderDtos.SeguimientoProyectoBoardItem> listSeguimientoProyectosBoard() {
+        return service.listSeguimientoProyectosBoard();
+    }
+
     @GetMapping("/proyectos/seguimiento/ops")
     @PreAuthorize("@portalAuth.canRead()")
     public java.util.List<OrderDtos.SeguimientoOpResponse> listSeguimientoByOp() {

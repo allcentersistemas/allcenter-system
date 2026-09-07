@@ -199,6 +199,37 @@ public final class OrderDtos {
     ) {
     }
 
+    /** Orden dentro del tablero Seguimiento agrupado por proyecto. */
+    public record SeguimientoOrdenBoardItem(
+            Long ordenId,
+            String codigo,
+            Long biesseOrderId,
+            String biesseOrderName,
+            String opCodigo,
+            String estadoEscaneo,
+            Double porcentaje,
+            String avanceLabel,
+            String seccionador,
+            Double porcentajeCorte,
+            String avanceCorteLabel
+    ) {
+    }
+
+    /**
+     * Proyecto en el tablero Seguimiento.
+     * {@code estado} = cuello de botella (mínimo) de todas sus órdenes/XML.
+     */
+    public record SeguimientoProyectoBoardItem(
+            Long proyectoId,
+            String nombre,
+            String cliente,
+            String estado,
+            int totalOrdenes,
+            int ordenesConXml,
+            List<SeguimientoOrdenBoardItem> ordenes
+    ) {
+    }
+
     public record ProyectoEstadoPayload(
             String estado
     ) {

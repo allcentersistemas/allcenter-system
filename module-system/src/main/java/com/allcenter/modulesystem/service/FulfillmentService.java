@@ -34,36 +34,23 @@ public class FulfillmentService {
     @Transactional
     public void onAndroidScan(String orderName, String bookingCode, boolean orderComplete) {
         Set<Long> seen = new LinkedHashSet<>();
+        String label = firstNonBlank(orderName, bookingCode);
         for (Orden orden : findOrdenes(orderName, bookingCode)) {
             ProyectoOptimizacion proyecto = orden.getProyectoOptimizacionId();
             if (proyecto == null || proyecto.getId() == null || !seen.add(proyecto.getId())) {
                 continue;
             }
             ProyectoOptimizacion current = proyectoRepository.findById(proyecto.getId()).orElse(null);
-            if (current == null || current.getEstado() == null || !current.getEstado().isPostVenta()) {
+            if (current == null || current.getEstado() == null) {
                 continue;
             }
-            String label = firstNonBlank(orderName, bookingCode);
-            if (current.getEstado() == ProyectoEstado.VENDIDO
-                    || current.getEstado() == ProyectoEstado.OPTIMIZADO
-                    || current.getEstado() == ProyectoEstado.PRODUCCION) {
-                orderPersistenceService.advanceFulfillmentInternal(
-                        current,
-                        ProyectoEstado.DESPACHO,
-                        orden.getOpCodigo(),
-                        "Primera pieza escaneada en Android (" + label + ")");
-                current = proyectoRepository.findById(current.getId()).orElse(current);
-            }
-            if (orderComplete
-                    && (current.getEstado() == ProyectoEstado.DESPACHO
-                            || current.getEstado() == ProyectoEstado.PRODUCCION
-                            || current.getEstado() == ProyectoEstado.OPTIMIZADO)) {
-                orderPersistenceService.advanceFulfillmentInternal(
-                        current,
-                        ProyectoEstado.LISTO_PARA_ENTREGAR,
-                        orden.getOpCodigo(),
-                        "Todas las piezas fueron escaneadas en Android (" + label + ")");
-            }
+            // El estado del proyecto se recalcula como mínimo de todas las órdenes/XML.
+            orderPersistenceService.reconcileProyectoEstadoFromOrdenes(
+                    current,
+                    "Escaneo Android ("
+                            + label
+                            + (orderComplete ? ", orden completa" : "")
+                            + ")");
         }
     }
 
@@ -81,14 +68,11 @@ public class FulfillmentService {
                 continue;
             }
             ProyectoOptimizacion current = proyectoRepository.findById(proyecto.getId()).orElse(null);
-            if (current == null || current.getEstado() == null || !current.getEstado().isPostVenta()) {
+            if (current == null || current.getEstado() == null) {
                 continue;
             }
-            orderPersistenceService.advanceFulfillmentInternal(
-                    current,
-                    ProyectoEstado.PRODUCCION,
-                    orden.getOpCodigo(),
-                    "Obra en producción (agente seccionadora: " + label + ")");
+            orderPersistenceService.reconcileProyectoEstadoFromOrdenes(
+                    current, "Obra en producción (agente seccionadora: " + label + ")");
         }
     }
 
@@ -117,13 +101,11 @@ public class FulfillmentService {
                 advanced = true;
                 continue;
             }
-            boolean ok =
-                    orderPersistenceService.advanceFulfillmentInternal(
-                            current,
-                            ProyectoEstado.ENTREGADO,
-                            orden.getOpCodigo(),
-                            "Marcado entregado desde Android (" + firstNonBlank(orderName, bookingCode) + ")");
-            if (ok) {
+            orderPersistenceService.reconcileProyectoEstadoFromOrdenes(
+                    current,
+                    "Marcado entregado desde Android (" + firstNonBlank(orderName, bookingCode) + ")");
+            current = proyectoRepository.findById(current.getId()).orElse(current);
+            if (current.getEstado() == ProyectoEstado.ENTREGADO) {
                 advanced = true;
             }
         }
@@ -173,10 +155,8 @@ public class FulfillmentService {
             }
             lastProyectoId = current.getId();
             if (current.getEstado() != ProyectoEstado.ENTREGADO) {
-                orderPersistenceService.advanceFulfillmentInternal(
+                orderPersistenceService.reconcileProyectoEstadoFromOrdenes(
                         current,
-                        ProyectoEstado.ENTREGADO,
-                        orden.getOpCodigo(),
                         "Marcado entregado desde Seguimiento (obra #" + biesseOrderId + ")");
             }
         }
