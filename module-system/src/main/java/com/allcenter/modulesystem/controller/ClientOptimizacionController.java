@@ -88,6 +88,16 @@ public class ClientOptimizacionController {
         return service.listProjectsForClient(principal.getClientUser().getId());
     }
 
+    /**
+     * Seguimiento portal: proyectos del cliente con órdenes/XML anidadas.
+     * Estado del proyecto = cuello de botella (todas las órdenes deben llegar).
+     */
+    @GetMapping("/proyectos/seguimiento/board")
+    public List<OrderDtos.SeguimientoProyectoBoardItem> listSeguimientoProyectosBoard(
+            @AuthenticationPrincipal ClientUserDetails principal) {
+        return service.listSeguimientoProyectosBoardForClient(principal.getClientUser().getId());
+    }
+
     @GetMapping("/proyectos/por-nombre")
     public ResponseEntity<OrderDtos.ProyectoResumenResponse> findProyectoByNombre(
             @AuthenticationPrincipal ClientUserDetails principal, @RequestParam String nombre) {

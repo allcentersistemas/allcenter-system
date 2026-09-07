@@ -249,13 +249,37 @@ public class OrderPersistenceService {
     @Transactional
     public List<OrderDtos.SeguimientoProyectoBoardItem> listSeguimientoProyectosBoard() {
         syncSeguimientoFromLinkedObras();
-        List<ProyectoOptimizacion> proyectos = listSeguimientoProjects();
-        if (proyectos.isEmpty()) {
+        return buildSeguimientoProyectosBoard(listSeguimientoProjects());
+    }
+
+    /**
+     * Portal cliente: mismos datos de seguimiento, solo proyectos del cliente.
+     * Reconcilia estado (cuello de botella) antes de responder.
+     */
+    @Transactional
+    public List<OrderDtos.SeguimientoProyectoBoardItem> listSeguimientoProyectosBoardForClient(
+            long clientUserId) {
+        List<ProyectoOptimizacion> proyectos =
+                proyectoRepository.findByClientUserIdOrderByFechacreacionDesc(clientUserId);
+        for (ProyectoOptimizacion proyecto : proyectos) {
+            reconcileProyectoEstadoFromOrdenes(proyecto, "Sync seguimiento portal cliente");
+        }
+        return buildSeguimientoProyectosBoard(proyectos);
+    }
+
+    private List<OrderDtos.SeguimientoProyectoBoardItem> buildSeguimientoProyectosBoard(
+            List<ProyectoOptimizacion> proyectos) {
+        if (proyectos == null || proyectos.isEmpty()) {
             return List.of();
         }
         Map<Long, ProyectoOptimizacion> byId = new LinkedHashMap<>();
         for (ProyectoOptimizacion p : proyectos) {
-            byId.put(p.getId(), p);
+            if (p.getId() != null) {
+                byId.put(p.getId(), p);
+            }
+        }
+        if (byId.isEmpty()) {
+            return List.of();
         }
         List<Orden> allOrdenes = ordenRepository.findByProyectoIds(List.copyOf(byId.keySet()));
         Map<Long, List<Orden>> ordenesByProyecto = new LinkedHashMap<>();
@@ -275,6 +299,9 @@ public class OrderPersistenceService {
         Map<Long, Map<String, Object>> biesseById = new HashMap<>();
         List<OrderDtos.SeguimientoProyectoBoardItem> out = new ArrayList<>();
         for (ProyectoOptimizacion proyecto : proyectos) {
+            if (proyecto.getId() == null || !byId.containsKey(proyecto.getId())) {
+                continue;
+            }
             List<Orden> ordenes = ordenesByProyecto.getOrDefault(proyecto.getId(), List.of());
             List<OrderDtos.SeguimientoOrdenBoardItem> items = new ArrayList<>();
             int conXml = 0;
