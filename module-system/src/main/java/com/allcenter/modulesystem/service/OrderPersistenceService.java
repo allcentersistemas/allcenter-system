@@ -543,6 +543,9 @@ public class OrderPersistenceService {
     private List<ProyectoOptimizacion> listSeguimientoProjects() {
         return proyectoRepository.findByEstadoInOrderByFechacreacionDesc(
                 List.of(
+                        ProyectoEstado.ENVIADO,
+                        ProyectoEstado.EN_ATENCION,
+                        ProyectoEstado.COTIZADO,
                         ProyectoEstado.VENDIDO,
                         ProyectoEstado.OPTIMIZADO,
                         ProyectoEstado.PRODUCCION,
