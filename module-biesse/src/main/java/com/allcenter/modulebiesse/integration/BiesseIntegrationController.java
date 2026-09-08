@@ -79,7 +79,8 @@ public class BiesseIntegrationController {
         schemaAligner.ensureReady();
         BiesseObrasRepository.OrderJobMatch match = obrasRepository.resolveOrderForJob(jobName);
         String matcher = "tokens-nbsp-v3";
-        if (match.order() == null && !match.ambiguous()) {
+        // Si no hay match (o quedó ambigua sin exacto), probar búsqueda web y preferir nombre exacto.
+        if (match.order() == null) {
             List<Map<String, Object>> webHits =
                     scanService.getOrders(null, null, jobName, null, null, 40, 0);
             if (webHits.isEmpty()) {
@@ -90,7 +91,11 @@ public class BiesseIntegrationController {
             }
             BiesseObrasRepository.OrderJobMatch web =
                     obrasRepository.resolveFromCandidateRows(jobName, webHits);
-            if (web.order() != null || web.ambiguous() || !web.candidates().isEmpty()) {
+            if (web.order() != null) {
+                match = web;
+                matcher = "web-search-fallback-v3";
+            } else if (!match.ambiguous()
+                    && (web.ambiguous() || !web.candidates().isEmpty())) {
                 match = web;
                 matcher = "web-search-fallback-v3";
             }
@@ -142,7 +147,7 @@ public class BiesseIntegrationController {
         }
         if (order == null && jobName != null && !jobName.isBlank()) {
             BiesseObrasRepository.OrderJobMatch match = obrasRepository.resolveOrderForJob(jobName);
-            if (match.order() == null && !match.ambiguous()) {
+            if (match.order() == null) {
                 List<Map<String, Object>> webHits =
                         scanService.getOrders(null, null, jobName, null, null, 40, 0);
                 if (webHits.isEmpty()) {
@@ -151,9 +156,15 @@ public class BiesseIntegrationController {
                         webHits = scanService.getOrders(null, null, op, null, null, 40, 0);
                     }
                 }
-                match = obrasRepository.resolveFromCandidateRows(jobName, webHits);
+                BiesseObrasRepository.OrderJobMatch web =
+                        obrasRepository.resolveFromCandidateRows(jobName, webHits);
+                if (web.order() != null) {
+                    match = web;
+                }
             }
-            if (match.ambiguous()) {
+            if (match.order() != null) {
+                order = match.order();
+            } else if (match.ambiguous()) {
                 Map<String, Object> conflict = new LinkedHashMap<>();
                 conflict.put("ambiguous", true);
                 conflict.put(
@@ -173,7 +184,6 @@ public class BiesseIntegrationController {
                         "Varias obras coinciden con el job OSI — corrija el nombre en ERP o en OSI.");
                 return ResponseEntity.status(HttpStatus.CONFLICT).body(conflict);
             }
-            order = match.order();
         }
         if (order == null) {
             throw new ResponseStatusException(

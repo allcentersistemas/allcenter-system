@@ -290,6 +290,20 @@ public class BiesseObrasRepository {
         if (rows == null || rows.isEmpty()) {
             return null;
         }
+        // Empates de nombre exacto (reimport): siempre la más reciente. Nunca "ambigua".
+        List<Map<String, Object>> exactOnly =
+                onlyExactName(rows, token, compactName(token));
+        if (!exactOnly.isEmpty()) {
+            Map<String, Object> newest = newestOrder(exactOnly);
+            log.info(
+                    "resolveOrderForJob {} OK (exact-name) job='{}' → orderid={} name='{}' ({} exactas)",
+                    stage,
+                    token,
+                    newest.get("orderid"),
+                    newest.get("ordername"),
+                    exactOnly.size());
+            return new OrderJobMatch(newest, false, exactOnly);
+        }
         MatchPick pick = pickBestOrderMatchDetailed(rows, token, op);
         if (pick.order() != null && !pick.ambiguous()) {
             log.info(
@@ -300,17 +314,54 @@ public class BiesseObrasRepository {
                     pick.order().get("ordername"));
             return new OrderJobMatch(pick.order(), false, rows);
         }
+        // Sin match claro: no marcar ambigua en jobs débiles (bloqueaba el agente con 409).
+        // Mejor "no encontrado" y que el caller pruebe otro camino / falle limpio.
+        if (pick.ambiguous() && isWeakJobNameForLooseMatch(token, op)) {
+            log.info(
+                    "resolveOrderForJob {} débil sin exacto job='{}' candidatos={} → no-match (no ambigua)",
+                    stage,
+                    token,
+                    rows.size());
+            return null;
+        }
         if (pick.ambiguous()) {
             return new OrderJobMatch(null, true, rows);
         }
         if (rows.size() == 1) {
             return new OrderJobMatch(rows.getFirst(), false, rows);
         }
-        // pick devolvió best no ambiguo en el else de pickBest… si score bajo con 1 best, aceptar
         if (pick.order() != null) {
             return new OrderJobMatch(pick.order(), false, rows);
         }
         return null;
+    }
+
+    /** orderid más alto (obra más reciente). */
+    private static Map<String, Object> newestOrder(List<Map<String, Object>> rows) {
+        Map<String, Object> best = rows.getFirst();
+        long bestId = toLongId(best.get("orderid"));
+        for (Map<String, Object> row : rows) {
+            long id = toLongId(row.get("orderid"));
+            if (id > bestId) {
+                bestId = id;
+                best = row;
+            }
+        }
+        return best;
+    }
+
+    private static long toLongId(Object id) {
+        if (id instanceof Number n) {
+            return n.longValue();
+        }
+        if (id == null) {
+            return Long.MIN_VALUE;
+        }
+        try {
+            return Long.parseLong(String.valueOf(id).trim());
+        } catch (NumberFormatException e) {
+            return Long.MIN_VALUE;
+        }
     }
 
     /**
@@ -720,8 +771,9 @@ public class BiesseObrasRepository {
             return new MatchPick(best, bestScore, false);
         }
         // Sin OP y sin match exacto: no aceptar lastWord/overlap débil (caso BLANCO BLANCO → S13336).
+        // Tampoco marcar ambigua: el caller debe tratarlo como no-match.
         if (op == null && bestScore < 800) {
-            return new MatchPick(null, bestScore, candidates.size() > 1);
+            return new MatchPick(null, bestScore, false);
         }
         boolean weak = candidates.size() > 1 && bestScore < 200;
         boolean tied = tiedAtBest > 1;

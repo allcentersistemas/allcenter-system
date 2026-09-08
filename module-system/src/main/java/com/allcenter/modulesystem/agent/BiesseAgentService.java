@@ -14,6 +14,7 @@ import com.allcenter.modulesystem.service.FulfillmentService;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -80,9 +81,27 @@ public class BiesseAgentService {
                                     : ""));
         }
         if (resolve != null && Boolean.TRUE.equals(resolve.get("ambiguous"))) {
-            throw new org.springframework.web.server.ResponseStatusException(
-                    org.springframework.http.HttpStatus.CONFLICT,
-                    "Obra ambigua para job «" + job + "»");
+            // Antes: 409 inmediato. Ahora: si hay nombre exacto en listOrders, úsalo.
+            ResolvedOrder fromList = resolveOrderViaListOrders(job);
+            if (fromList == null || fromList.orderId() == null) {
+                throw new org.springframework.web.server.ResponseStatusException(
+                        org.springframework.http.HttpStatus.CONFLICT,
+                        "Obra ambigua para job «" + job + "»");
+            }
+            log.info(
+                    "order-manifest ambigua resuelta por nombre exacto job='{}' → id={} '{}'",
+                    job,
+                    fromList.orderId(),
+                    fromList.orderName());
+            resolve = new LinkedHashMap<>(resolve);
+            resolve.put("ambiguous", false);
+            resolve.put(
+                    "order",
+                    Map.of(
+                            "orderid",
+                            fromList.orderId(),
+                            "ordername",
+                            fromList.orderName() != null ? fromList.orderName() : job));
         }
 
         // Resolver orderId (by-job o lista web) y pedir manifiesto por id — más fiable que re-match por nombre.
