@@ -73,7 +73,7 @@ public class BiesseObrasRepository {
                     jdbc.queryForList(
                             """
                             SELECT orderid, ordername, bookingcode, op_codigo, estado_escaneo,
-                                   nparts, partes_totales
+                                   nparts, partes_totales, fechacreacion, fecha_modificacion
                             FROM ordenes
                             WHERE orderid = ?
                             """,
@@ -85,22 +85,36 @@ public class BiesseObrasRepository {
                 List<Map<String, Object>> rows =
                         jdbc.queryForList(
                                 """
-                                SELECT orderid, ordername, bookingcode, op_codigo
+                                SELECT orderid, ordername, bookingcode, op_codigo, estado_escaneo,
+                                       fechacreacion, fecha_modificacion
                                 FROM ordenes
                                 WHERE orderid = ?
                                 """,
                                 orderId);
                 return rows.isEmpty() ? null : rows.getFirst();
             } catch (DataAccessException ex2) {
-                List<Map<String, Object>> rows =
-                        jdbc.queryForList(
-                                """
-                                SELECT orderid, ordername, bookingcode
-                                FROM ordenes
-                                WHERE orderid = ?
-                                """,
-                                orderId);
-                return rows.isEmpty() ? null : rows.getFirst();
+                try {
+                    List<Map<String, Object>> rows =
+                            jdbc.queryForList(
+                                    """
+                                    SELECT orderid, ordername, bookingcode, op_codigo, estado_escaneo,
+                                           fechacreacion
+                                    FROM ordenes
+                                    WHERE orderid = ?
+                                    """,
+                                    orderId);
+                    return rows.isEmpty() ? null : rows.getFirst();
+                } catch (DataAccessException ex3) {
+                    List<Map<String, Object>> rows =
+                            jdbc.queryForList(
+                                    """
+                                    SELECT orderid, ordername, bookingcode
+                                    FROM ordenes
+                                    WHERE orderid = ?
+                                    """,
+                                    orderId);
+                    return rows.isEmpty() ? null : rows.getFirst();
+                }
             }
         }
     }

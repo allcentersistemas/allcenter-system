@@ -1620,6 +1620,7 @@ public class OrderPersistenceService {
     private OrderDtos.SeguimientoOrdenBoardItem toSeguimientoOrdenBoardItem(
             Orden orden, Map<Long, Map<String, Object>> biesseById) {
         String estadoEscaneo = null;
+        LocalDateTime estadoDesde = null;
         Double porcentaje = null;
         String avanceLabel = null;
         String seccionador = null;
@@ -1643,6 +1644,14 @@ public class OrderPersistenceService {
                         estadoEscaneo = "LISTO_PARA_ENTREGAR";
                     }
                 }
+                // Proxy del inicio del estado actual: fecha_modificacion se actualiza al cambiar estado.
+                estadoDesde =
+                        toLocalDateTime(
+                                firstNonNull(
+                                        obra.get("fecha_modificacion"),
+                                        obra.get("fechaModificacion"),
+                                        obra.get("fechacreacion"),
+                                        obra.get("fechaCreacion")));
                 Object pct = obra.get("porcentaje_completado");
                 if (pct == null) {
                     pct = obra.get("porcentaje");
@@ -1673,11 +1682,67 @@ public class OrderPersistenceService {
                 orden.getBiesseOrderName(),
                 orden.getOpCodigo(),
                 estadoEscaneo,
+                estadoDesde,
                 porcentaje,
                 avanceLabel,
                 seccionador,
                 porcentajeCorte,
                 avanceCorteLabel);
+    }
+
+    private static Object firstNonNull(Object... values) {
+        if (values == null) {
+            return null;
+        }
+        for (Object v : values) {
+            if (v != null) {
+                return v;
+            }
+        }
+        return null;
+    }
+
+    private static LocalDateTime toLocalDateTime(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof LocalDateTime ldt) {
+            return ldt;
+        }
+        if (value instanceof java.sql.Timestamp ts) {
+            return ts.toLocalDateTime();
+        }
+        if (value instanceof java.time.OffsetDateTime odt) {
+            return odt.toLocalDateTime();
+        }
+        if (value instanceof java.time.Instant instant) {
+            return LocalDateTime.ofInstant(instant, ZoneId.of("America/Lima"));
+        }
+        if (value instanceof java.util.Date date) {
+            return LocalDateTime.ofInstant(date.toInstant(), ZoneId.of("America/Lima"));
+        }
+        if (value instanceof List<?> list && list.size() >= 5) {
+            try {
+                int y = ((Number) list.get(0)).intValue();
+                int mo = ((Number) list.get(1)).intValue();
+                int d = ((Number) list.get(2)).intValue();
+                int h = ((Number) list.get(3)).intValue();
+                int mi = ((Number) list.get(4)).intValue();
+                int s = list.size() > 5 ? ((Number) list.get(5)).intValue() : 0;
+                return LocalDateTime.of(y, mo, d, h, mi, s);
+            } catch (Exception ignored) {
+                return null;
+            }
+        }
+        String raw = String.valueOf(value).trim();
+        if (raw.isEmpty() || "null".equalsIgnoreCase(raw)) {
+            return null;
+        }
+        try {
+            return LocalDateTime.parse(raw.replace(' ', 'T').split("\\.")[0]);
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     private OrderDtos.DetalleResponse toDetalleResponse(OrdenDetalle detalle) {

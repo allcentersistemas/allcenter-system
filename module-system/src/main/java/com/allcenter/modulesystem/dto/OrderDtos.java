@@ -207,6 +207,8 @@ public final class OrderDtos {
             String biesseOrderName,
             String opCodigo,
             String estadoEscaneo,
+            /** Inicio aproximado del estado_escaneo actual (fecha_modificacion / creación XML). */
+            LocalDateTime estadoDesde,
             Double porcentaje,
             String avanceLabel,
             String seccionador,
