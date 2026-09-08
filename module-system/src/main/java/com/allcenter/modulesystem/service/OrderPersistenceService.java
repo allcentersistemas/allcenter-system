@@ -32,6 +32,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 
@@ -492,9 +493,71 @@ public class OrderPersistenceService {
 
     @Transactional(readOnly = true)
     public Map<String, Object> listBiesseObras(String q, int limit, int offset) {
+        return listBiesseObras(q, limit, offset, false);
+    }
+
+    /**
+     * @param soloAsignables si true, solo obras sin estado / PENDIENTE (no OPTIMIZADO ni posteriores).
+     *                       Usado al anidar XML en Mis proyectos.
+     */
+    @Transactional(readOnly = true)
+    public Map<String, Object> listBiesseObras(String q, int limit, int offset, boolean soloAsignables) {
         int safeLimit = Math.max(1, Math.min(limit, 100));
         int safeOffset = Math.max(0, offset);
-        return biesseObrasClient.listOrders(q, safeLimit, safeOffset);
+        if (!soloAsignables) {
+            return biesseObrasClient.listOrders(q, safeLimit, safeOffset);
+        }
+        // Pedimos de más porque filtramos OPTIMIZADO+ en memoria.
+        int fetchLimit = Math.min(100, Math.max(safeLimit * 5, 50));
+        Map<String, Object> raw = biesseObrasClient.listOrders(q, fetchLimit, safeOffset);
+        Object itemsObj = raw.get("items");
+        List<?> rawItems = itemsObj instanceof List<?> list ? list : List.of();
+        List<Map<String, Object>> filtered = new ArrayList<>();
+        for (Object row : rawItems) {
+            if (!(row instanceof Map<?, ?> map)) {
+                continue;
+            }
+            @SuppressWarnings("unchecked")
+            Map<String, Object> typed = (Map<String, Object>) map;
+            if (esObraAsignableParaAnidar(typed)) {
+                filtered.add(typed);
+            }
+            if (filtered.size() >= safeLimit) {
+                break;
+            }
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("items", filtered);
+        out.put("totalCount", filtered.size());
+        return out;
+    }
+
+    /** Obras aptas para anidar: sin estado / PENDIENTE. Excluye OPTIMIZADO y posteriores. */
+    private boolean esObraAsignableParaAnidar(Map<String, Object> obra) {
+        if (obra == null || obra.isEmpty()) {
+            return false;
+        }
+        String estado =
+                firstNonBlank(str(obra.get("estado_escaneo")), str(obra.get("estadoEscaneo")));
+        if (estado == null || estado.isBlank()) {
+            return true;
+        }
+        String e = estado.trim().toUpperCase(Locale.ROOT).replace(' ', '_').replace('-', '_');
+        if (e.isEmpty() || "PENDIENTE".equals(e) || "NULL".equals(e)) {
+            return true;
+        }
+        // Ya entraron a pipeline operativo / optimizado → no ofrecer al anidar.
+        return switch (e) {
+            case "OPTIMIZADO",
+                    "PRODUCCION",
+                    "DESPACHO",
+                    "EN_PROCESO",
+                    "LISTO_PARA_ENTREGAR",
+                    "COMPLETADA",
+                    "COMPLETADO",
+                    "ENTREGADO" -> false;
+            default -> true;
+        };
     }
 
     @Transactional

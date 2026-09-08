@@ -171,8 +171,9 @@ public class OrderController {
     public Map<String, Object> listBiesseObras(
             @RequestParam(required = false) String q,
             @RequestParam(defaultValue = "30") int limit,
-            @RequestParam(defaultValue = "0") int offset) {
-        return service.listBiesseObras(q, limit, offset);
+            @RequestParam(defaultValue = "0") int offset,
+            @RequestParam(defaultValue = "false") boolean soloAsignables) {
+        return service.listBiesseObras(q, limit, offset, soloAsignables);
     }
 
     @PutMapping("/ordenes/{ordenId}/biesse-obra")
