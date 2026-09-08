@@ -826,12 +826,14 @@ public class BiesseScanRepository {
             }
             if (hasQuery) {
                 // Varios tokens → TODOS deben aparecer (así K5_IZQ (1)4 no trae las 16 de S14783).
-                // Un solo token (p.ej. S14783) → sigue listando toda la OP.
+                // Frase completa ("blanco blanco") como alternativa (guiones/espacios).
                 String[] tokens = searchTokens(query);
+                String phrase = searchPhrase(query);
                 sql.append(" AND ( ");
                 if (tokens.length == 0) {
                     sql.append(" TRUE ");
                 } else {
+                    sql.append(" ( ");
                     appendTokenAndSearch(
                             sql,
                             args,
@@ -840,6 +842,17 @@ public class BiesseScanRepository {
                             "COALESCE(o.bookingcode, '')",
                             "COALESCE(o.op_codigo, '')",
                             true);
+                    sql.append(" ) ");
+                    if (!phrase.isBlank()) {
+                        sql.append(" OR lower(")
+                                .append(sqlSearchNorm("o.ordername"))
+                                .append(") LIKE ('%' || lower(?) || '%') ");
+                        args.add(phrase);
+                        sql.append(" OR lower(")
+                                .append(sqlSearchNorm("COALESCE(o.bookingcode, '')"))
+                                .append(") LIKE ('%' || lower(?) || '%') ");
+                        args.add(phrase);
+                    }
                 }
                 sql.append(" ) ");
             }
@@ -868,7 +881,7 @@ public class BiesseScanRepository {
         return "trim(regexp_replace(" + expr + ", '[^[:alnum:]]+', ' ', 'g'))";
     }
 
-    /** Tokens de búsqueda (min 1 char); ignora vacíos tras normalizar _/(). */
+    /** Tokens de búsqueda (min 1 char); ignora vacíos tras normalizar _/(). Dedup. */
     private static String[] searchTokens(String query) {
         if (query == null || query.isBlank()) {
             return new String[0];
@@ -883,10 +896,28 @@ public class BiesseScanRepository {
         if (norm.isEmpty()) {
             return new String[0];
         }
-        return java.util.Arrays.stream(norm.split("\\s+"))
-                .map(String::trim)
-                .filter(t -> !t.isEmpty())
-                .toArray(String[]::new);
+        java.util.LinkedHashSet<String> unique = new java.util.LinkedHashSet<>();
+        for (String part : norm.split("\\s+")) {
+            String t = part.trim();
+            if (!t.isEmpty()) {
+                unique.add(t);
+            }
+        }
+        return unique.toArray(String[]::new);
+    }
+
+    /** Frase normalizada (espacios simples) para match substring. */
+    private static String searchPhrase(String query) {
+        if (query == null || query.isBlank()) {
+            return "";
+        }
+        return query.trim()
+                .replace('_', ' ')
+                .replace('(', ' ')
+                .replace(')', ' ')
+                .replaceAll("[^A-Za-z0-9]+", " ")
+                .trim()
+                .replaceAll("\\s+", " ");
     }
 
     /**

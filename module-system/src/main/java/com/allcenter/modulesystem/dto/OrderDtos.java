@@ -224,6 +224,8 @@ public final class OrderDtos {
             String nombre,
             String cliente,
             String estado,
+            /** Inicio del estado actual (para calcular tiempo en columna). */
+            java.time.LocalDateTime estadoDesde,
             int totalOrdenes,
             int ordenesConXml,
             List<SeguimientoOrdenBoardItem> ordenes

@@ -318,11 +318,36 @@ public class OrderPersistenceService {
                             proyecto.getNombre(),
                             proyecto.getCliente(),
                             estadoLabel(proyecto.getEstado()),
+                            fechaInicioEstadoActual(proyecto),
                             items.size(),
                             conXml,
                             items));
         }
         return out;
+    }
+
+    /** Fecha/hora en que el proyecto entró al estado actual. */
+    private LocalDateTime fechaInicioEstadoActual(ProyectoOptimizacion proyecto) {
+        if (proyecto == null || proyecto.getEstado() == null) {
+            return proyecto != null ? proyecto.getFechacreacion() : null;
+        }
+        LocalDateTime stamped =
+                switch (proyecto.getEstado()) {
+                    case ENVIADO -> proyecto.getFechaEstadoEnviado();
+                    case EN_ATENCION -> proyecto.getFechaEstadoEnAtencion();
+                    case COTIZADO -> proyecto.getFechaEstadoCotizado();
+                    case VENDIDO -> proyecto.getFechaEstadoVendido();
+                    case OPTIMIZADO -> proyecto.getFechaEstadoOptimizado();
+                    case PRODUCCION -> proyecto.getFechaEstadoProduccion();
+                    case DESPACHO -> proyecto.getFechaEstadoDespacho();
+                    case LISTO_PARA_ENTREGAR -> proyecto.getFechaEstadoListoEntregar();
+                    case ENTREGADO -> proyecto.getFechaEstadoEntregado();
+                    case CANCELADO -> proyecto.getFechaEstadoCancelado();
+                };
+        if (stamped != null) {
+            return stamped;
+        }
+        return proyecto.getFechacreacion();
     }
 
     @Transactional(readOnly = true)
@@ -553,12 +578,22 @@ public class OrderPersistenceService {
                                 ProyectoEstado.DESPACHO,
                                 ProyectoEstado.LISTO_PARA_ENTREGAR,
                                 ProyectoEstado.ENTREGADO));
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(ZoneId.of("America/Lima"));
+        LocalDate cotizadoDesde = today.minusDays(4); // hoy + 4 anteriores = 5 días
         List<ProyectoOptimizacion> out = new ArrayList<>();
         for (ProyectoOptimizacion p : all) {
             if (p.getEstado() == ProyectoEstado.ENTREGADO) {
                 LocalDateTime fe = p.getFechaEstadoEntregado();
                 if (fe == null || !fe.toLocalDate().equals(today)) {
+                    continue;
+                }
+            }
+            if (p.getEstado() == ProyectoEstado.COTIZADO) {
+                LocalDateTime fc =
+                        p.getFechaEstadoCotizado() != null
+                                ? p.getFechaEstadoCotizado()
+                                : p.getFechacreacion();
+                if (fc == null || fc.toLocalDate().isBefore(cotizadoDesde)) {
                     continue;
                 }
             }
