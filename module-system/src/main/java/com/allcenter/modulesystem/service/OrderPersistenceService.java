@@ -497,8 +497,8 @@ public class OrderPersistenceService {
     }
 
     /**
-     * @param soloAsignables si true, solo obras sin estado / PENDIENTE (no OPTIMIZADO ni posteriores).
-     *                       Usado al anidar XML en Mis proyectos.
+     * @param soloAsignables si true, obras anidables: sin estado / PENDIENTE / OPTIMIZADO
+     *                       (listas para vincular). Excluye PRODUCCION+ y ya vinculadas a otra orden.
      */
     @Transactional(readOnly = true)
     public Map<String, Object> listBiesseObras(String q, int limit, int offset, boolean soloAsignables) {
@@ -507,7 +507,7 @@ public class OrderPersistenceService {
         if (!soloAsignables) {
             return biesseObrasClient.listOrders(q, safeLimit, safeOffset);
         }
-        // Pedimos de más porque filtramos OPTIMIZADO+ en memoria.
+        // Pedimos de más porque filtramos PRODUCCION+ / ya asignadas en memoria.
         int fetchLimit = Math.min(100, Math.max(safeLimit * 5, 50));
         Map<String, Object> raw = biesseObrasClient.listOrders(q, fetchLimit, safeOffset);
         Object itemsObj = raw.get("items");
@@ -532,10 +532,24 @@ public class OrderPersistenceService {
         return out;
     }
 
-    /** Obras aptas para anidar: sin estado / PENDIENTE. Excluye OPTIMIZADO y posteriores. */
+    /**
+     * Aptas para anidar en Mis proyectos: sin estado, PENDIENTE u OPTIMIZADO.
+     * Un XML recién importado del optimizador suele venir OPTIMIZADO — hay que poder anidarlo.
+     * Excluye PRODUCCION+ (ya en piso) y obras ya vinculadas a otra orden del CRM.
+     */
     private boolean esObraAsignableParaAnidar(Map<String, Object> obra) {
         if (obra == null || obra.isEmpty()) {
             return false;
+        }
+        Long biesseId = toLong(obra.get("orderid"));
+        if (biesseId == null) {
+            biesseId = toLong(obra.get("orderId"));
+        }
+        if (biesseId != null) {
+            List<Orden> linked = ordenRepository.findByBiesseOrderId(biesseId);
+            if (linked != null && !linked.isEmpty()) {
+                return false;
+            }
         }
         String estado =
                 firstNonBlank(str(obra.get("estado_escaneo")), str(obra.get("estadoEscaneo")));
@@ -543,13 +557,12 @@ public class OrderPersistenceService {
             return true;
         }
         String e = estado.trim().toUpperCase(Locale.ROOT).replace(' ', '_').replace('-', '_');
-        if (e.isEmpty() || "PENDIENTE".equals(e) || "NULL".equals(e)) {
+        if (e.isEmpty() || "PENDIENTE".equals(e) || "NULL".equals(e) || "OPTIMIZADO".equals(e)) {
             return true;
         }
-        // Ya entraron a pipeline operativo / optimizado → no ofrecer al anidar.
+        // Ya en piso / entrega → no ofrecer al anidar.
         return switch (e) {
-            case "OPTIMIZADO",
-                    "PRODUCCION",
+            case "PRODUCCION",
                     "DESPACHO",
                     "EN_PROCESO",
                     "LISTO_PARA_ENTREGAR",
