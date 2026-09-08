@@ -731,13 +731,16 @@ public class BiesseScanRepository {
                                    CASE
                                         WHEN UPPER(COALESCE(o.estado_escaneo, '')) IN ('ENTREGADO')
                                             THEN 'ENTREGADO'
-                                        WHEN UPPER(COALESCE(o.estado_escaneo, '')) IN ('LISTO_PARA_ENTREGAR', 'COMPLETADA', 'COMPLETADO')
-                                             OR (COUNT(*) > 0
-                                                 AND COUNT(*) FILTER (WHERE NOT COALESCE(p.escaneado, FALSE)) = 0)
+                                        -- LISTO solo con escaneo 100% real (no confiar solo en BD).
+                                        WHEN COUNT(*) > 0
+                                             AND COUNT(*) FILTER (WHERE NOT COALESCE(p.escaneado, FALSE)) = 0
                                             THEN 'LISTO_PARA_ENTREGAR'
-                                        WHEN UPPER(COALESCE(o.estado_escaneo, '')) = 'DESPACHO'
-                                             OR COUNT(*) FILTER (WHERE COALESCE(p.escaneado, FALSE)) > 0
+                                        WHEN COUNT(*) FILTER (WHERE COALESCE(p.escaneado, FALSE)) > 0
+                                              OR UPPER(COALESCE(o.estado_escaneo, '')) = 'DESPACHO'
                                             THEN 'DESPACHO'
+                                        WHEN UPPER(COALESCE(o.estado_escaneo, '')) IN (
+                                                'LISTO_PARA_ENTREGAR', 'COMPLETADA', 'COMPLETADO')
+                                            THEN 'OPTIMIZADO'
                                         WHEN UPPER(COALESCE(o.estado_escaneo, '')) IN ('PRODUCCION', 'OPTIMIZADO')
                                             THEN UPPER(o.estado_escaneo)
                                         ELSE COALESCE(NULLIF(UPPER(TRIM(o.estado_escaneo)), ''), 'PENDIENTE')
@@ -779,13 +782,15 @@ public class BiesseScanRepository {
                                        CASE
                                             WHEN UPPER(COALESCE(o.estado_escaneo, '')) IN ('ENTREGADO')
                                                 THEN 'ENTREGADO'
-                                            WHEN UPPER(COALESCE(o.estado_escaneo, '')) IN ('LISTO_PARA_ENTREGAR', 'COMPLETADA', 'COMPLETADO')
-                                                 OR (COUNT(*) > 0
-                                                     AND COUNT(*) FILTER (WHERE NOT COALESCE(p.escaneado, FALSE)) = 0)
+                                            WHEN COUNT(*) > 0
+                                                 AND COUNT(*) FILTER (WHERE NOT COALESCE(p.escaneado, FALSE)) = 0
                                                 THEN 'LISTO_PARA_ENTREGAR'
-                                            WHEN UPPER(COALESCE(o.estado_escaneo, '')) = 'DESPACHO'
-                                                 OR COUNT(*) FILTER (WHERE COALESCE(p.escaneado, FALSE)) > 0
+                                            WHEN COUNT(*) FILTER (WHERE COALESCE(p.escaneado, FALSE)) > 0
+                                                  OR UPPER(COALESCE(o.estado_escaneo, '')) = 'DESPACHO'
                                                 THEN 'DESPACHO'
+                                            WHEN UPPER(COALESCE(o.estado_escaneo, '')) IN (
+                                                    'LISTO_PARA_ENTREGAR', 'COMPLETADA', 'COMPLETADO')
+                                                THEN 'OPTIMIZADO'
                                             WHEN UPPER(COALESCE(o.estado_escaneo, '')) IN ('PRODUCCION', 'OPTIMIZADO')
                                                 THEN UPPER(o.estado_escaneo)
                                             ELSE COALESCE(NULLIF(UPPER(TRIM(o.estado_escaneo)), ''), 'PENDIENTE')
@@ -1262,13 +1267,15 @@ public class BiesseScanRepository {
         String estado;
         if ("ENTREGADO".equals(stored)) {
             estado = BiesseObrasRepository.ESTADO_ENTREGADO;
-        } else if ((total > 0 && escaneadas >= total)
-                || "LISTO_PARA_ENTREGAR".equals(stored)
-                || "COMPLETADA".equals(stored)
-                || "COMPLETADO".equals(stored)) {
+        } else if (total > 0 && escaneadas >= total) {
             estado = BiesseObrasRepository.ESTADO_LISTO;
         } else if (escaneadas > 0 || "DESPACHO".equals(stored)) {
             estado = BiesseObrasRepository.ESTADO_DESPACHO;
+        } else if ("LISTO_PARA_ENTREGAR".equals(stored)
+                || "COMPLETADA".equals(stored)
+                || "COMPLETADO".equals(stored)) {
+            // Marcado listo en BD pero sin escaneo completo → no mostrar LISTO
+            estado = BiesseObrasRepository.ESTADO_OPTIMIZADO;
         } else if ("PRODUCCION".equals(stored) || "OPTIMIZADO".equals(stored)) {
             estado = stored;
         } else if (!stored.isBlank()) {
@@ -2041,16 +2048,14 @@ public class BiesseScanRepository {
             String estado;
             if ("ENTREGADO".equals(stored)) {
                 estado = BiesseObrasRepository.ESTADO_ENTREGADO;
-            } else if (piezasDone
-                    || partesDone
-                    || "LISTO_PARA_ENTREGAR".equals(stored)
-                    || "COMPLETADA".equals(stored)
-                    || "COMPLETADO".equals(stored)) {
-                // Misma regla que detalle / findOrders: partes al 100% = listo
-                // (aunque queden filas piezas.escaneado desfasadas).
+            } else if (piezasDone || partesDone) {
                 estado = BiesseObrasRepository.ESTADO_LISTO;
             } else if (piezasEsc > 0 || partesEsc > 0 || "DESPACHO".equals(stored)) {
                 estado = BiesseObrasRepository.ESTADO_DESPACHO;
+            } else if ("LISTO_PARA_ENTREGAR".equals(stored)
+                    || "COMPLETADA".equals(stored)
+                    || "COMPLETADO".equals(stored)) {
+                estado = BiesseObrasRepository.ESTADO_OPTIMIZADO;
             } else if ("PRODUCCION".equals(stored) || "OPTIMIZADO".equals(stored)) {
                 estado = stored;
             } else if (!stored.isBlank()) {

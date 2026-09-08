@@ -1223,6 +1223,22 @@ public class BiesseObrasRepository {
             pctCorte = 0;
             avanceCorte = "0/0 cortes";
         }
+        String stored = normalizeEstadoForUi(str(row.get("estado_escaneo")));
+        String seccionador = blankToNull(str(row.get("seccionador")));
+        String estado =
+                reconcileSeguimientoEstado(
+                        stored, totalPartes, partesEsc, piezasTot, piezasEsc, piezasCor, seccionador);
+        // Sana BD si quedó LISTO/COMPLETADA sin escaneo real (p.ej. card 0%/0%).
+        if (!estado.equals(stored) && ESTADO_LISTO.equals(stored)) {
+            Long oid = null;
+            Object idObj = row.get("orderid");
+            if (idObj instanceof Number n) {
+                oid = n.longValue();
+            }
+            if (oid != null) {
+                healEstadoEscaneoIfStaleListo(oid, estado, stored);
+            }
+        }
         Map<String, Object> obra = new LinkedHashMap<>();
         obra.put("orderid", row.get("orderid"));
         obra.put("orderId", row.get("orderid"));
@@ -1232,8 +1248,8 @@ public class BiesseObrasRepository {
         obra.put("bookingCode", row.get("bookingcode"));
         obra.put("op_codigo", row.get("op_codigo"));
         obra.put("opCodigo", row.get("op_codigo"));
-        obra.put("estado_escaneo", normalizeEstadoForUi(str(row.get("estado_escaneo"))));
-        obra.put("estadoEscaneo", normalizeEstadoForUi(str(row.get("estado_escaneo"))));
+        obra.put("estado_escaneo", estado);
+        obra.put("estadoEscaneo", estado);
         obra.put("fechacreacion", row.get("fechacreacion"));
         obra.put("porcentaje", pct);
         obra.put("avance_label", avance);
@@ -1242,13 +1258,85 @@ public class BiesseObrasRepository {
         obra.put("porcentajeCorte", pctCorte);
         obra.put("avance_corte_label", avanceCorte);
         obra.put("avanceCorteLabel", avanceCorte);
-        obra.put("seccionador", blankToNull(str(row.get("seccionador"))));
+        obra.put("seccionador", seccionador);
         obra.put("piezas_totales", piezasTot);
         obra.put("piezas_escaneadas", piezasEsc);
         obra.put("piezas_cortadas", piezasCor);
         obra.put("partes_totales", totalPartes);
         obra.put("partes_escaneadas", partesEsc);
         return obra;
+    }
+
+    /**
+     * LISTO solo con escaneo al 100%. Si en BD quedó LISTO/COMPLETADA con 0% escaneo,
+     * se degrada a DESPACHO / PRODUCCION / OPTIMIZADO según el avance real.
+     */
+    static String reconcileSeguimientoEstado(
+            String stored,
+            int totalPartes,
+            int partesEsc,
+            int piezasTot,
+            int piezasEsc,
+            int piezasCor,
+            String seccionador) {
+        String e = normalizeEstadoForUi(stored);
+        if (ESTADO_ENTREGADO.equals(e)) {
+            return ESTADO_ENTREGADO;
+        }
+        boolean scanDone =
+                (piezasTot > 0 && piezasEsc >= piezasTot)
+                        || (piezasTot <= 0 && totalPartes > 0 && partesEsc >= totalPartes);
+        boolean scanPartial = piezasEsc > 0 || partesEsc > 0;
+        boolean cutPartial = piezasCor > 0 || (seccionador != null && !seccionador.isBlank());
+
+        if (scanDone) {
+            return ESTADO_LISTO;
+        }
+        if (ESTADO_LISTO.equals(e)) {
+            if (scanPartial) {
+                return ESTADO_DESPACHO;
+            }
+            if (cutPartial) {
+                return ESTADO_PRODUCCION;
+            }
+            return ESTADO_OPTIMIZADO;
+        }
+        if (scanPartial || ESTADO_DESPACHO.equals(e)) {
+            return ESTADO_DESPACHO;
+        }
+        if (cutPartial && (e.isBlank() || ESTADO_OPTIMIZADO.equals(e) || "PENDIENTE".equals(e))) {
+            return ESTADO_PRODUCCION;
+        }
+        return e.isBlank() ? "PENDIENTE" : e;
+    }
+
+    private void healEstadoEscaneoIfStaleListo(long orderId, String corrected, String previous) {
+        try {
+            int n =
+                    jdbc.update(
+                            """
+                            UPDATE ordenes
+                            SET estado_escaneo = ?,
+                                fecha_modificacion = CURRENT_TIMESTAMP
+                            WHERE orderid = ?
+                              AND UPPER(TRIM(COALESCE(estado_escaneo, ''))) IN (
+                                  'LISTO_PARA_ENTREGAR', 'COMPLETADA', 'COMPLETADO')
+                            """,
+                            corrected,
+                            orderId);
+            if (n > 0) {
+                log.warn(
+                        "heal LISTO sin escaneo orderId={} {} → {} (seguimiento)",
+                        orderId,
+                        previous,
+                        corrected);
+            }
+        } catch (DataAccessException ex) {
+            log.debug(
+                    "heal LISTO orderId={} omitido: {}",
+                    orderId,
+                    ex.getMostSpecificCause().getMessage());
+        }
     }
 
     /** Normaliza COMPLETADA → LISTO_PARA_ENTREGAR para UI/API. */
