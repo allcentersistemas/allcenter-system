@@ -240,7 +240,16 @@ public class BiesseAgentService {
         }
         Map<?, ?> chosen = exact;
         if (chosen == null && items.size() == 1 && items.get(0) instanceof Map<?, ?> only) {
-            chosen = only;
+            // Un solo hit solo si el nombre no es un falso amigo corto (p.ej. job BLANCO vs obra …BLANCO).
+            Object onlyName = only.get("ordername") != null ? only.get("ordername") : only.get("orderName");
+            String onlyU =
+                    onlyName == null
+                            ? ""
+                            : String.valueOf(onlyName).replace('\u00A0', ' ').replaceAll("\\s+", " ").trim()
+                                    .toUpperCase(Locale.ROOT);
+            if (onlyU.equals(jobNorm) || onlyU.replace(" ", "").replace("_", "").equals(jobCompact)) {
+                chosen = only;
+            }
         }
         if (chosen == null && bestOverlap != null && bestScore >= 3) {
             chosen = bestOverlap;

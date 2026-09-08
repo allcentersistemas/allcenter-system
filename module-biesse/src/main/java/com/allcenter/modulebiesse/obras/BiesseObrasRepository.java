@@ -179,11 +179,23 @@ public class BiesseObrasRepository {
             return fromExact;
         }
 
+        // Frase completa ANTES de tokens sueltos: "BLANCO BLANCO" no debe caer en
+        // "S13336 … DUROLAC BLANCO" por un solo token BLANCO.
+        List<Map<String, Object>> phraseHits = queryOrdersIlikeContains(token);
+        List<Map<String, Object>> phraseForMatch =
+                isWeakJobNameForLooseMatch(token, op)
+                        ? onlyExactName(phraseHits, token, compact)
+                        : preferExactName(phraseHits, token, compact);
+        OrderJobMatch fromPhrase = finishMatch(phraseForMatch, token, op, "phrase");
+        if (fromPhrase != null) {
+            return fromPhrase;
+        }
+
         List<Map<String, Object>> candidates = new ArrayList<>();
         if (op != null) {
             candidates.addAll(queryOrdersByOpPrefix(op));
         }
-        if (candidates.isEmpty()) {
+        if (candidates.isEmpty() && op != null) {
             candidates.addAll(
                     queryOrdersBase(
                             """
@@ -213,10 +225,20 @@ public class BiesseObrasRepository {
             return fromCand;
         }
 
-        List<Map<String, Object>> loose = queryOrdersLooseByName(token, compact);
-        OrderJobMatch fromLoose = finishMatch(loose, token, op, "loose-tokens");
-        if (fromLoose != null) {
-            return fromLoose;
+        List<Map<String, Object>> loose = List.of();
+        // Jobs cortos / sin OP / tokens duplicados ("BLANCO BLANCO"): no buscar por token
+        // suelto — demasiado fácil empatar con cualquier obra que diga BLANCO.
+        if (isWeakJobNameForLooseMatch(token, op)) {
+            log.info(
+                    "resolveOrderForJob skip-loose (job débil) job='{}' op={} — solo exact/phrase",
+                    token,
+                    op);
+        } else {
+            loose = queryOrdersLooseByName(token, compact);
+            OrderJobMatch fromLoose = finishMatch(loose, token, op, "loose-tokens");
+            if (fromLoose != null) {
+                return fromLoose;
+            }
         }
 
         // Prefijo OP solo (31313%) — tolera que el resto del nombre difiera (18MM vs 18 MM).
@@ -240,22 +262,16 @@ public class BiesseObrasRepository {
             }
         }
 
-        List<Map<String, Object>> ilike = queryOrdersIlikeContains(token);
-        OrderJobMatch fromIlike = finishMatch(ilike, token, op, "ilike-full");
-        if (fromIlike != null) {
-            return fromIlike;
-        }
-
         // Probe: ¿hay filas en ordenes? (diagnóstico en logs)
         try {
             Integer n = jdbc.queryForObject("SELECT COUNT(*) FROM ordenes", Integer.class);
             log.warn(
-                    "resolveOrderForJob SIN MATCH job='{}' op={} ordenes.count={} loose={} ilike={}",
+                    "resolveOrderForJob SIN MATCH job='{}' op={} ordenes.count={} phrase={} loose={}",
                     token,
                     op,
                     n,
-                    loose.size(),
-                    ilike.size());
+                    phraseHits.size(),
+                    loose.size());
         } catch (DataAccessException ex) {
             log.warn(
                     "resolveOrderForJob SIN MATCH y COUNT ordenes falló: {}",
@@ -263,7 +279,9 @@ public class BiesseObrasRepository {
         }
 
         return new OrderJobMatch(
-                null, false, !ilike.isEmpty() ? ilike : (loose.isEmpty() ? candidates : loose));
+                null,
+                false,
+                !phraseHits.isEmpty() ? phraseHits : (loose.isEmpty() ? candidates : loose));
     }
 
     /** Si hay match usable, lo envuelve; si ambigua con filas, también; si vacío → null. */
@@ -505,7 +523,7 @@ public class BiesseObrasRepository {
         }
     }
 
-    /** Tokens alfanuméricos del job (igual que búsqueda web de obras). */
+    /** Tokens alfanuméricos del job (igual que búsqueda web de obras). Dedup. */
     private static String[] jobSearchTokens(String query) {
         if (query == null || query.isBlank()) {
             return new String[0];
@@ -521,10 +539,72 @@ public class BiesseObrasRepository {
         if (norm.isEmpty()) {
             return new String[0];
         }
-        return java.util.Arrays.stream(norm.split("\\s+"))
-                .map(String::trim)
-                .filter(t -> !t.isEmpty())
-                .toArray(String[]::new);
+        java.util.LinkedHashSet<String> unique = new java.util.LinkedHashSet<>();
+        for (String part : norm.split("\\s+")) {
+            String t = part.trim();
+            if (!t.isEmpty()) {
+                unique.add(t.toUpperCase(Locale.ROOT));
+            }
+        }
+        return unique.toArray(String[]::new);
+    }
+
+    /**
+     * Jobs sin OP y con poca señal (p.ej. "BLANCO BLANCO" → un solo token único) no deben
+     * resolverse por AND de tokens sueltos: cualquier obra con "BLANCO" empataría.
+     */
+    private static boolean isWeakJobNameForLooseMatch(String token, String op) {
+        if (op != null && !op.isBlank()) {
+            return false;
+        }
+        String[] raw =
+                token == null || token.isBlank()
+                        ? new String[0]
+                        : token.trim().split("\\s+");
+        String[] unique = jobSearchTokens(token);
+        if (unique.length == 0) {
+            return true;
+        }
+        // Un solo token distintivo, o tokens duplicados que colapsan a 1.
+        if (unique.length <= 1) {
+            return true;
+        }
+        // Tras dedupe queda mucho menos señal que el nombre original.
+        return unique.length < raw.length && unique.length <= 2;
+    }
+
+    /** Prioriza igualdad exacta/compact dentro de un hit ILIKE. */
+    private static List<Map<String, Object>> preferExactName(
+            List<Map<String, Object>> rows, String token, String compact) {
+        List<Map<String, Object>> exact = onlyExactName(rows, token, compact);
+        if (!exact.isEmpty()) {
+            return exact;
+        }
+        return rows == null ? List.of() : rows;
+    }
+
+    /** Solo filas con ordername/booking exacto o compact igual al job. */
+    private static List<Map<String, Object>> onlyExactName(
+            List<Map<String, Object>> rows, String token, String compact) {
+        if (rows == null || rows.isEmpty() || token == null) {
+            return List.of();
+        }
+        String job = token.trim().toUpperCase(Locale.ROOT);
+        String jobCompact = compact != null ? compact : compactName(job);
+        List<Map<String, Object>> exact = new ArrayList<>();
+        for (Map<String, Object> row : rows) {
+            String name = str(row.get("ordername"));
+            String booking = str(row.get("bookingcode"));
+            String nameU = name == null ? "" : name.trim().toUpperCase(Locale.ROOT);
+            String bookU = booking == null ? "" : booking.trim().toUpperCase(Locale.ROOT);
+            if (nameU.equals(job)
+                    || bookU.equals(job)
+                    || (!jobCompact.isBlank() && compactName(nameU).equals(jobCompact))
+                    || (!jobCompact.isBlank() && compactName(bookU).equals(jobCompact))) {
+                exact.add(row);
+            }
+        }
+        return exact;
     }
 
     /** Como {@link #jobSearchTokens} pero parte 18MM → 18 + MM. */
@@ -583,19 +663,28 @@ public class BiesseObrasRepository {
             if (nameU.equals(job) || nameNorm.equals(jobNorm) || nameCompact.equals(jobCompact)) {
                 score += 1000;
             }
-            if (!jobNorm.isBlank() && (jobNorm.contains(nameNorm) || nameNorm.contains(jobNorm))) {
+            // Contiene frase completa del job (no solo una palabra).
+            if (!jobNorm.isBlank()
+                    && jobNorm.length() >= 5
+                    && nameNorm.contains(jobNorm)
+                    && !nameNorm.equals(jobNorm)) {
                 score += 400;
             }
             if (!jobCompact.isBlank()
-                    && (jobCompact.contains(nameCompact) || nameCompact.contains(jobCompact))) {
+                    && jobCompact.length() >= 5
+                    && nameCompact.contains(jobCompact)
+                    && !nameCompact.equals(jobCompact)) {
                 score += 300;
             }
             String jobTail = lastWord(jobNorm);
             String nameTail = lastWord(nameNorm);
-            if (jobTail.length() >= 3 && jobTail.equals(nameTail)) {
+            // lastWord solo ayuda si el job tiene OP o ya hay señal fuerte de overlap.
+            int overlap = tokenOverlapScore(jobNorm, nameNorm);
+            if (jobTail.length() >= 3 && jobTail.equals(nameTail) && (op != null || overlap >= 2)) {
                 score += 500;
             } else if (jobTail.length() >= 3
-                    && (jobNorm.contains(nameTail) || nameNorm.contains(jobTail))) {
+                    && (jobNorm.contains(nameTail) || nameNorm.contains(jobTail))
+                    && op != null) {
                 score += 250;
             }
             // Discriminar K5_IZQ vs K5_DER / K1_DER dentro de la misma OP.
@@ -610,7 +699,11 @@ public class BiesseObrasRepository {
             if (op != null && nameU.startsWith(op.toUpperCase(Locale.ROOT))) {
                 score += 50;
             }
-            score += tokenOverlapScore(jobNorm, nameNorm) * 20;
+            score += overlap * 20;
+            // Penalizar nombres mucho más largos cuando el job no trae OP (falsos +BLANCO).
+            if (op == null && !jobNorm.isBlank() && nameNorm.length() > jobNorm.length() + 12) {
+                score -= 350;
+            }
             if (score > bestScore) {
                 bestScore = score;
                 best = row;
@@ -625,6 +718,10 @@ public class BiesseObrasRepository {
         // Empate en nombre exacto (reimport XML): tomar la más reciente (ya viene ORDER BY fecha DESC).
         if (bestScore >= 1000) {
             return new MatchPick(best, bestScore, false);
+        }
+        // Sin OP y sin match exacto: no aceptar lastWord/overlap débil (caso BLANCO BLANCO → S13336).
+        if (op == null && bestScore < 800) {
+            return new MatchPick(null, bestScore, candidates.size() > 1);
         }
         boolean weak = candidates.size() > 1 && bestScore < 200;
         boolean tied = tiedAtBest > 1;
