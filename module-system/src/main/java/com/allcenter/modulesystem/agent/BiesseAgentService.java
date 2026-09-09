@@ -81,8 +81,9 @@ public class BiesseAgentService {
                                     : ""));
         }
         if (resolve != null && Boolean.TRUE.equals(resolve.get("ambiguous"))) {
-            // Antes: 409 inmediato. Ahora: si hay nombre exacto en listOrders, úsalo.
-            ResolvedOrder fromList = resolveOrderViaListOrders(job);
+            // Antes: 409 inmediato. Ahora: exacto en candidates / listOrders.
+            ResolvedOrder fromCands = pickExactFromResolveCandidates(job, resolve);
+            ResolvedOrder fromList = fromCands != null ? fromCands : resolveOrderViaListOrders(job);
             if (fromList == null || fromList.orderId() == null) {
                 throw new org.springframework.web.server.ResponseStatusException(
                         org.springframework.http.HttpStatus.CONFLICT,
@@ -108,6 +109,26 @@ public class BiesseAgentService {
         String manifestJob = job;
         Long orderId = extractOrderId(resolve != null ? resolve.get("order") : null);
         Object order = resolve != null ? resolve.get("order") : null;
+        if (orderId == null) {
+            // by-job a veces deja candidatos con el nombre exacto pero found=false
+            // (job débil tipo «BLANCO BLANCO»). Tomar exacto de ahí antes que listOrders.
+            ResolvedOrder fromCands = pickExactFromResolveCandidates(job, resolve);
+            if (fromCands != null && fromCands.orderId() != null) {
+                log.info(
+                        "order-manifest exacto desde by-job candidates job='{}' → id={} '{}'",
+                        job,
+                        fromCands.orderId(),
+                        fromCands.orderName());
+                manifestJob = fromCands.orderName() != null ? fromCands.orderName() : job;
+                orderId = fromCands.orderId();
+                order =
+                        Map.of(
+                                "ordername",
+                                manifestJob,
+                                "orderid",
+                                orderId);
+            }
+        }
         if (orderId == null) {
             ResolvedOrder fromList = resolveOrderViaListOrders(job);
             if (fromList != null) {
@@ -186,6 +207,23 @@ public class BiesseAgentService {
     }
 
     private record ResolvedOrder(Long orderId, String orderName) {}
+
+    /**
+     * by-job puede devolver candidatos sin elegir obra. Si hay igualdad exacta de
+     * orderName/bookingCode (o compact), úsala — cubre «BLANCO BLANCO».
+     */
+    private ResolvedOrder pickExactFromResolveCandidates(String job, Map<String, Object> resolve) {
+        if (resolve == null || job == null || job.isBlank()) {
+            return null;
+        }
+        Object candsObj = resolve.get("candidates");
+        if (!(candsObj instanceof java.util.List<?> cands) || cands.isEmpty()) {
+            return null;
+        }
+        Map<String, Object> listed = new LinkedHashMap<>();
+        listed.put("items", cands);
+        return pickCanonicalOrder(job, listed);
+    }
 
     private ResolvedOrder resolveOrderViaListOrders(String job) {
         try {
@@ -548,6 +586,18 @@ public class BiesseAgentService {
                     if (order != null && order.get("orderid") != null) {
                         return order;
                     }
+                }
+            }
+            ResolvedOrder fromCands = pickExactFromResolveCandidates(job, resolve);
+            if (fromCands != null && fromCands.orderId() != null) {
+                Map<String, Object> byId =
+                        normalizeOrderKeys(obrasClient.findOrderById(fromCands.orderId()));
+                if (byId != null && byId.get("orderid") != null) {
+                    log.info(
+                            "resolveOrderForJobRobust exacto desde candidates job='{}' → id={}",
+                            job,
+                            fromCands.orderId());
+                    return byId;
                 }
             }
             ResolvedOrder listed = resolveOrderViaListOrders(job);

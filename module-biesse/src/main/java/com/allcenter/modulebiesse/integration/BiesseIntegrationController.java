@@ -96,6 +96,14 @@ public class BiesseIntegrationController {
             if (web.order() != null) {
                 match = web;
                 matcher = "web-search-fallback-v3";
+            } else if (match.order() == null && !match.candidates().isEmpty()) {
+                // Reintento exacto sobre candidatos JDBC (nombre débil).
+                BiesseObrasRepository.OrderJobMatch fromCands =
+                        obrasRepository.resolveFromCandidateRows(jobName, match.candidates());
+                if (fromCands.order() != null) {
+                    match = fromCands;
+                    matcher = "candidates-exact-v3";
+                }
             }
         }
         Integer ordenesCount = null;

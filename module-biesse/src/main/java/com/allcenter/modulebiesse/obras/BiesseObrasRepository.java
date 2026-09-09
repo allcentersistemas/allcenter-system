@@ -146,6 +146,33 @@ public class BiesseObrasRepository {
                 compact,
                 op);
 
+        // Igualdad literal primero (sin funciones) — el caso «BLANCO BLANCO» debe resolver
+        // aunque fallen CHR/TRIM/op_codigo en el SQL preferido.
+        List<Map<String, Object>> literal =
+                queryOrdersBase(
+                        """
+                        SELECT orderid, ordername, bookingcode, op_codigo
+                        FROM ordenes
+                        WHERE ordername ILIKE ?
+                           OR bookingcode ILIKE ?
+                        ORDER BY orderid DESC
+                        LIMIT 5
+                        """,
+                        """
+                        SELECT orderid, ordername, bookingcode
+                        FROM ordenes
+                        WHERE ordername ILIKE ?
+                           OR bookingcode ILIKE ?
+                        ORDER BY orderid DESC
+                        LIMIT 5
+                        """,
+                        token,
+                        token);
+        OrderJobMatch fromLiteral = finishMatch(literal, token, op, "literal-ilike");
+        if (fromLiteral != null) {
+            return fromLiteral;
+        }
+
         // Solo columnas base: estado_escaneo/nparts rompen el match si no existen en ese esquema.
         List<Map<String, Object>> exact =
                 queryOrdersBase(
