@@ -236,15 +236,38 @@ public class BiesseAgentService {
             if (nameObj == null) {
                 nameObj = row.get("orderName");
             }
-            if (nameObj == null) {
-                continue;
+            String nameU = "";
+            String nameCompact = "";
+            if (nameObj != null) {
+                String name =
+                        String.valueOf(nameObj).replace('\u00A0', ' ').replaceAll("\\s+", " ").trim();
+                nameU = name.toUpperCase(Locale.ROOT);
+                nameCompact = nameU.replace(" ", "").replace("_", "");
             }
-            String name = String.valueOf(nameObj).replace('\u00A0', ' ').replaceAll("\\s+", " ").trim();
-            String nameU = name.toUpperCase(Locale.ROOT);
-            String nameCompact = nameU.replace(" ", "").replace("_", "");
-            if (nameU.equals(jobNorm) || nameCompact.equals(jobCompact)) {
+            Object bookObj = row.get("bookingcode");
+            if (bookObj == null) {
+                bookObj = row.get("bookingCode");
+            }
+            String bookU = "";
+            String bookCompact = "";
+            if (bookObj != null) {
+                bookU =
+                        String.valueOf(bookObj)
+                                .replace('\u00A0', ' ')
+                                .replaceAll("\\s+", " ")
+                                .trim()
+                                .toUpperCase(Locale.ROOT);
+                bookCompact = bookU.replace(" ", "").replace("_", "");
+            }
+            if (nameU.equals(jobNorm)
+                    || nameCompact.equals(jobCompact)
+                    || bookU.equals(jobNorm)
+                    || bookCompact.equals(jobCompact)) {
                 exact = row;
                 break;
+            }
+            if (nameU.isEmpty()) {
+                continue;
             }
             int score = 0;
             for (String t : jobNorm.split("\\s+")) {

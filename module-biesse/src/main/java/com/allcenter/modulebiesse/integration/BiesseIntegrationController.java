@@ -91,11 +91,9 @@ public class BiesseIntegrationController {
             }
             BiesseObrasRepository.OrderJobMatch web =
                     obrasRepository.resolveFromCandidateRows(jobName, webHits);
+            // Solo adoptar web si resolvió una obra. Nunca promover "ambigua"/candidatos
+            // sueltos (p.ej. 40 obras con "BLANCO") — bloqueaba BLANCO BLANCO con 409.
             if (web.order() != null) {
-                match = web;
-                matcher = "web-search-fallback-v3";
-            } else if (!match.ambiguous()
-                    && (web.ambiguous() || !web.candidates().isEmpty())) {
                 match = web;
                 matcher = "web-search-fallback-v3";
             }

@@ -869,7 +869,31 @@ public class BiesseScanRepository {
                 sql.append(" AND DATE(o.fechacreacion) <= CAST(? AS DATE) ");
                 args.add(toDate.trim());
             }
-            sql.append(" ORDER BY o.fechacreacion DESC LIMIT ? OFFSET ? ");
+            if (hasQuery) {
+                // Exacto arriba: "BLANCO BLANCO" no debe perderse tras 40 obras con "BLANCO".
+                String phrase = searchPhrase(query);
+                String compact = phrase.replace(" ", "").replace("_", "");
+                sql.append(
+                        """
+                         ORDER BY
+                           CASE
+                             WHEN UPPER(TRIM(BOTH FROM REPLACE(COALESCE(o.ordername, ''), CHR(160), ' ')))
+                                  = UPPER(?) THEN 0
+                             WHEN UPPER(TRIM(BOTH FROM REPLACE(COALESCE(o.bookingcode, ''), CHR(160), ' ')))
+                                  = UPPER(?) THEN 0
+                             WHEN UPPER(REPLACE(REPLACE(REPLACE(COALESCE(o.ordername, ''), CHR(160), ''), '_', ''), ' ', ''))
+                                  = UPPER(?) THEN 0
+                             ELSE 1
+                           END,
+                           o.fechacreacion DESC
+                         LIMIT ? OFFSET ?
+                        """);
+                args.add(phrase.isBlank() ? query.trim() : phrase);
+                args.add(phrase.isBlank() ? query.trim() : phrase);
+                args.add(compact.isBlank() ? query.trim().replace(" ", "") : compact);
+            } else {
+                sql.append(" ORDER BY o.fechacreacion DESC LIMIT ? OFFSET ? ");
+            }
             args.add(limit);
             args.add(offset);
             return jdbcTemplate.queryForList(sql.toString(), args.toArray());

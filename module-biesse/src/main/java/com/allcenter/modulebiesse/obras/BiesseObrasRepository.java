@@ -160,13 +160,16 @@ public class BiesseObrasRepository {
                         ORDER BY orderid DESC
                         LIMIT 10
                         """,
+                        // Bare sin op_codigo, PERO con CHR(160): si el preferred falla por columna
+                        // ausente, un nombre con NBSP ("BLANCO\u00A0BLANCO") no debe perderse.
                         """
                         SELECT orderid, ordername, bookingcode
                         FROM ordenes
-                        WHERE UPPER(TRIM(COALESCE(ordername, ''))) = UPPER(?)
-                           OR UPPER(REPLACE(REPLACE(COALESCE(ordername, ''), '_', ''), ' ', '')) = UPPER(?)
-                           OR UPPER(REPLACE(COALESCE(ordername, ''), ' ', '')) = UPPER(?)
-                           OR (bookingcode IS NOT NULL AND UPPER(TRIM(bookingcode)) = UPPER(?))
+                        WHERE UPPER(TRIM(BOTH FROM REPLACE(COALESCE(ordername, ''), CHR(160), ' '))) = UPPER(?)
+                           OR UPPER(REPLACE(REPLACE(REPLACE(COALESCE(ordername, ''), CHR(160), ''), '_', ''), ' ', '')) = UPPER(?)
+                           OR UPPER(REPLACE(REPLACE(COALESCE(ordername, ''), CHR(160), ' '), ' ', '')) = UPPER(?)
+                           OR (bookingcode IS NOT NULL
+                               AND UPPER(TRIM(BOTH FROM REPLACE(bookingcode, CHR(160), ' '))) = UPPER(?))
                         ORDER BY orderid DESC
                         LIMIT 10
                         """,
@@ -399,16 +402,28 @@ public class BiesseObrasRepository {
         if (token == null || token.isBlank()) {
             return List.of();
         }
+        String like = "%" + token + "%";
         try {
+            // Igualdad exacta primero (evita que LIMIT 40 se llene de obras con "BLANCO").
             return jdbc.queryForList(
                     """
                     SELECT orderid, ordername, bookingcode, op_codigo
                     FROM ordenes
                     WHERE REPLACE(COALESCE(ordername, ''), CHR(160), ' ') ILIKE ?
-                    ORDER BY orderid DESC
+                       OR REPLACE(COALESCE(bookingcode, ''), CHR(160), ' ') ILIKE ?
+                    ORDER BY
+                      CASE
+                        WHEN UPPER(TRIM(BOTH FROM REPLACE(COALESCE(ordername, ''), CHR(160), ' '))) = UPPER(?)
+                          OR UPPER(TRIM(BOTH FROM REPLACE(COALESCE(bookingcode, ''), CHR(160), ' '))) = UPPER(?)
+                        THEN 0 ELSE 1
+                      END,
+                      orderid DESC
                     LIMIT 40
                     """,
-                    "%" + token + "%");
+                    like,
+                    like,
+                    token,
+                    token);
         } catch (DataAccessException ex) {
             log.warn("resolveOrderForJob ILIKE falló: {}", ex.getMostSpecificCause().getMessage());
             try {
@@ -416,11 +431,19 @@ public class BiesseObrasRepository {
                         """
                         SELECT orderid, ordername, bookingcode
                         FROM ordenes
-                        WHERE ordername ILIKE ?
-                        ORDER BY orderid DESC
+                        WHERE REPLACE(COALESCE(ordername, ''), CHR(160), ' ') ILIKE ?
+                           OR ordername ILIKE ?
+                        ORDER BY
+                          CASE
+                            WHEN UPPER(TRIM(BOTH FROM REPLACE(COALESCE(ordername, ''), CHR(160), ' '))) = UPPER(?)
+                            THEN 0 ELSE 1
+                          END,
+                          orderid DESC
                         LIMIT 40
                         """,
-                        "%" + token + "%");
+                        like,
+                        like,
+                        token);
             } catch (DataAccessException ex2) {
                 log.warn(
                         "resolveOrderForJob ILIKE mínimo falló: {}",
@@ -640,18 +663,16 @@ public class BiesseObrasRepository {
         if (rows == null || rows.isEmpty() || token == null) {
             return List.of();
         }
-        String job = token.trim().toUpperCase(Locale.ROOT);
-        String jobCompact = compact != null ? compact : compactName(job);
+        String jobNorm = normalizeForCompare(token);
+        String jobCompact = compact != null && !compact.isBlank() ? compact : compactName(token);
         List<Map<String, Object>> exact = new ArrayList<>();
         for (Map<String, Object> row : rows) {
-            String name = str(row.get("ordername"));
-            String booking = str(row.get("bookingcode"));
-            String nameU = name == null ? "" : name.trim().toUpperCase(Locale.ROOT);
-            String bookU = booking == null ? "" : booking.trim().toUpperCase(Locale.ROOT);
-            if (nameU.equals(job)
-                    || bookU.equals(job)
-                    || (!jobCompact.isBlank() && compactName(nameU).equals(jobCompact))
-                    || (!jobCompact.isBlank() && compactName(bookU).equals(jobCompact))) {
+            String nameNorm = normalizeForCompare(str(row.get("ordername")));
+            String bookNorm = normalizeForCompare(str(row.get("bookingcode")));
+            if (nameNorm.equals(jobNorm)
+                    || bookNorm.equals(jobNorm)
+                    || (!jobCompact.isBlank() && compactName(nameNorm).equals(jobCompact))
+                    || (!jobCompact.isBlank() && compactName(bookNorm).equals(jobCompact))) {
                 exact.add(row);
             }
         }
@@ -839,7 +860,12 @@ public class BiesseObrasRepository {
         if (value == null) {
             return "";
         }
-        return value.replaceAll("[\\s_]+", "").toUpperCase(Locale.ROOT);
+        // NBSP (\u00A0) NO entra en \s de Java — hay que normalizarlo antes.
+        return value
+                .replace('\u00A0', ' ')
+                .replace('\u202F', ' ')
+                .replaceAll("[\\s_]+", "")
+                .toUpperCase(Locale.ROOT);
     }
 
     private static String lastWord(String value) {
