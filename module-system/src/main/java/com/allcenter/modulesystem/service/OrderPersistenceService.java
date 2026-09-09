@@ -52,6 +52,7 @@ public class OrderPersistenceService {
     private final AuditService auditService;
     private final EmployeeNotificationService employeeNotificationService;
     private final BiesseObrasClient biesseObrasClient;
+    private final TelegramService telegramService;
 
     public OrderPersistenceService(
             ProyectoRepository proyectoRepository,
@@ -65,7 +66,8 @@ public class OrderPersistenceService {
             MailService mailService,
             AuditService auditService,
             @Lazy EmployeeNotificationService employeeNotificationService,
-            BiesseObrasClient biesseObrasClient
+            BiesseObrasClient biesseObrasClient,
+            TelegramService telegramService
     ) {
         this.proyectoRepository = proyectoRepository;
         this.ordenRepository = ordenRepository;
@@ -79,6 +81,7 @@ public class OrderPersistenceService {
         this.auditService = auditService;
         this.employeeNotificationService = employeeNotificationService;
         this.biesseObrasClient = biesseObrasClient;
+        this.telegramService = telegramService;
     }
 
     @Transactional
@@ -224,6 +227,14 @@ public class OrderPersistenceService {
                 AuditAction.UPDATE,
                 proyecto,
                 (reason == null || reason.isBlank() ? "Seguimiento" : reason) + "; estado " + target.name());
+        if (target == ProyectoEstado.LISTO_PARA_ENTREGAR
+                && current != ProyectoEstado.LISTO_PARA_ENTREGAR) {
+            notifyClientPedidoListoTelegram(
+                    proyecto,
+                    proyecto.getNombre() == null || proyecto.getNombre().isBlank()
+                            ? "su proyecto"
+                            : proyecto.getNombre().trim());
+        }
         return true;
     }
 
@@ -812,6 +823,14 @@ public class OrderPersistenceService {
                         + "; estado "
                         + target.name()
                         + " (cuello de botella de órdenes)");
+        if (target == ProyectoEstado.LISTO_PARA_ENTREGAR
+                && prev != ProyectoEstado.LISTO_PARA_ENTREGAR) {
+            notifyClientPedidoListoTelegram(
+                    current,
+                    current.getNombre() == null || current.getNombre().isBlank()
+                            ? "su proyecto"
+                            : current.getNombre().trim());
+        }
         return true;
     }
 
@@ -1495,6 +1514,57 @@ public class OrderPersistenceService {
                     proyecto.getId(),
                     ex.getMessage());
         }
+    }
+
+    /**
+     * Avisa por Telegram al cliente portal cuando un pedido/proyecto queda listo para entregar.
+     * No-op si Telegram está off, no hay cliente o falta chat id.
+     */
+    public void notifyClientPedidoListoTelegram(ProyectoOptimizacion proyecto, String pedidoLabel) {
+        if (proyecto == null) {
+            return;
+        }
+        if (!telegramService.isEnabled()) {
+            log.debug(
+                    "Telegram deshabilitado; no se avisa listo del proyecto {}",
+                    proyecto.getId());
+            return;
+        }
+        Long clientUserId = proyecto.getClientUserId();
+        if (clientUserId == null) {
+            log.info(
+                    "Proyecto {} sin cliente portal; no se envía Telegram de listo",
+                    proyecto.getId());
+            return;
+        }
+        ClientUser client = clientUserRepository.findById(clientUserId).orElse(null);
+        if (client == null
+                || client.getTelegramChatId() == null
+                || client.getTelegramChatId().isBlank()) {
+            log.info(
+                    "Cliente {} sin telegram_chat_id; no se envía aviso de listo (proyecto {})",
+                    clientUserId,
+                    proyecto.getId());
+            return;
+        }
+        String label =
+                pedidoLabel == null || pedidoLabel.isBlank()
+                        ? (proyecto.getNombre() == null || proyecto.getNombre().isBlank()
+                                ? "su pedido"
+                                : proyecto.getNombre().trim())
+                        : pedidoLabel.trim();
+        String recipientName = resolveClientDisplayName(client);
+        String text =
+                """
+                <b>Pedido listo para entregar</b>
+
+                Hola %s,
+                Su pedido <b>%s</b> ya está <b>listo para entregar</b>.
+
+                AllCenter
+                """
+                        .formatted(escapeHtml(recipientName), escapeHtml(label));
+        telegramService.sendTextQuietly(client.getTelegramChatId().trim(), text);
     }
 
     private static String resolveClientDisplayName(ClientUser client) {

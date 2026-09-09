@@ -45,12 +45,23 @@ public class FulfillmentService {
                 continue;
             }
             // El estado del proyecto se recalcula como mínimo de todas las órdenes/XML.
-            orderPersistenceService.reconcileProyectoEstadoFromOrdenes(
-                    current,
-                    "Escaneo Android ("
-                            + label
-                            + (orderComplete ? ", orden completa" : "")
-                            + ")");
+            boolean changed =
+                    orderPersistenceService.reconcileProyectoEstadoFromOrdenes(
+                            current,
+                            "Escaneo Android ("
+                                    + label
+                                    + (orderComplete ? ", orden completa" : "")
+                                    + ")");
+            if (!orderComplete) {
+                continue;
+            }
+            current = proyectoRepository.findById(current.getId()).orElse(current);
+            // Si el proyecto acabó de pasar a LISTO, reconcile ya envió Telegram.
+            // Si aún no (quedan XML pendientes), avisar este pedido/XML.
+            if (changed && current.getEstado() == ProyectoEstado.LISTO_PARA_ENTREGAR) {
+                continue;
+            }
+            orderPersistenceService.notifyClientPedidoListoTelegram(current, label);
         }
     }
 
