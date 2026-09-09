@@ -1151,7 +1151,7 @@ public class BiesseObrasRepository {
                     jdbc.queryForList(
                             """
                             SELECT o.orderid, o.ordername, o.bookingcode, o.op_codigo, o.estado_escaneo,
-                                   o.fechacreacion,
+                                   o.fechacreacion, o.fecha_modificacion,
                                    (SELECT COUNT(*) FROM partes p WHERE p.orderid = o.orderid) AS total_partes,
                                    (SELECT COUNT(*) FROM partes p WHERE p.orderid = o.orderid AND COALESCE(p.escaneado, FALSE)) AS partes_escaneadas,
                                    (SELECT COUNT(*) FROM piezas z JOIN partes p ON p.partid = z.partid
@@ -1243,10 +1243,53 @@ public class BiesseObrasRepository {
             }
         }
         List<Map<String, Object>> out = new ArrayList<>();
+        LocalDate limaToday = LocalDate.now(java.time.ZoneId.of("America/Lima"));
         for (Map<String, Object> row : rows) {
-            out.add(toSeguimientoCard(row));
+            Map<String, Object> card = toSeguimientoCard(row);
+            // Entregado: solo del día (Lima); al día siguiente el tablero queda limpio.
+            if (ESTADO_ENTREGADO.equals(str(card.get("estadoEscaneo")))) {
+                Object fe = card.get("estadoDesde");
+                if (fe == null) {
+                    fe = row.get("fecha_modificacion");
+                }
+                if (fe == null) {
+                    fe = row.get("fechacreacion");
+                }
+                LocalDate d = toLocalDateLima(fe);
+                if (d == null || !d.equals(limaToday)) {
+                    continue;
+                }
+            }
+            out.add(card);
         }
         return out;
+    }
+
+    private static LocalDate toLocalDateLima(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof java.time.LocalDateTime ldt) {
+            return ldt.toLocalDate();
+        }
+        if (value instanceof LocalDate ld) {
+            return ld;
+        }
+        if (value instanceof java.time.Instant instant) {
+            return LocalDate.ofInstant(instant, java.time.ZoneId.of("America/Lima"));
+        }
+        if (value instanceof java.util.Date date) {
+            return LocalDate.ofInstant(date.toInstant(), java.time.ZoneId.of("America/Lima"));
+        }
+        try {
+            String s = String.valueOf(value).trim();
+            if (s.length() >= 10) {
+                return LocalDate.parse(s.substring(0, 10));
+            }
+        } catch (Exception ignored) {
+            // ignore
+        }
+        return null;
     }
 
     private Map<String, Object> toSeguimientoCard(Map<String, Object> row) {
@@ -1304,6 +1347,13 @@ public class BiesseObrasRepository {
         obra.put("estado_escaneo", estado);
         obra.put("estadoEscaneo", estado);
         obra.put("fechacreacion", row.get("fechacreacion"));
+        Object estadoDesde =
+                row.get("fecha_modificacion") != null
+                        ? row.get("fecha_modificacion")
+                        : row.get("fechacreacion");
+        obra.put("estadoDesde", estadoDesde);
+        obra.put("estado_desde", estadoDesde);
+        obra.put("fecha_modificacion", row.get("fecha_modificacion"));
         obra.put("porcentaje", pct);
         obra.put("avance_label", avance);
         obra.put("avanceLabel", avance);

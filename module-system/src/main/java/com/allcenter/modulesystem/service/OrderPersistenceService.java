@@ -459,6 +459,22 @@ public class OrderPersistenceService {
             if (pc instanceof Number n) {
                 pctCorte = n.doubleValue();
             }
+            LocalDateTime estadoDesde =
+                    toLocalDateTime(
+                            firstNonNull(
+                                    row.get("estadoDesde"),
+                                    row.get("estado_desde"),
+                                    row.get("fecha_modificacion"),
+                                    row.get("fechaModificacion"),
+                                    row.get("fechacreacion"),
+                                    row.get("fechaCreacion")));
+            // Defensa: ENTREGADO solo del día (Lima).
+            if ("ENTREGADO".equals(estado)) {
+                LocalDate today = LocalDate.now(ZoneId.of("America/Lima"));
+                if (estadoDesde == null || !estadoDesde.toLocalDate().equals(today)) {
+                    continue;
+                }
+            }
             out.add(
                     new OrderDtos.SeguimientoObraResponse(
                             orderId,
@@ -472,7 +488,8 @@ public class OrderPersistenceService {
                             pctCorte,
                             firstNonBlank(
                                     str(row.get("avanceCorteLabel")),
-                                    str(row.get("avance_corte_label")))));
+                                    str(row.get("avance_corte_label"))),
+                            estadoDesde));
         }
         return out;
     }
@@ -655,7 +672,8 @@ public class OrderPersistenceService {
                                 ProyectoEstado.LISTO_PARA_ENTREGAR,
                                 ProyectoEstado.ENTREGADO));
         LocalDate today = LocalDate.now(ZoneId.of("America/Lima"));
-        LocalDate cotizadoDesde = today.minusDays(4); // hoy + 4 anteriores = 5 días
+        LocalDateTime cotizadoDesde =
+                LocalDateTime.now(ZoneId.of("America/Lima")).minusHours(48);
         List<ProyectoOptimizacion> out = new ArrayList<>();
         for (ProyectoOptimizacion p : all) {
             if (p.getEstado() == ProyectoEstado.ENTREGADO) {
@@ -669,7 +687,7 @@ public class OrderPersistenceService {
                         p.getFechaEstadoCotizado() != null
                                 ? p.getFechaEstadoCotizado()
                                 : p.getFechacreacion();
-                if (fc == null || fc.toLocalDate().isBefore(cotizadoDesde)) {
+                if (fc == null || fc.isBefore(cotizadoDesde)) {
                     continue;
                 }
             }

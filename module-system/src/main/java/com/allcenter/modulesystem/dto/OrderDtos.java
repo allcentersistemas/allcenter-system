@@ -195,7 +195,9 @@ public final class OrderDtos {
             String avanceLabel,
             String seccionador,
             Double porcentajeCorte,
-            String avanceCorteLabel
+            String avanceCorteLabel,
+            /** Inicio del estado actual (fecha_modificacion / creación). */
+            java.time.LocalDateTime estadoDesde
     ) {
     }
 
