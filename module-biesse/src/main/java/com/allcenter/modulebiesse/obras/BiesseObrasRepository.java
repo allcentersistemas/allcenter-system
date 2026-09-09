@@ -173,36 +173,28 @@ public class BiesseObrasRepository {
             return fromLiteral;
         }
 
-        // Solo columnas base: estado_escaneo/nparts rompen el match si no existen en ese esquema.
+        // Igualdad literal: respeta '_' y espacios del job (solo case-insensitive).
         List<Map<String, Object>> exact =
                 queryOrdersBase(
                         """
                         SELECT orderid, ordername, bookingcode, op_codigo
                         FROM ordenes
                         WHERE UPPER(TRIM(BOTH FROM REPLACE(COALESCE(ordername, ''), CHR(160), ' '))) = UPPER(?)
-                           OR UPPER(REPLACE(REPLACE(REPLACE(COALESCE(ordername, ''), CHR(160), ''), '_', ''), ' ', '')) = UPPER(?)
-                           OR UPPER(REPLACE(REPLACE(COALESCE(ordername, ''), CHR(160), ' '), ' ', '')) = UPPER(?)
                            OR (bookingcode IS NOT NULL
                                AND UPPER(TRIM(BOTH FROM REPLACE(bookingcode, CHR(160), ' '))) = UPPER(?))
                         ORDER BY orderid DESC
                         LIMIT 10
                         """,
-                        // Bare sin op_codigo, PERO con CHR(160): si el preferred falla por columna
-                        // ausente, un nombre con NBSP ("BLANCO\u00A0BLANCO") no debe perderse.
                         """
                         SELECT orderid, ordername, bookingcode
                         FROM ordenes
                         WHERE UPPER(TRIM(BOTH FROM REPLACE(COALESCE(ordername, ''), CHR(160), ' '))) = UPPER(?)
-                           OR UPPER(REPLACE(REPLACE(REPLACE(COALESCE(ordername, ''), CHR(160), ''), '_', ''), ' ', '')) = UPPER(?)
-                           OR UPPER(REPLACE(REPLACE(COALESCE(ordername, ''), CHR(160), ' '), ' ', '')) = UPPER(?)
                            OR (bookingcode IS NOT NULL
                                AND UPPER(TRIM(BOTH FROM REPLACE(bookingcode, CHR(160), ' '))) = UPPER(?))
                         ORDER BY orderid DESC
                         LIMIT 10
                         """,
                         token,
-                        compact,
-                        compact,
                         token);
         OrderJobMatch fromExact = finishMatch(exact, token, op, "exact");
         if (fromExact != null) {
@@ -272,7 +264,8 @@ public class BiesseObrasRepository {
         }
 
         // Prefijo OP solo (31313%) — tolera que el resto del nombre difiera (18MM vs 18 MM).
-        if (op != null) {
+        // Nunca para jobs débiles sin OP («BLANCO BLANCO»).
+        if (op != null && !isWeakJobNameForLooseMatch(token, op)) {
             List<Map<String, Object>> byOp = queryOrdersByOpPrefix(op);
             OrderJobMatch fromOp = finishMatch(byOp, token, op, "op-prefix");
             if (fromOp != null) {
@@ -280,13 +273,13 @@ public class BiesseObrasRepository {
             }
             if (!byOp.isEmpty()) {
                 MatchPick pick = pickBestOrderMatchDetailed(byOp, token, op);
-                if (pick.order() != null) {
+                if (pick.order() != null && !pick.ambiguous()) {
                     log.info(
                             "resolveOrderForJob op-prefix pick job='{}' → orderid={} score={}",
                             token,
                             pick.order().get("orderid"),
                             pick.score());
-                    return new OrderJobMatch(pick.order(), pick.ambiguous(), byOp);
+                    return new OrderJobMatch(pick.order(), false, byOp);
                 }
                 return new OrderJobMatch(null, true, byOp);
             }
@@ -334,6 +327,15 @@ public class BiesseObrasRepository {
                     exactOnly.size());
             return new OrderJobMatch(newest, false, exactOnly);
         }
+        // Jobs débiles («BLANCO BLANCO»): sin exacto → no alternativas por token/score.
+        if (isWeakJobNameForLooseMatch(token, op)) {
+            log.info(
+                    "resolveOrderForJob {} débil sin exacto job='{}' candidatos={} → no-match",
+                    stage,
+                    token,
+                    rows.size());
+            return null;
+        }
         MatchPick pick = pickBestOrderMatchDetailed(rows, token, op);
         if (pick.order() != null && !pick.ambiguous()) {
             log.info(
@@ -344,22 +346,11 @@ public class BiesseObrasRepository {
                     pick.order().get("ordername"));
             return new OrderJobMatch(pick.order(), false, rows);
         }
-        // Sin match claro: no marcar ambigua en jobs débiles (bloqueaba el agente con 409).
-        // Mejor "no encontrado" y que el caller pruebe otro camino / falle limpio.
-        if (pick.ambiguous() && isWeakJobNameForLooseMatch(token, op)) {
-            log.info(
-                    "resolveOrderForJob {} débil sin exacto job='{}' candidatos={} → no-match (no ambigua)",
-                    stage,
-                    token,
-                    rows.size());
-            return null;
-        }
         if (pick.ambiguous()) {
             return new OrderJobMatch(null, true, rows);
         }
-        if (rows.size() == 1) {
-            return new OrderJobMatch(rows.getFirst(), false, rows);
-        }
+        // Un solo candidato solo si el nombre/booking es exacto (ya cubierto arriba) —
+        // no adoptar un único falso amigo.
         if (pick.order() != null) {
             return new OrderJobMatch(pick.order(), false, rows);
         }
@@ -684,22 +675,19 @@ public class BiesseObrasRepository {
         return rows == null ? List.of() : rows;
     }
 
-    /** Solo filas con ordername/booking exacto o compact igual al job. */
+    /** Solo filas con ordername/booking exactamente igual al job (respeta espacios y `_`). */
     private static List<Map<String, Object>> onlyExactName(
             List<Map<String, Object>> rows, String token, String compact) {
         if (rows == null || rows.isEmpty() || token == null) {
             return List.of();
         }
         String jobNorm = normalizeForCompare(token);
-        String jobCompact = compact != null && !compact.isBlank() ? compact : compactName(token);
         List<Map<String, Object>> exact = new ArrayList<>();
         for (Map<String, Object> row : rows) {
             String nameNorm = normalizeForCompare(str(row.get("ordername")));
             String bookNorm = normalizeForCompare(str(row.get("bookingcode")));
-            if (nameNorm.equals(jobNorm)
-                    || bookNorm.equals(jobNorm)
-                    || (!jobCompact.isBlank() && compactName(nameNorm).equals(jobCompact))
-                    || (!jobCompact.isBlank() && compactName(bookNorm).equals(jobCompact))) {
+            // No usar compact (quita espacios/_): «blanco_blanco» ≠ «blanco blanco».
+            if (nameNorm.equals(jobNorm) || bookNorm.equals(jobNorm)) {
                 exact.add(row);
             }
         }
@@ -759,7 +747,7 @@ public class BiesseObrasRepository {
             String nameNorm = normalizeForCompare(nameU);
             String nameCompact = compactName(nameU);
             int score = 0;
-            if (nameU.equals(job) || nameNorm.equals(jobNorm) || nameCompact.equals(jobCompact)) {
+            if (nameNorm.equals(jobNorm)) {
                 score += 1000;
             }
             // Contiene frase completa del job (no solo una palabra).
@@ -832,7 +820,7 @@ public class BiesseObrasRepository {
         return new MatchPick(best, bestScore, false);
     }
 
-    /** Unifica espacios/_ para comparar job OSI vs ordername ERP. */
+    /** Comparación de nombres: respeta `_` y demás símbolos; solo normaliza NBSP/espacios. */
     private static String normalizeForCompare(String value) {
         if (value == null) {
             return "";
@@ -840,24 +828,24 @@ public class BiesseObrasRepository {
         return value
                 .replace('\u00A0', ' ')
                 .replace('\u202F', ' ')
-                .replace('_', ' ')
-                .replaceAll("\\s+", " ")
+                .replaceAll("[ \\t\\x0B\\f\\r\\n]+", " ")
                 .trim()
                 .toUpperCase(Locale.ROOT);
     }
 
-    /** Token distintivo tipo K5IZQ / K5DER / K1DER. */
+    /** Token distintivo tipo K5IZQ / K5DER / K1DER (ignora espacios/_ solo para la clave K). */
     private static String significantKey(String normalizedName) {
         if (normalizedName == null || normalizedName.isBlank()) {
             return "";
         }
-        String compact = normalizedName.replace(" ", "");
+        String compact = normalizedName.replace(" ", "").replace("_", "");
         Matcher m2 = Pattern.compile("(K\\d+[A-Z]+)", Pattern.CASE_INSENSITIVE).matcher(compact);
         return m2.find() ? m2.group(1).toUpperCase(Locale.ROOT) : "";
     }
 
     private static String normalizeJobToken(String jobName) {
         // OSI / copiar-pegar: NBSP, zero-width, guiones raros y espacios dobles.
+        // NO convierte '_' → espacio: «blanco_blanco» ≠ «blanco blanco».
         String t =
                 jobName
                         .replace('\u00A0', ' ')
@@ -871,8 +859,7 @@ public class BiesseObrasRepository {
                         .replace('\u201C', '"')
                         .replace('\u201D', '"')
                         .trim()
-                        .replace('_', ' ')
-                        .replaceAll("\\s+", " ");
+                        .replaceAll("[ \\t\\x0B\\f\\r\\n]+", " ");
         // Quitar sufijo de patrón tipo ".001" pegado al nombre.
         Matcher suffix = PATTERN_SUFFIX.matcher(t);
         if (suffix.find()) {
@@ -883,6 +870,7 @@ public class BiesseObrasRepository {
 
     private static final Pattern PATTERN_SUFFIX = Pattern.compile("\\.(\\d{3})$");
 
+    /** Compacto solo para búsqueda por OP / candidatos; NO usar para decidir obra exacta. */
     private static String compactName(String value) {
         if (value == null) {
             return "";

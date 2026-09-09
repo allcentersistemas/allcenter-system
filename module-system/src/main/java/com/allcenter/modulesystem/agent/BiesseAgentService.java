@@ -261,11 +261,14 @@ public class BiesseAgentService {
         if (!(itemsObj instanceof java.util.List<?> items) || items.isEmpty()) {
             return null;
         }
-        String jobNorm = job.replace('\u00A0', ' ').replaceAll("\\s+", " ").trim().toUpperCase(Locale.ROOT);
-        String jobCompact = jobNorm.replace(" ", "").replace("_", "");
+        // Respeta '_' y símbolos; solo NBSP→espacio y colapso de espacios.
+        String jobNorm =
+                job.replace('\u00A0', ' ')
+                        .replace('\u202F', ' ')
+                        .replaceAll("[ \\t\\x0B\\f\\r\\n]+", " ")
+                        .trim()
+                        .toUpperCase(Locale.ROOT);
         Map<?, ?> exact = null;
-        Map<?, ?> bestOverlap = null;
-        int bestScore = -1;
         for (Object o : items) {
             if (!(o instanceof Map<?, ?> row)) {
                 continue;
@@ -275,78 +278,48 @@ public class BiesseAgentService {
                 nameObj = row.get("orderName");
             }
             String nameU = "";
-            String nameCompact = "";
             if (nameObj != null) {
-                String name =
-                        String.valueOf(nameObj).replace('\u00A0', ' ').replaceAll("\\s+", " ").trim();
-                nameU = name.toUpperCase(Locale.ROOT);
-                nameCompact = nameU.replace(" ", "").replace("_", "");
+                nameU =
+                        String.valueOf(nameObj)
+                                .replace('\u00A0', ' ')
+                                .replace('\u202F', ' ')
+                                .replaceAll("[ \\t\\x0B\\f\\r\\n]+", " ")
+                                .trim()
+                                .toUpperCase(Locale.ROOT);
             }
             Object bookObj = row.get("bookingcode");
             if (bookObj == null) {
                 bookObj = row.get("bookingCode");
             }
             String bookU = "";
-            String bookCompact = "";
             if (bookObj != null) {
                 bookU =
                         String.valueOf(bookObj)
                                 .replace('\u00A0', ' ')
-                                .replaceAll("\\s+", " ")
+                                .replace('\u202F', ' ')
+                                .replaceAll("[ \\t\\x0B\\f\\r\\n]+", " ")
                                 .trim()
                                 .toUpperCase(Locale.ROOT);
-                bookCompact = bookU.replace(" ", "").replace("_", "");
             }
-            if (nameU.equals(jobNorm)
-                    || nameCompact.equals(jobCompact)
-                    || bookU.equals(jobNorm)
-                    || bookCompact.equals(jobCompact)) {
+            // Exacto: «blanco_blanco» ≠ «blanco blanco» (no quitar '_' ni espacios).
+            if (nameU.equals(jobNorm) || bookU.equals(jobNorm)) {
                 exact = row;
                 break;
             }
-            if (nameU.isEmpty()) {
-                continue;
-            }
-            int score = 0;
-            for (String t : jobNorm.split("\\s+")) {
-                if (t.length() >= 3 && nameU.contains(t)) {
-                    score++;
-                }
-            }
-            if (score > bestScore) {
-                bestScore = score;
-                bestOverlap = row;
-            }
         }
-        Map<?, ?> chosen = exact;
-        if (chosen == null && items.size() == 1 && items.get(0) instanceof Map<?, ?> only) {
-            // Un solo hit solo si el nombre no es un falso amigo corto (p.ej. job BLANCO vs obra …BLANCO).
-            Object onlyName = only.get("ordername") != null ? only.get("ordername") : only.get("orderName");
-            String onlyU =
-                    onlyName == null
-                            ? ""
-                            : String.valueOf(onlyName).replace('\u00A0', ' ').replaceAll("\\s+", " ").trim()
-                                    .toUpperCase(Locale.ROOT);
-            if (onlyU.equals(jobNorm) || onlyU.replace(" ", "").replace("_", "").equals(jobCompact)) {
-                chosen = only;
-            }
-        }
-        if (chosen == null && bestOverlap != null && bestScore >= 3) {
-            chosen = bestOverlap;
-        }
-        if (chosen == null) {
+        if (exact == null) {
             log.warn(
-                    "listOrders('{}') devolvió {} hits sin nombre usable — no se usa fallback",
+                    "listOrders('{}') {} hits — ninguno con nombre exacto (espacios/_ respetados)",
                     job,
                     items.size());
             return null;
         }
-        Object nameObj = chosen.get("ordername");
+        Object nameObj = exact.get("ordername");
         if (nameObj == null) {
-            nameObj = chosen.get("orderName");
+            nameObj = exact.get("orderName");
         }
         String canonical = nameObj != null ? String.valueOf(nameObj).trim() : null;
-        Long oid = extractOrderId(chosen);
+        Long oid = extractOrderId(exact);
         if (canonical != null && !canonical.isBlank()) {
             log.info(
                     "order-manifest fallback listOrders OK job='{}' → id={} '{}'",
