@@ -21,6 +21,7 @@ import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -53,6 +54,15 @@ public class OrderPersistenceService {
     private final EmployeeNotificationService employeeNotificationService;
     private final BiesseObrasClient biesseObrasClient;
     private final TelegramService telegramService;
+    private final WhatsAppService whatsappService;
+    private final AppConfigService appConfigService;
+
+    /**
+     * Fallback si {@code app_config.seguimiento_since} no está disponible.
+     * Preferir {@link AppConfigService#effectiveSeguimientoSince()}.
+     */
+    @Value("${app.order.seguimiento-since:2026-09-09}")
+    private LocalDate seguimientoSinceFallback;
 
     public OrderPersistenceService(
             ProyectoRepository proyectoRepository,
@@ -67,7 +77,9 @@ public class OrderPersistenceService {
             AuditService auditService,
             @Lazy EmployeeNotificationService employeeNotificationService,
             BiesseObrasClient biesseObrasClient,
-            TelegramService telegramService
+            TelegramService telegramService,
+            WhatsAppService whatsappService,
+            AppConfigService appConfigService
     ) {
         this.proyectoRepository = proyectoRepository;
         this.ordenRepository = ordenRepository;
@@ -82,6 +94,8 @@ public class OrderPersistenceService {
         this.employeeNotificationService = employeeNotificationService;
         this.biesseObrasClient = biesseObrasClient;
         this.telegramService = telegramService;
+        this.whatsappService = whatsappService;
+        this.appConfigService = appConfigService;
     }
 
     @Transactional
@@ -439,7 +453,11 @@ public class OrderPersistenceService {
     }
 
     public List<OrderDtos.SeguimientoObraResponse> listSeguimientoObras(String since) {
-        List<Map<String, Object>> raw = biesseObrasClient.listSeguimientoObras(300, since);
+        String effectiveSince = since;
+        if (effectiveSince == null || effectiveSince.isBlank()) {
+            effectiveSince = resolveSeguimientoSince().toString();
+        }
+        List<Map<String, Object>> raw = biesseObrasClient.listSeguimientoObras(300, effectiveSince);
         List<OrderDtos.SeguimientoObraResponse> out = new ArrayList<>();
         for (Map<String, Object> row : raw) {
             Long orderId = toLong(row.get("orderId"));
@@ -685,6 +703,7 @@ public class OrderPersistenceService {
         LocalDate today = LocalDate.now(ZoneId.of("America/Lima"));
         LocalDateTime cotizadoDesde =
                 LocalDateTime.now(ZoneId.of("America/Lima")).minusHours(48);
+        LocalDate launch = resolveSeguimientoSince();
         List<ProyectoOptimizacion> out = new ArrayList<>();
         for (ProyectoOptimizacion p : all) {
             if (p.getEstado() == ProyectoEstado.ENTREGADO) {
@@ -702,9 +721,33 @@ public class OrderPersistenceService {
                     continue;
                 }
             }
+            // Lanzamiento limpio: Enviado / Atención / Vendido solo desde la fecha de corte
+            // (Configuración → Seguimiento).
+            if (p.getEstado() == ProyectoEstado.ENVIADO
+                    || p.getEstado() == ProyectoEstado.EN_ATENCION
+                    || p.getEstado() == ProyectoEstado.VENDIDO) {
+                LocalDateTime ref = fechaInicioEstadoActual(p);
+                if (ref == null) {
+                    ref = p.getFechacreacion();
+                }
+                if (ref == null || ref.toLocalDate().isBefore(launch)) {
+                    continue;
+                }
+            }
             out.add(p);
         }
         return out;
+    }
+
+    /** Fecha de corte del tablero: {@code app_config} o property de respaldo. */
+    public LocalDate resolveSeguimientoSince() {
+        try {
+            return appConfigService.effectiveSeguimientoSince();
+        } catch (Exception ex) {
+            return seguimientoSinceFallback != null
+                    ? seguimientoSinceFallback
+                    : LocalDate.of(2026, 9, 9);
+        }
     }
 
     private void maybeAdvanceAfterVendido(ProyectoOptimizacion proyecto) {
@@ -1517,34 +1560,34 @@ public class OrderPersistenceService {
     }
 
     /**
-     * Avisa por Telegram al cliente portal cuando un pedido/proyecto queda listo para entregar.
-     * No-op si Telegram está off, no hay cliente o falta chat id.
+     * Avisa por Telegram y/o WhatsApp cuando un pedido/proyecto queda listo para entregar.
+     * No-op por canal si está off o falta destino.
      */
     public void notifyClientPedidoListoTelegram(ProyectoOptimizacion proyecto, String pedidoLabel) {
+        notifyClientPedidoListo(proyecto, pedidoLabel);
+    }
+
+    public void notifyClientPedidoListo(ProyectoOptimizacion proyecto, String pedidoLabel) {
         if (proyecto == null) {
             return;
         }
-        if (!telegramService.isEnabled()) {
+        boolean tgOn = telegramService.isEnabled();
+        boolean waOn = whatsappService.isEnabled();
+        if (!tgOn && !waOn) {
             log.debug(
-                    "Telegram deshabilitado; no se avisa listo del proyecto {}",
+                    "Telegram/WhatsApp deshabilitados; no se avisa listo del proyecto {}",
                     proyecto.getId());
             return;
         }
         Long clientUserId = proyecto.getClientUserId();
         if (clientUserId == null) {
             log.info(
-                    "Proyecto {} sin cliente portal; no se envía Telegram de listo",
+                    "Proyecto {} sin cliente portal; no se envía aviso de listo",
                     proyecto.getId());
             return;
         }
         ClientUser client = clientUserRepository.findById(clientUserId).orElse(null);
-        if (client == null
-                || client.getTelegramChatId() == null
-                || client.getTelegramChatId().isBlank()) {
-            log.info(
-                    "Cliente {} sin telegram_chat_id; no se envía aviso de listo (proyecto {})",
-                    clientUserId,
-                    proyecto.getId());
+        if (client == null) {
             return;
         }
         String label =
@@ -1554,17 +1597,43 @@ public class OrderPersistenceService {
                                 : proyecto.getNombre().trim())
                         : pedidoLabel.trim();
         String recipientName = resolveClientDisplayName(client);
-        String text =
-                """
-                <b>Pedido listo para entregar</b>
 
-                Hola %s,
-                Su pedido <b>%s</b> ya está <b>listo para entregar</b>.
+        if (tgOn) {
+            if (client.getTelegramChatId() == null || client.getTelegramChatId().isBlank()) {
+                log.info(
+                        "Cliente {} sin telegram_chat_id; no se envía Telegram (proyecto {})",
+                        clientUserId,
+                        proyecto.getId());
+            } else {
+                telegramService.sendTextQuietly(
+                        client.getTelegramChatId().trim(),
+                        PedidoListoNotifier.htmlText(recipientName, label));
+            }
+        }
 
-                AllCenter
-                """
-                        .formatted(escapeHtml(recipientName), escapeHtml(label));
-        telegramService.sendTextQuietly(client.getTelegramChatId().trim(), text);
+        if (waOn) {
+            String waPhone = resolveWhatsAppPhone(client);
+            if (waPhone == null || waPhone.isBlank()) {
+                log.info(
+                        "Cliente {} sin número WhatsApp; no se envía WhatsApp (proyecto {})",
+                        clientUserId,
+                        proyecto.getId());
+            } else {
+                whatsappService.sendTextQuietly(
+                        waPhone, PedidoListoNotifier.plainText(recipientName, label));
+            }
+        }
+    }
+
+    /** Prefer WhatsApp dedicado; si no, teléfono del cliente. */
+    private static String resolveWhatsAppPhone(ClientUser client) {
+        if (client.getWhatsappPhone() != null && !client.getWhatsappPhone().isBlank()) {
+            return client.getWhatsappPhone().trim();
+        }
+        if (client.getPhone() != null && !client.getPhone().isBlank()) {
+            return client.getPhone().trim();
+        }
+        return null;
     }
 
     private static String resolveClientDisplayName(ClientUser client) {

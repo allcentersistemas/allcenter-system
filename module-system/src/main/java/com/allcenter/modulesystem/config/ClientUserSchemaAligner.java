@@ -35,6 +35,7 @@ public class ClientUserSchemaAligner implements ApplicationRunner {
         addColumnIfMissing("last_login_ip", "VARCHAR(128)");
         addColumnIfMissing("login_count", "INTEGER NOT NULL DEFAULT 0");
         addColumnIfMissing("telegram_chat_id", "VARCHAR(64)");
+        addColumnIfMissing("whatsapp_phone", "VARCHAR(32)");
         backfillUsernameFromEmail();
         alignAuditEntries();
         alignClientRefreshTokens();

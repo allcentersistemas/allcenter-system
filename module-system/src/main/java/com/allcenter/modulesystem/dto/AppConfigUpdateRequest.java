@@ -27,4 +27,13 @@ public record AppConfigUpdateRequest(
         /** Vacío o null = no cambiar token almacenado. */
         String telegramBotToken,
         /** Usuario del bot sin o con @. Null = no cambiar; vacío = limpiar. */
-        @Size(max = 64) String telegramBotUsername) {}
+        @Size(max = 64) String telegramBotUsername,
+        Boolean whatsappEnabled,
+        /** Vacío o null = no cambiar token almacenado. */
+        String whatsappAccessToken,
+        /** Phone Number ID Meta. Null = no cambiar; vacío = limpiar. */
+        @Size(max = 64) String whatsappPhoneNumberId,
+        /**
+         * Fecha de inicio Seguimiento (yyyy-MM-dd). Null = no cambiar; vacío = rechazar.
+         */
+        @Size(max = 10) String seguimientoSince) {}

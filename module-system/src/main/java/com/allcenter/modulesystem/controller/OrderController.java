@@ -144,8 +144,15 @@ public class OrderController {
         return service.listSeguimientoByOp();
     }
 
+    /** Fecha de inicio del tablero (Configuración). Readable por quien ve Resumen. */
+    @GetMapping("/seguimiento/config")
+    @PreAuthorize("@portalAuth.canRead()")
+    public Map<String, String> seguimientoConfig() {
+        return Map.of("seguimientoSince", service.resolveSeguimientoSince().toString());
+    }
+
     /** Tablero Resumen → Seguimiento: una card por XML/obra (estado_escaneo).
-     * @param since fecha mínima yyyy-MM-dd (opcional; default en module-biesse). */
+     * @param since fecha mínima yyyy-MM-dd (opcional; default desde Configuración). */
     @GetMapping("/obras/seguimiento")
     @PreAuthorize("@portalAuth.canRead()")
     public java.util.List<OrderDtos.SeguimientoObraResponse> listSeguimientoObras(

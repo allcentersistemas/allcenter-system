@@ -162,6 +162,9 @@ public class ClientAuthService {
         if (request.telegramChatId() != null && !request.telegramChatId().isBlank()) {
             client.setTelegramChatId(request.telegramChatId().trim());
         }
+        if (request.whatsappPhone() != null && !request.whatsappPhone().isBlank()) {
+            client.setWhatsappPhone(request.whatsappPhone().trim());
+        }
 
         clientUserRepository.save(client);
         auditService.recordClientAccountCreated(client.getId(), client.getEmail());
@@ -246,6 +249,10 @@ public class ClientAuthService {
         if (request.telegramChatId() != null) {
             String chatId = request.telegramChatId().trim();
             client.setTelegramChatId(chatId.isEmpty() ? null : chatId);
+        }
+        if (request.whatsappPhone() != null) {
+            String phone = request.whatsappPhone().trim();
+            client.setWhatsappPhone(phone.isEmpty() ? null : phone);
         }
         clientUserRepository.save(client);
         return ClientResponse.from(client);

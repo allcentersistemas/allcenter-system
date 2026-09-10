@@ -4,6 +4,7 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import java.time.LocalDate;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -81,4 +82,23 @@ public class AppConfig {
      */
     @Column(length = 64, columnDefinition = "varchar(64) default ''")
     private String telegramBotUsername = "";
+
+    /** Notificaciones a clientes vía WhatsApp Cloud API (Meta). */
+    @Column(nullable = false, columnDefinition = "boolean default false")
+    private boolean whatsappEnabled = false;
+
+    /** Access token permanente o temporal de Meta. No se expone en claro. */
+    @Column(length = 512, columnDefinition = "varchar(512) default ''")
+    private String whatsappAccessToken = "";
+
+    /** Phone Number ID de WhatsApp Business (API Setup). */
+    @Column(length = 64, columnDefinition = "varchar(64) default ''")
+    private String whatsappPhoneNumberId = "";
+
+    /**
+     * Fecha de inicio del tablero Resumen → Seguimiento. Pedidos comerciales y XMLs
+     * anteriores a esta fecha no aparecen (salvo Cotizado 48 h / Entregado hoy).
+     */
+    @Column(columnDefinition = "date default '2026-09-09'")
+    private LocalDate seguimientoSince = LocalDate.of(2026, 9, 9);
 }

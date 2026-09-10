@@ -64,7 +64,7 @@ public class BiesseObrasRepository {
      * (ISO {@code yyyy-MM-dd}). Configurable con {@code app.biesse.seguimiento-since} /
      * env {@code APP_BIESSE_SEGUIMIENTO_SINCE}.
      */
-    @Value("${app.biesse.seguimiento-since:2026-08-26}")
+    @Value("${app.biesse.seguimiento-since:2026-09-09}")
     private LocalDate seguimientoSince;
 
     public Map<String, Object> findOrderById(long orderId) {
@@ -1132,7 +1132,7 @@ public class BiesseObrasRepository {
         LocalDate since =
                 sinceOverride != null
                         ? sinceOverride
-                        : (seguimientoSince != null ? seguimientoSince : LocalDate.of(2026, 8, 26));
+                        : (seguimientoSince != null ? seguimientoSince : LocalDate.of(2026, 9, 9));
         List<Map<String, Object>> rows;
         try {
             rows =

@@ -59,6 +59,9 @@ public class ClientService {
         if (request.telegramChatId() != null && !request.telegramChatId().isBlank()) {
             client.setTelegramChatId(request.telegramChatId().trim());
         }
+        if (request.whatsappPhone() != null && !request.whatsappPhone().isBlank()) {
+            client.setWhatsappPhone(request.whatsappPhone().trim());
+        }
         client.setActive(request.active() == null || request.active());
         clientUserRepository.save(client);
         return ClientResponse.from(client);
@@ -142,6 +145,9 @@ public class ClientService {
         }
         if (request.telegramChatId() != null) {
             client.setTelegramChatId(trimOrNull(request.telegramChatId()));
+        }
+        if (request.whatsappPhone() != null) {
+            client.setWhatsappPhone(trimOrNull(request.whatsappPhone()));
         }
         if (request.direccion() != null) {
             client.setDireccion(trimOrNull(request.direccion()));

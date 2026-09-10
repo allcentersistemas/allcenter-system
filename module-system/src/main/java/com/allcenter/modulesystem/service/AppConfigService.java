@@ -6,12 +6,15 @@ import com.allcenter.modulesystem.dto.AppConfigUpdateRequest;
 import com.allcenter.modulesystem.dto.KardexResetResult;
 import com.allcenter.modulesystem.dto.MailTestRequest;
 import com.allcenter.modulesystem.dto.TelegramPublicInfoDto;
+import com.allcenter.modulesystem.dto.WhatsAppPublicInfoDto;
 import com.allcenter.modulesystem.exception.BadRequestException;
 import com.allcenter.modulesystem.model.AppConfig;
 import com.allcenter.modulesystem.repository.AppConfigRepository;
 import com.allcenter.modulesystem.repository.InvItemRepository;
 import com.allcenter.modulesystem.repository.InvStockMovementRepository;
 import jakarta.mail.internet.MimeMessage;
+import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Properties;
 import lombok.RequiredArgsConstructor;
@@ -53,9 +56,26 @@ public class AppConfigService {
     @Value("${spring.mail.properties.mail.smtp.starttls.enable:true}")
     private String envSmtpStarttls;
 
+    /** Fallback si {@code app_config.seguimiento_since} está vacío. */
+    @Value("${app.order.seguimiento-since:2026-09-09}")
+    private LocalDate envSeguimientoSince;
+
     @Transactional(readOnly = true)
     public AppConfigDto getConfig() {
         return AppConfigDto.from(ensureConfigRow());
+    }
+
+    /**
+     * Fecha de corte del tablero Seguimiento (lanzamiento). Preferencia: fila
+     * {@code app_config}; si falta, property {@code app.order.seguimiento-since}.
+     */
+    @Transactional(readOnly = true)
+    public LocalDate effectiveSeguimientoSince() {
+        AppConfig config = ensureConfigRow();
+        if (config.getSeguimientoSince() != null) {
+            return config.getSeguimientoSince();
+        }
+        return envSeguimientoSince != null ? envSeguimientoSince : LocalDate.of(2026, 9, 9);
     }
 
     @Transactional(readOnly = true)
@@ -95,6 +115,33 @@ public class AppConfigService {
         boolean enabled =
                 config.isTelegramEnabled() && StringUtils.hasText(config.getTelegramBotToken());
         return TelegramPublicInfoDto.of(enabled, config.getTelegramBotUsername());
+    }
+
+    @Transactional(readOnly = true)
+    public boolean isWhatsAppEnabled() {
+        AppConfig config = ensureConfigRow();
+        return config.isWhatsappEnabled()
+                && StringUtils.hasText(config.getWhatsappAccessToken())
+                && StringUtils.hasText(config.getWhatsappPhoneNumberId());
+    }
+
+    @Transactional(readOnly = true)
+    public String effectiveWhatsAppAccessToken() {
+        AppConfig config = ensureConfigRow();
+        return config.getWhatsappAccessToken() == null ? "" : config.getWhatsappAccessToken().trim();
+    }
+
+    @Transactional(readOnly = true)
+    public String effectiveWhatsAppPhoneNumberId() {
+        AppConfig config = ensureConfigRow();
+        return config.getWhatsappPhoneNumberId() == null
+                ? ""
+                : config.getWhatsappPhoneNumberId().trim();
+    }
+
+    @Transactional(readOnly = true)
+    public WhatsAppPublicInfoDto getWhatsAppPublicInfo() {
+        return WhatsAppPublicInfoDto.of(isWhatsAppEnabled());
     }
 
     @Transactional(readOnly = true)
@@ -204,6 +251,29 @@ public class AppConfigService {
         if (request.telegramBotUsername() != null) {
             String user = AppConfigDto.normalizeBotUsername(request.telegramBotUsername());
             config.setTelegramBotUsername(user == null ? "" : trimMax(user, 64));
+        }
+        if (request.whatsappEnabled() != null) {
+            config.setWhatsappEnabled(request.whatsappEnabled());
+        }
+        if (request.whatsappAccessToken() != null && !request.whatsappAccessToken().isBlank()) {
+            config.setWhatsappAccessToken(trimMax(request.whatsappAccessToken(), 512));
+        }
+        if (request.whatsappPhoneNumberId() != null) {
+            String id = request.whatsappPhoneNumberId().trim();
+            config.setWhatsappPhoneNumberId(id.isEmpty() ? "" : trimMax(id, 64));
+        }
+        if (request.seguimientoSince() != null) {
+            String raw = request.seguimientoSince().trim();
+            if (raw.isEmpty()) {
+                throw new BadRequestException(
+                        "La fecha de inicio del Seguimiento es obligatoria (yyyy-MM-dd).");
+            }
+            try {
+                config.setSeguimientoSince(LocalDate.parse(raw));
+            } catch (DateTimeParseException ex) {
+                throw new BadRequestException(
+                        "Fecha de inicio Seguimiento inválida. Use formato yyyy-MM-dd.");
+            }
         }
         configRepository.save(config);
         return AppConfigDto.from(config);
@@ -410,6 +480,9 @@ public class AppConfigService {
         config.setTelegramEnabled(false);
         config.setTelegramBotToken("");
         config.setTelegramBotUsername("");
+        config.setWhatsappEnabled(false);
+        config.setWhatsappAccessToken("");
+        config.setWhatsappPhoneNumberId("");
         return configRepository.save(config);
     }
 

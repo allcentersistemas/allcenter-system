@@ -5,4 +5,6 @@ import jakarta.validation.constraints.Size;
 /** Actualización de perfil por el propio cliente del portal. */
 public record ClientProfileUpdateRequest(
         /** Vacío o null limpia el Chat ID. */
-        @Size(max = 64) String telegramChatId) {}
+        @Size(max = 64) String telegramChatId,
+        /** Vacío o null limpia el WhatsApp. */
+        @Size(max = 32) String whatsappPhone) {}

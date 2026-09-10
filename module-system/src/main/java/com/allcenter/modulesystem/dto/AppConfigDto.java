@@ -1,6 +1,7 @@
 package com.allcenter.modulesystem.dto;
 
 import com.allcenter.modulesystem.model.AppConfig;
+import java.time.LocalDate;
 
 public record AppConfigDto(
         boolean kardexEnabled,
@@ -20,9 +21,18 @@ public record AppConfigDto(
         int aiDailyLimitPerClient,
         boolean telegramEnabled,
         boolean telegramBotTokenConfigured,
-        String telegramBotUsername) {
+        String telegramBotUsername,
+        boolean whatsappEnabled,
+        boolean whatsappAccessTokenConfigured,
+        String whatsappPhoneNumberId,
+        /** ISO yyyy-MM-dd — fecha de inicio del tablero Seguimiento. */
+        String seguimientoSince) {
 
     public static AppConfigDto from(AppConfig config) {
+        LocalDate since =
+                config.getSeguimientoSince() != null
+                        ? config.getSeguimientoSince()
+                        : LocalDate.of(2026, 9, 9);
         return new AppConfigDto(
                 config.isKardexEnabled(),
                 config.isMailEnabled(),
@@ -43,7 +53,11 @@ public record AppConfigDto(
                 Math.max(0, config.getAiDailyLimitPerClient()),
                 config.isTelegramEnabled(),
                 config.getTelegramBotToken() != null && !config.getTelegramBotToken().isBlank(),
-                normalizeBotUsername(config.getTelegramBotUsername()));
+                normalizeBotUsername(config.getTelegramBotUsername()),
+                config.isWhatsappEnabled(),
+                config.getWhatsappAccessToken() != null && !config.getWhatsappAccessToken().isBlank(),
+                blankToNull(config.getWhatsappPhoneNumberId()),
+                since.toString());
     }
 
     /** Usuario sin @; null si vacío. */

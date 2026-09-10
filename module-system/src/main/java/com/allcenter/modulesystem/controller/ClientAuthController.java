@@ -9,6 +9,7 @@ import com.allcenter.modulesystem.dto.LoginRequest;
 import com.allcenter.modulesystem.dto.RefreshTokenRequest;
 import com.allcenter.modulesystem.dto.ClientRegisterRequest;
 import com.allcenter.modulesystem.dto.TelegramPublicInfoDto;
+import com.allcenter.modulesystem.dto.WhatsAppPublicInfoDto;
 import com.allcenter.modulesystem.security.ClientUserDetails;
 import com.allcenter.modulesystem.service.AppConfigService;
 import com.allcenter.modulesystem.service.ClientAuthService;
@@ -52,6 +53,12 @@ public class ClientAuthController {
     @GetMapping("/telegram-info")
     public ResponseEntity<TelegramPublicInfoDto> telegramInfo() {
         return ResponseEntity.ok(appConfigService.getTelegramPublicInfo());
+    }
+
+    /** Info pública WhatsApp (sin secretos). */
+    @GetMapping("/whatsapp-info")
+    public ResponseEntity<WhatsAppPublicInfoDto> whatsappInfo() {
+        return ResponseEntity.ok(appConfigService.getWhatsAppPublicInfo());
     }
 
     @PostMapping("/refresh")

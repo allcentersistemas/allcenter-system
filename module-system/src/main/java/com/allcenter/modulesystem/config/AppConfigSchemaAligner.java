@@ -10,7 +10,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
 /**
- * Columnas IA / Telegram de {@code app_config}.
+ * Columnas IA / Telegram / WhatsApp de {@code app_config}.
  * Hibernate {@code ddl-auto=update} no puede añadir {@code NOT NULL} sin default sobre filas existentes.
  */
 @Component("appConfigSchemaAligner")
@@ -42,6 +42,10 @@ public class AppConfigSchemaAligner implements ApplicationRunner {
         addColumnIfMissing("telegram_enabled", "BOOLEAN NOT NULL DEFAULT false");
         addColumnIfMissing("telegram_bot_token", "VARCHAR(128) DEFAULT ''");
         addColumnIfMissing("telegram_bot_username", "VARCHAR(64) DEFAULT ''");
+        addColumnIfMissing("whatsapp_enabled", "BOOLEAN NOT NULL DEFAULT false");
+        addColumnIfMissing("whatsapp_access_token", "VARCHAR(512) DEFAULT ''");
+        addColumnIfMissing("whatsapp_phone_number_id", "VARCHAR(64) DEFAULT ''");
+        addColumnIfMissing("seguimiento_since", "DATE DEFAULT '2026-09-09'");
         backfillNulls();
     }
 
@@ -57,11 +61,15 @@ public class AppConfigSchemaAligner implements ApplicationRunner {
                       ai_daily_limit_per_client = COALESCE(ai_daily_limit_per_client, 20),
                       telegram_enabled = COALESCE(telegram_enabled, false),
                       telegram_bot_token = COALESCE(telegram_bot_token, ''),
-                      telegram_bot_username = COALESCE(telegram_bot_username, '')
+                      telegram_bot_username = COALESCE(telegram_bot_username, ''),
+                      whatsapp_enabled = COALESCE(whatsapp_enabled, false),
+                      whatsapp_access_token = COALESCE(whatsapp_access_token, ''),
+                      whatsapp_phone_number_id = COALESCE(whatsapp_phone_number_id, ''),
+                      seguimiento_since = COALESCE(seguimiento_since, DATE '2026-09-09')
                     WHERE id = 1
                     """);
         } catch (Exception ex) {
-            log.debug("Backfill app_config IA/Telegram omitido: {}", ex.getMessage());
+            log.debug("Backfill app_config IA/Telegram/WhatsApp omitido: {}", ex.getMessage());
         }
     }
 

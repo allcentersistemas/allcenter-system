@@ -6,10 +6,13 @@ import com.allcenter.modulesystem.dto.KardexResetResult;
 import com.allcenter.modulesystem.dto.MailTestRequest;
 import com.allcenter.modulesystem.dto.PlanillaAiUsageDtos;
 import com.allcenter.modulesystem.dto.TelegramTestRequest;
+import com.allcenter.modulesystem.dto.WhatsAppTestRequest;
 import com.allcenter.modulesystem.exception.BadRequestException;
 import com.allcenter.modulesystem.service.AppConfigService;
+import com.allcenter.modulesystem.service.PedidoListoNotifier;
 import com.allcenter.modulesystem.service.PlanillaAiUsageService;
 import com.allcenter.modulesystem.service.TelegramService;
+import com.allcenter.modulesystem.service.WhatsAppService;
 import com.allcenter.modulesystem.support.OptimizacionStorageService;
 import jakarta.validation.Valid;
 import java.io.IOException;
@@ -38,6 +41,7 @@ public class AppConfigController {
 
     private final AppConfigService appConfigService;
     private final TelegramService telegramService;
+    private final WhatsAppService whatsappService;
     private final OptimizacionStorageService optimizacionStorageService;
     private final PlanillaAiUsageService planillaAiUsageService;
 
@@ -83,7 +87,25 @@ public class AppConfigController {
         }
         telegramService.sendText(
                 request.chatId().trim(),
-                "Mensaje de prueba desde AllCenter. Si lo recibió, la configuración de Telegram es correcta.");
+                PedidoListoNotifier.htmlText("Cliente de prueba", "PROYECTO DEMO"));
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/whatsapp/test")
+    @PreAuthorize("@portalAuth.canGestion()")
+    public ResponseEntity<Void> testWhatsApp(@Valid @RequestBody WhatsAppTestRequest request) {
+        if (!appConfigService.getConfig().whatsappEnabled()) {
+            throw new BadRequestException("WhatsApp está desactivado. Actívelo en configuración.");
+        }
+        if (!appConfigService.getConfig().whatsappAccessTokenConfigured()
+                || appConfigService.getConfig().whatsappPhoneNumberId() == null
+                || appConfigService.getConfig().whatsappPhoneNumberId().isBlank()) {
+            throw new BadRequestException(
+                    "Configure el token y Phone Number ID de WhatsApp antes de probar.");
+        }
+        whatsappService.sendText(
+                request.phone().trim(),
+                PedidoListoNotifier.plainText("Cliente de prueba", "PROYECTO DEMO"));
         return ResponseEntity.noContent().build();
     }
 

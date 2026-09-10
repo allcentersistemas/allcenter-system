@@ -83,4 +83,11 @@ public class ClientUser {
     /** Chat ID de Telegram para notificaciones (pedido listo, etc.). */
     @Column(name = "telegram_chat_id", length = 64)
     private String telegramChatId;
+
+    /**
+     * Número WhatsApp (con código de país, p. ej. {@code 51987654321}).
+     * Si está vacío, al notificar se usa {@link #phone}.
+     */
+    @Column(name = "whatsapp_phone", length = 32)
+    private String whatsappPhone;
 }

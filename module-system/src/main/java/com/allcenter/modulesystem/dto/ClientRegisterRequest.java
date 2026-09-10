@@ -14,6 +14,8 @@ public record ClientRegisterRequest(
         @Size(max = 40) String phone,
         /** Chat ID de Telegram (opcional) para notificaciones del bot. */
         @Size(max = 64) String telegramChatId,
+        /** Número WhatsApp con código de país (opcional). */
+        @Size(max = 32) String whatsappPhone,
         @Size(max = 16) String tipoDocumento,
         @Size(max = 40) String numeroDocumento,
         @Size(max = 200) String direccion,
