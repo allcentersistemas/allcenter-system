@@ -301,11 +301,11 @@ public class OrderController {
         OrderDtos.ProyectoConOrdenesResponse tree = service.getProjectTree(proyectoId);
         String filename = tree.project().cotizacionArchivo();
         Resource resource = storageService.loadCotizacion(proyectoId, filename);
-        String resolved = storageService.resolveCotizacionFilename(proyectoId, filename);
         String attachmentName =
-                resolved != null ? resolved : ("cotizacion-" + proyectoId);
+                storageService.cotizacionDownloadName(
+                        proyectoId, filename, tree.project().nombre());
         return ResponseEntity.ok()
-                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + attachmentName + "\"")
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + attachmentName.replace("\"", "") + "\"")
                 .body(resource);
     }
 
