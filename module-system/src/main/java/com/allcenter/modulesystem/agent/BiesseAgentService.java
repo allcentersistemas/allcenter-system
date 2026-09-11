@@ -60,10 +60,20 @@ public class BiesseAgentService {
     }
 
     public Map<String, Object> orderManifest(Map<String, Object> machine, String jobName) {
-        if (jobName == null || jobName.isBlank()) {
+        return orderManifest(machine, jobName, null);
+    }
+
+    public Map<String, Object> orderManifest(Map<String, Object> machine, String jobName, Long orderIdParam) {
+        if ((jobName == null || jobName.isBlank()) && (orderIdParam == null || orderIdParam <= 0)) {
             throw new org.springframework.web.server.ResponseStatusException(
-                    org.springframework.http.HttpStatus.BAD_REQUEST, "job requerido");
+                    org.springframework.http.HttpStatus.BAD_REQUEST, "job u orderId requerido");
         }
+
+        // Camino directo por orderId (selección manual del operador).
+        if (orderIdParam != null && orderIdParam > 0) {
+            return orderManifestById(orderIdParam, jobName);
+        }
+
         String job = jobName.trim();
         Map<String, Object> resolve = obrasClient.resolveOrderForJob(job);
         if (resolve != null && resolve.get("bridgeError") != null) {
@@ -85,9 +95,13 @@ public class BiesseAgentService {
             ResolvedOrder fromCands = pickExactFromResolveCandidates(job, resolve);
             ResolvedOrder fromList = fromCands != null ? fromCands : resolveOrderViaListOrders(job);
             if (fromList == null || fromList.orderId() == null) {
-                throw new org.springframework.web.server.ResponseStatusException(
+                throwNeedsSelection(
                         org.springframework.http.HttpStatus.CONFLICT,
-                        "Obra ambigua para job «" + job + "»");
+                        "ORDER_AMBIGUOUS",
+                        job,
+                        "Obra ambigua para job «" + job + "»",
+                        resolve,
+                        null);
             }
             log.info(
                     "order-manifest ambigua resuelta por nombre exacto job='{}' → id={} '{}'",
@@ -163,9 +177,13 @@ public class BiesseAgentService {
             return body;
         }
         if ("ambiguous".equals(fetch.kind())) {
-            throw new org.springframework.web.server.ResponseStatusException(
+            throwNeedsSelection(
                     org.springframework.http.HttpStatus.CONFLICT,
-                    "Obra ambigua para job «" + job + "»");
+                    "ORDER_AMBIGUOUS",
+                    job,
+                    "Obra ambigua para job «" + job + "»",
+                    resolve,
+                    fetch.detail());
         }
         if ("bridge".equals(fetch.kind())) {
             throw new org.springframework.web.server.ResponseStatusException(
@@ -180,9 +198,180 @@ public class BiesseAgentService {
         if (fetch.message() != null) {
             hint = hint + " Detalle: " + fetch.message();
         }
+        throwNeedsSelection(
+                org.springframework.http.HttpStatus.NOT_FOUND,
+                "ORDER_NOT_FOUND",
+                job,
+                "Manifiesto no encontrado para job «" + job + "». " + hint,
+                resolve,
+                null);
+        return Map.of(); // unreachable
+    }
+
+    /** Manifiesto directo por id (tras selección manual del operador). */
+    public Map<String, Object> orderManifestById(long orderId, String jobHint) {
+        BiesseObrasClient.ManifestFetch fetch = obrasClient.orderManifestFetch(null, orderId);
+        if ("ok".equals(fetch.kind()) && fetch.body() != null) {
+            Map<String, Object> body = fetch.body();
+            Object parts = body.get("parts");
+            int n = parts instanceof java.util.List<?> list ? list.size() : -1;
+            if (n == 0) {
+                throw new org.springframework.web.server.ResponseStatusException(
+                        org.springframework.http.HttpStatus.NOT_FOUND,
+                        "Manifiesto de obra "
+                                + orderId
+                                + (jobHint != null && !jobHint.isBlank() ? " «" + jobHint + "»" : "")
+                                + " sin partes en ERP.");
+            }
+            return body;
+        }
         throw new org.springframework.web.server.ResponseStatusException(
                 org.springframework.http.HttpStatus.NOT_FOUND,
-                "Manifiesto no encontrado para job «" + job + "». " + hint);
+                "Manifiesto no encontrado para orderId="
+                        + orderId
+                        + (fetch.message() != null ? ": " + fetch.message() : ""));
+    }
+
+    /** Búsqueda de obras para el diálogo de selección manual del agente. */
+    public Map<String, Object> searchOrders(Map<String, Object> machine, String q, int limit) {
+        int safeLimit = Math.max(1, Math.min(limit <= 0 ? 40 : limit, 100));
+        Map<String, Object> listed = obrasClient.listOrders(q, safeLimit, 0);
+        Object itemsObj = listed != null ? listed.get("items") : null;
+        List<Map<String, Object>> items = new ArrayList<>();
+        if (itemsObj instanceof java.util.List<?> raw) {
+            for (Object o : raw) {
+                Map<String, Object> c = normalizeCandidate(o);
+                if (c != null) {
+                    items.add(c);
+                }
+            }
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("items", items);
+        out.put("totalCount", items.size());
+        out.put("q", q != null ? q : "");
+        return out;
+    }
+
+    private void throwNeedsSelection(
+            org.springframework.http.HttpStatus status,
+            String code,
+            String job,
+            String message,
+            Map<String, Object> resolve,
+            String fetchDetail) {
+        List<Map<String, Object>> candidates = collectCandidates(job, resolve);
+        // Si by-job no trajo candidatos, intentar listOrders como near-miss.
+        if (candidates.isEmpty() && job != null && !job.isBlank()) {
+            try {
+                Map<String, Object> listed = obrasClient.listOrders(job, 40, 0);
+                Object itemsObj = listed != null ? listed.get("items") : null;
+                if (itemsObj instanceof java.util.List<?> raw) {
+                    for (Object o : raw) {
+                        Map<String, Object> c = normalizeCandidate(o);
+                        if (c != null) {
+                            candidates.add(c);
+                        }
+                    }
+                }
+                if (candidates.isEmpty()) {
+                    String op = extractOpCodigo(job);
+                    if (op != null) {
+                        listed = obrasClient.listOrders(op, 40, 0);
+                        itemsObj = listed != null ? listed.get("items") : null;
+                        if (itemsObj instanceof java.util.List<?> raw) {
+                            for (Object o : raw) {
+                                Map<String, Object> c = normalizeCandidate(o);
+                                if (c != null) {
+                                    candidates.add(c);
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("collectCandidates listOrders('{}'): {}", job, e.getMessage());
+            }
+        }
+        String msg = message;
+        if (fetchDetail != null && !fetchDetail.isBlank()) {
+            msg = msg + " — " + fetchDetail;
+        }
+        throw new ManifestNeedsSelectionException(status, code, job, msg, candidates);
+    }
+
+    private static List<Map<String, Object>> collectCandidates(String job, Map<String, Object> resolve) {
+        List<Map<String, Object>> out = new ArrayList<>();
+        if (resolve == null) {
+            return out;
+        }
+        Object candsObj = resolve.get("candidates");
+        if (!(candsObj instanceof java.util.List<?> cands)) {
+            return out;
+        }
+        for (Object o : cands) {
+            Map<String, Object> c = normalizeCandidate(o);
+            if (c != null) {
+                out.add(c);
+            }
+        }
+        return out;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> normalizeCandidate(Object o) {
+        if (!(o instanceof Map<?, ?> row)) {
+            return null;
+        }
+        Map<String, Object> c = new LinkedHashMap<>();
+        Object id = row.get("orderId");
+        if (id == null) {
+            id = row.get("orderid");
+        }
+        if (id == null) {
+            return null;
+        }
+        long oid;
+        if (id instanceof Number n) {
+            oid = n.longValue();
+        } else {
+            try {
+                oid = Long.parseLong(String.valueOf(id).trim());
+            } catch (NumberFormatException e) {
+                return null;
+            }
+        }
+        if (oid <= 0) {
+            return null;
+        }
+        Object name = row.get("orderName");
+        if (name == null) {
+            name = row.get("ordername");
+        }
+        Object booking = row.get("bookingCode");
+        if (booking == null) {
+            booking = row.get("bookingcode");
+        }
+        Object nParts = row.get("nParts");
+        if (nParts == null) {
+            nParts = row.get("nparts");
+        }
+        Object op = row.get("opCodigo");
+        if (op == null) {
+            op = row.get("op_codigo");
+        }
+        c.put("orderId", oid);
+        c.put("orderName", name != null ? String.valueOf(name) : "");
+        if (booking != null) {
+            c.put("bookingCode", String.valueOf(booking));
+        }
+        if (nParts instanceof Number n) {
+            c.put("nParts", n.intValue());
+        }
+        if (op != null && !String.valueOf(op).isBlank()) {
+            c.put("opCodigo", String.valueOf(op));
+        }
+        return c;
     }
 
     private static Long extractOrderId(Object orderObj) {

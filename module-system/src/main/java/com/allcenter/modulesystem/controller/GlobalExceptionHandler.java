@@ -1,10 +1,12 @@
 package com.allcenter.modulesystem.controller;
 
+import com.allcenter.modulesystem.agent.ManifestNeedsSelectionException;
 import com.allcenter.modulesystem.exception.ApiException;
 import com.allcenter.modulesystem.exception.SessionAlreadyActiveException;
 import com.allcenter.modulesystem.exception.TooManyAttemptsException;
 import com.allcenter.modulesystem.dto.ApiErrorResponse;
 import jakarta.servlet.http.HttpServletRequest;
+import java.time.OffsetDateTime;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
@@ -38,6 +40,23 @@ public class GlobalExceptionHandler {
                 .body(
                         ApiErrorResponse.build(
                                 request, ex.getStatus(), ex.getCode(), ex.getMessage()));
+    }
+
+    /** 404/409 de order-manifest con candidatos para selección manual en el agente. */
+    @ExceptionHandler(ManifestNeedsSelectionException.class)
+    public ResponseEntity<Map<String, Object>> handleManifestNeedsSelection(
+            ManifestNeedsSelectionException ex, HttpServletRequest request) {
+        logApiError(ex.getStatus(), ex, request, false);
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("success", false);
+        body.put("code", ex.getCode());
+        body.put("message", ex.getMessage());
+        body.put("status", ex.getStatus().value());
+        body.put("path", request.getRequestURI());
+        body.put("timestamp", OffsetDateTime.now().toString());
+        body.put("job", ex.getJob());
+        body.put("candidates", ex.getCandidates());
+        return ResponseEntity.status(ex.getStatus()).body(body);
     }
 
     @ExceptionHandler(TooManyAttemptsException.class)

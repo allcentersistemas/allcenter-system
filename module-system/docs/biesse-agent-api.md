@@ -12,8 +12,13 @@ Orquestación en **module-system** (`app_db`). Las obras/XML viven en **module-b
 | GET | `/me` | Salud + identidad máquina |
 | POST | `/heartbeat` | Heartbeat / cola / impresora |
 | POST | `/status` | Estado OSI (RUN → PRODUCCION) |
+| GET | `/order-manifest?job=` | Manifiesto por job OSI |
+| GET | `/order-manifest?orderId=` | Manifiesto por id (selección manual) |
+| GET | `/orders?q=&limit=` | Búsqueda de obras (diálogo agente) |
 | POST | `/events` | Eventos Event.log + labels ZPL |
 | POST | `/print-ack` | Ack de impresión local |
+
+Si el match de obra falla, `/order-manifest?job=` responde **404/409** con JSON `{ message, job, candidates:[{orderId,orderName,bookingCode,nParts}] }` para que el agente WinForms muestre el selector.
 
 ## Monitor (JWT empleado)
 

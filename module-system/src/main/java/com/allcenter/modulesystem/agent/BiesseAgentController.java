@@ -60,8 +60,18 @@ public class BiesseAgentController {
 
     @GetMapping("/order-manifest")
     public Map<String, Object> orderManifest(
-            HttpServletRequest request, @RequestParam("job") String jobName) {
-        return agentService.orderManifest(requireMachine(request), jobName);
+            HttpServletRequest request,
+            @RequestParam(value = "job", required = false) String jobName,
+            @RequestParam(value = "orderId", required = false) Long orderId) {
+        return agentService.orderManifest(requireMachine(request), jobName, orderId);
+    }
+
+    @GetMapping("/orders")
+    public Map<String, Object> searchOrders(
+            HttpServletRequest request,
+            @RequestParam(value = "q", required = false) String q,
+            @RequestParam(value = "limit", defaultValue = "40") int limit) {
+        return agentService.searchOrders(requireMachine(request), q, limit);
     }
 
     @GetMapping("/label-zpl")
