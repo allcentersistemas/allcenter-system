@@ -56,6 +56,7 @@ public class OrderPersistenceService {
     private final TelegramService telegramService;
     private final WhatsAppService whatsappService;
     private final AppConfigService appConfigService;
+    private final SeguimientoLiveHub seguimientoLiveHub;
 
     /**
      * Fallback si {@code app_config.seguimiento_since} no está disponible.
@@ -79,7 +80,8 @@ public class OrderPersistenceService {
             BiesseObrasClient biesseObrasClient,
             TelegramService telegramService,
             WhatsAppService whatsappService,
-            AppConfigService appConfigService
+            AppConfigService appConfigService,
+            @Lazy SeguimientoLiveHub seguimientoLiveHub
     ) {
         this.proyectoRepository = proyectoRepository;
         this.ordenRepository = ordenRepository;
@@ -96,6 +98,7 @@ public class OrderPersistenceService {
         this.telegramService = telegramService;
         this.whatsappService = whatsappService;
         this.appConfigService = appConfigService;
+        this.seguimientoLiveHub = seguimientoLiveHub;
     }
 
     @Transactional
@@ -748,6 +751,26 @@ public class OrderPersistenceService {
                     ? seguimientoSinceFallback
                     : LocalDate.of(2026, 9, 9);
         }
+    }
+
+    /**
+     * Huella liviana del tablero comercial (id+estado) para SSE live.
+     * Sin sync de obras: solo detecta cambios CRM (p. ej. Vendido).
+     */
+    @Transactional(readOnly = true)
+    public String fingerprintSeguimientoProyectos() {
+        List<ProyectoOptimizacion> projects = listSeguimientoProjects();
+        if (projects == null || projects.isEmpty()) {
+            return "empty";
+        }
+        StringBuilder sb = new StringBuilder(projects.size() * 24);
+        for (ProyectoOptimizacion p : projects) {
+            sb.append(p.getId())
+                    .append('|')
+                    .append(p.getEstado() == null ? "" : p.getEstado().name())
+                    .append(';');
+        }
+        return Integer.toHexString(sb.toString().hashCode());
     }
 
     private void maybeAdvanceAfterVendido(ProyectoOptimizacion proyecto) {
@@ -1493,6 +1516,32 @@ public class OrderPersistenceService {
             case LISTO_PARA_ENTREGAR -> proyecto.setFechaEstadoListoEntregar(now);
             case ENTREGADO -> proyecto.setFechaEstadoEntregado(now);
             case CANCELADO -> proyecto.setFechaEstadoCancelado(now);
+        }
+        notifySeguimientoAfterCommit();
+    }
+
+    /** Empuja SSE tras commit para no leer estado viejo en el poll. */
+    void notifySeguimientoAfterCommit() {
+        Runnable push =
+                () -> {
+                    try {
+                        seguimientoLiveHub.notifyBoardChanged();
+                    } catch (Exception ex) {
+                        log.debug("seguimiento live notify omitido: {}", ex.getMessage());
+                    }
+                };
+        if (org.springframework.transaction.support.TransactionSynchronizationManager
+                .isSynchronizationActive()) {
+            org.springframework.transaction.support.TransactionSynchronizationManager
+                    .registerSynchronization(
+                            new org.springframework.transaction.support.TransactionSynchronization() {
+                                @Override
+                                public void afterCommit() {
+                                    push.run();
+                                }
+                            });
+        } else {
+            push.run();
         }
     }
 

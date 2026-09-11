@@ -16,6 +16,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
  * Hub SSE del tablero Resumen → Seguimiento. Empuja snapshot/update cuando hay suscriptores.
+ * Vigila obras Biesse y proyectos CRM (p. ej. paso a Vendido).
  */
 @Service
 @RequiredArgsConstructor
@@ -43,7 +44,7 @@ public class SeguimientoLiveHub {
                             .name("connected")
                             .data(Map.of("since", mapKey), MediaType.APPLICATION_JSON));
             List<OrderDtos.SeguimientoObraResponse> obras = orderPersistenceService.listSeguimientoObras(key);
-            lastFingerprintBySince.put(mapKey, fingerprint(obras));
+            lastFingerprintBySince.put(mapKey, boardFingerprint(mapKey, obras));
             emitter.send(SseEmitter.event().name("snapshot").data(obras, MediaType.APPLICATION_JSON));
         } catch (IOException ex) {
             removeEmitter(mapKey, emitter);
@@ -78,7 +79,7 @@ public class SeguimientoLiveHub {
                 log.debug("seguimiento live fetch failed (since={}): {}", sinceKey, ex.getMessage());
                 continue;
             }
-            String fp = fingerprint(obras);
+            String fp = boardFingerprint(sinceKey, obras);
             String prev = lastFingerprintBySince.put(sinceKey, fp);
             if (Objects.equals(prev, fp)) {
                 continue;
@@ -105,6 +106,30 @@ public class SeguimientoLiveHub {
                 }
             }
         }
+    }
+
+    /**
+     * Fuerza un push inmediato a todos los suscriptores (cambios CRM/obra fuera del poll).
+     * Invalida huellas para que el próximo snapshot no se deduplique.
+     */
+    public void notifyBoardChanged() {
+        if (!hasSubscribers()) {
+            return;
+        }
+        lastFingerprintBySince.clear();
+        watchAndPush();
+    }
+
+    private String boardFingerprint(String sinceKey, List<OrderDtos.SeguimientoObraResponse> obras) {
+        String obrasFp = fingerprintObras(obras);
+        String proyectosFp;
+        try {
+            proyectosFp = orderPersistenceService.fingerprintSeguimientoProyectos();
+        } catch (Exception ex) {
+            log.debug("seguimiento live proyectos fingerprint failed: {}", ex.getMessage());
+            proyectosFp = "err";
+        }
+        return obrasFp + "#" + proyectosFp;
     }
 
     private void removeEmitter(String since, SseEmitter emitter) {
@@ -134,7 +159,7 @@ public class SeguimientoLiveHub {
         return t.isEmpty() ? null : t;
     }
 
-    private static String fingerprint(List<OrderDtos.SeguimientoObraResponse> obras) {
+    private static String fingerprintObras(List<OrderDtos.SeguimientoObraResponse> obras) {
         if (obras == null || obras.isEmpty()) {
             return "empty";
         }

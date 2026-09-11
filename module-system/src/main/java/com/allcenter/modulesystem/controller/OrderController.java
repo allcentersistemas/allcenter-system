@@ -173,6 +173,13 @@ public class OrderController {
         return fulfillmentService.markEntregadoByBiesseOrderId(biesseOrderId);
     }
 
+    /** Optimizado → Transmitido (PRODUCCION). Manual desde Resumen → Seguimiento. */
+    @PostMapping("/obras/{biesseOrderId}/transmitir")
+    @PreAuthorize("@portalAuth.canUpdate() or @portalAuth.canGestionOrVentasGestion()")
+    public OrderDtos.FulfillmentActionResponse markObraTransmitido(@PathVariable long biesseOrderId) {
+        return fulfillmentService.markTransmitidoByBiesseOrderId(biesseOrderId);
+    }
+
     @GetMapping("/biesse/obras")
     @PreAuthorize("@portalAuth.canCreate() or @portalAuth.canGestionOrVentasGestion()")
     public Map<String, Object> listBiesseObras(

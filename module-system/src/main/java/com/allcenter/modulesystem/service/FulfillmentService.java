@@ -63,6 +63,7 @@ public class FulfillmentService {
             }
             orderPersistenceService.notifyClientPedidoListoTelegram(current, label);
         }
+        orderPersistenceService.notifySeguimientoAfterCommit();
     }
 
     /**
@@ -85,6 +86,41 @@ public class FulfillmentService {
             orderPersistenceService.reconcileProyectoEstadoFromOrdenes(
                     current, "Obra en producción (agente seccionadora: " + label + ")");
         }
+        orderPersistenceService.notifySeguimientoAfterCommit();
+    }
+
+    /**
+     * Seguimiento: Optimizado → Transmitido (PRODUCCION). Manual desde el tablero.
+     */
+    @Transactional
+    public OrderDtos.FulfillmentActionResponse markTransmitidoByBiesseOrderId(long biesseOrderId) {
+        boolean changed = biesseObrasClient.markOrderProduccion(biesseOrderId);
+        Map<String, Object> after = biesseObrasClient.findOrderById(biesseOrderId);
+        if (after == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Obra Biesse no encontrada");
+        }
+        String estado =
+                firstNonBlank(str(after.get("estado_escaneo")), str(after.get("estadoEscaneo")));
+        boolean alreadyProduccionOrBeyond =
+                "PRODUCCION".equalsIgnoreCase(estado)
+                        || "DESPACHO".equalsIgnoreCase(estado)
+                        || "LISTO_PARA_ENTREGAR".equalsIgnoreCase(estado)
+                        || "ENTREGADO".equalsIgnoreCase(estado);
+        if (!changed && !alreadyProduccionOrBeyond) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Solo se puede transmitir un XML en Optimizado (o pendiente).");
+        }
+        String orderName = firstNonBlank(str(after.get("orderName")), str(after.get("ordername")));
+        String bookingCode =
+                firstNonBlank(str(after.get("bookingCode")), str(after.get("bookingcode")));
+        onObraProduccion(orderName, bookingCode);
+        orderPersistenceService.notifySeguimientoAfterCommit();
+        return new OrderDtos.FulfillmentActionResponse(
+                true,
+                changed ? "XML transmitido a producción" : "XML ya estaba transmitido",
+                null,
+                biesseOrderId);
     }
 
     @Transactional
@@ -175,6 +211,7 @@ public class FulfillmentService {
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT, "La obra no está en estado entregable");
         }
+        orderPersistenceService.notifySeguimientoAfterCommit();
         return new OrderDtos.FulfillmentActionResponse(
                 true, "Obra marcada como entregada", lastProyectoId, biesseOrderId);
     }
