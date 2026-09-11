@@ -1142,13 +1142,17 @@ public class BiesseObrasRepository {
                                    o.fechacreacion, o.fecha_modificacion,
                                    (SELECT COUNT(*) FROM partes p WHERE p.orderid = o.orderid) AS total_partes,
                                    (SELECT COUNT(*) FROM partes p WHERE p.orderid = o.orderid AND COALESCE(p.escaneado, FALSE)) AS partes_escaneadas,
+                                   (SELECT COALESCE(SUM(GREATEST(COALESCE(p.cantidad, 0), 0)), 0)
+                                      FROM partes p WHERE p.orderid = o.orderid) AS piezas_plan,
+                                   (SELECT COALESCE(SUM(GREATEST(COALESCE(p.cantidad_escaneada, 0), 0)), 0)
+                                      FROM partes p WHERE p.orderid = o.orderid) AS piezas_escaneadas_cant,
                                    (SELECT COUNT(*) FROM piezas z JOIN partes p ON p.partid = z.partid
                                       WHERE p.orderid = o.orderid
-                                        AND (COALESCE(p.cantidad, 0) <= 0 OR z.numero_pieza <= p.cantidad)) AS piezas_totales,
+                                        AND (COALESCE(p.cantidad, 0) <= 0 OR z.numero_pieza <= p.cantidad)) AS piezas_filas,
                                    (SELECT COUNT(*) FROM piezas z JOIN partes p ON p.partid = z.partid
                                       WHERE p.orderid = o.orderid
                                         AND (COALESCE(p.cantidad, 0) <= 0 OR z.numero_pieza <= p.cantidad)
-                                        AND COALESCE(z.escaneado, FALSE)) AS piezas_escaneadas,
+                                        AND COALESCE(z.escaneado, FALSE)) AS piezas_filas_escaneadas,
                                    (SELECT COUNT(*) FROM piezas z JOIN partes p ON p.partid = z.partid
                                       WHERE p.orderid = o.orderid
                                         AND (COALESCE(p.cantidad, 0) <= 0 OR z.numero_pieza <= p.cantidad)
@@ -1182,17 +1186,21 @@ public class BiesseObrasRepository {
                                        o.fechacreacion,
                                        (SELECT COUNT(*) FROM partes p WHERE p.orderid = o.orderid) AS total_partes,
                                        (SELECT COUNT(*) FROM partes p WHERE p.orderid = o.orderid AND COALESCE(p.escaneado, FALSE)) AS partes_escaneadas,
-                                   (SELECT COUNT(*) FROM piezas z JOIN partes p ON p.partid = z.partid
-                                      WHERE p.orderid = o.orderid
-                                        AND (COALESCE(p.cantidad, 0) <= 0 OR z.numero_pieza <= p.cantidad)) AS piezas_totales,
-                                   (SELECT COUNT(*) FROM piezas z JOIN partes p ON p.partid = z.partid
-                                      WHERE p.orderid = o.orderid
-                                        AND (COALESCE(p.cantidad, 0) <= 0 OR z.numero_pieza <= p.cantidad)
-                                        AND COALESCE(z.escaneado, FALSE)) AS piezas_escaneadas,
-                                   (SELECT COUNT(*) FROM piezas z JOIN partes p ON p.partid = z.partid
-                                      WHERE p.orderid = o.orderid
-                                        AND (COALESCE(p.cantidad, 0) <= 0 OR z.numero_pieza <= p.cantidad)
-                                        AND COALESCE(z.cortada, FALSE)) AS piezas_cortadas,
+                                       (SELECT COALESCE(SUM(GREATEST(COALESCE(p.cantidad, 0), 0)), 0)
+                                          FROM partes p WHERE p.orderid = o.orderid) AS piezas_plan,
+                                       (SELECT COALESCE(SUM(GREATEST(COALESCE(p.cantidad_escaneada, 0), 0)), 0)
+                                          FROM partes p WHERE p.orderid = o.orderid) AS piezas_escaneadas_cant,
+                                       (SELECT COUNT(*) FROM piezas z JOIN partes p ON p.partid = z.partid
+                                          WHERE p.orderid = o.orderid
+                                            AND (COALESCE(p.cantidad, 0) <= 0 OR z.numero_pieza <= p.cantidad)) AS piezas_filas,
+                                       (SELECT COUNT(*) FROM piezas z JOIN partes p ON p.partid = z.partid
+                                          WHERE p.orderid = o.orderid
+                                            AND (COALESCE(p.cantidad, 0) <= 0 OR z.numero_pieza <= p.cantidad)
+                                            AND COALESCE(z.escaneado, FALSE)) AS piezas_filas_escaneadas,
+                                       (SELECT COUNT(*) FROM piezas z JOIN partes p ON p.partid = z.partid
+                                          WHERE p.orderid = o.orderid
+                                            AND (COALESCE(p.cantidad, 0) <= 0 OR z.numero_pieza <= p.cantidad)
+                                            AND COALESCE(z.cortada, FALSE)) AS piezas_cortadas,
                                        NULL AS seccionador
                                 FROM ordenes o
                                 WHERE UPPER(TRIM(COALESCE(o.estado_escaneo, ''))) IN (
@@ -1213,8 +1221,11 @@ public class BiesseObrasRepository {
                                        o.fechacreacion,
                                        (SELECT COUNT(*) FROM partes p WHERE p.orderid = o.orderid) AS total_partes,
                                        (SELECT COUNT(*) FROM partes p WHERE p.orderid = o.orderid AND COALESCE(p.escaneado, FALSE)) AS partes_escaneadas,
-                                       0 AS piezas_totales,
-                                       0 AS piezas_escaneadas,
+                                       (SELECT COALESCE(SUM(GREATEST(COALESCE(p.cantidad, 0), 0)), 0)
+                                          FROM partes p WHERE p.orderid = o.orderid) AS piezas_plan,
+                                       0 AS piezas_escaneadas_cant,
+                                       0 AS piezas_filas,
+                                       0 AS piezas_filas_escaneadas,
                                        0 AS piezas_cortadas,
                                        NULL AS seccionador
                                 FROM ordenes o
@@ -1283,26 +1294,47 @@ public class BiesseObrasRepository {
     private Map<String, Object> toSeguimientoCard(Map<String, Object> row) {
         int totalPartes = numberInt(row.get("total_partes"));
         int partesEsc = numberInt(row.get("partes_escaneadas"));
-        int piezasTot = numberInt(row.get("piezas_totales"));
-        int piezasEsc = numberInt(row.get("piezas_escaneadas"));
+        // Alineado con detalle web (biesseApi): plan = SUM(cantidad), escaneo = SUM(cantidad_escaneada).
+        int plan = numberInt(row.get("piezas_plan"));
+        int escCant = numberInt(row.get("piezas_escaneadas_cant"));
+        Object filasTotRaw = row.get("piezas_filas");
+        if (filasTotRaw == null) {
+            filasTotRaw = row.get("piezas_totales");
+        }
+        Object filasEscRaw = row.get("piezas_filas_escaneadas");
+        if (filasEscRaw == null) {
+            filasEscRaw = row.get("piezas_escaneadas");
+        }
+        int filasTot = numberInt(filasTotRaw);
+        int filasEsc = numberInt(filasEscRaw);
         int piezasCor = numberInt(row.get("piezas_cortadas"));
+        int piezasTot = plan > 0 ? plan : filasTot;
+        int piezasEsc;
+        if (plan > 0) {
+            piezasEsc = Math.max(escCant, filasEsc);
+            piezasEsc = Math.min(Math.max(piezasEsc, 0), piezasTot);
+            // Si partes están 100% y el plan existe, mostrar plan completo (como findObrasByOp).
+            if (totalPartes > 0 && partesEsc >= totalPartes && piezasEsc < piezasTot) {
+                piezasEsc = piezasTot;
+            }
+        } else {
+            piezasEsc = filasEsc;
+        }
         double pct;
         String avance;
         if (piezasTot > 0) {
             pct = Math.round(piezasEsc * 1000.0 / piezasTot) / 10.0;
             avance = piezasEsc + "/" + piezasTot + " piezas";
-        } else if (totalPartes > 0) {
-            pct = Math.round(partesEsc * 1000.0 / totalPartes) / 10.0;
-            avance = partesEsc + "/" + totalPartes + " partes";
         } else {
             pct = 0;
-            avance = "0/0";
+            avance = "0/0 piezas";
         }
         double pctCorte;
         String avanceCorte;
         if (piezasTot > 0) {
-            pctCorte = Math.round(piezasCor * 1000.0 / piezasTot) / 10.0;
-            avanceCorte = piezasCor + "/" + piezasTot + " cortes";
+            int cuts = Math.min(Math.max(piezasCor, 0), piezasTot);
+            pctCorte = Math.round(cuts * 1000.0 / piezasTot) / 10.0;
+            avanceCorte = cuts + "/" + piezasTot + " cortes";
         } else {
             pctCorte = 0;
             avanceCorte = "0/0 cortes";
