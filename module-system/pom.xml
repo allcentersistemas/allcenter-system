@@ -16,7 +16,7 @@
     <description>Monolito modular AllCenter (empleados, clientes, logística, inventario, RM)</description>
 
     <properties>
-        <java.version>25</java.version>
+        <java.version>21</java.version>
     </properties>
 
     <dependencies>
