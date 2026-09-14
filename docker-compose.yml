@@ -1,10 +1,6 @@
-# Coolify + local: solo backend (module-system + module-biesse).
-# En Coolify: Build Pack = Docker Compose, Compose Location = /docker-compose.yml
-# Dominios (UI): modulesystem → https://TU_DOMINIO:8080
-#                modulebiesse → https://TU_DOMINIO_BIESSE:8086  (opcional)
-#
-# Rellena POSTGRES_*, JWT_SECRET y APP_BIESSE_INTERNAL_TOKEN en Environment Variables.
-# No publiques ports: el proxy de Coolify enruta por dominio.
+# Coolify: Build Pack = Docker Compose, Location = /docker-compose.yml
+# En Environment Variables pon URLs JDBC COMPLETAS (sin ${...} dentro del valor).
+# Dominios UI: modulesystem → https://TU_DOMINIO:8080
 
 name: allcenter-system
 
@@ -20,11 +16,11 @@ services:
       SERVICE_URL_MODULESYSTEM_8080:
       TZ: America/Lima
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod}
-      SPRING_DATASOURCE_URL: jdbc:postgresql://${POSTGRES_HOST:?}:${POSTGRES_PORT:-5432}/${POSTGRES_DB_SYSTEM:?}
-      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:?}
-      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?}
-      JWT_SECRET: ${JWT_SECRET:?}
-      APP_BIESSE_INTERNAL_TOKEN: ${APP_BIESSE_INTERNAL_TOKEN:?}
+      SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL}
+      SPRING_DATASOURCE_USERNAME: ${SPRING_DATASOURCE_USERNAME}
+      SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      APP_BIESSE_INTERNAL_TOKEN: ${APP_BIESSE_INTERNAL_TOKEN}
       APP_CORS_ALLOWED_ORIGINS: ${APP_CORS_ALLOWED_ORIGINS:-}
       JPA_DDL_AUTO: ${JPA_DDL_AUTO:-update}
       APP_BIESSE_BASE_URL: http://modulebiesse:8086
@@ -49,9 +45,9 @@ services:
       SMTP_CHECK_SERVER_IDENTITY: ${SMTP_CHECK_SERVER_IDENTITY:-true}
       APP_BACKUP_STORAGE_ROOT: /data/backups
       APP_BACKUP_MAX_ATTACHMENT_MB: ${APP_BACKUP_MAX_ATTACHMENT_MB:-50}
-      BACKUP_BIESSE_DATASOURCE_URL: jdbc:postgresql://${POSTGRES_HOST:?}:${POSTGRES_PORT:-5432}/${POSTGRES_DB_BIESSE:?}
-      BACKUP_BIESSE_DATASOURCE_USERNAME: ${POSTGRES_USER:?}
-      BACKUP_BIESSE_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?}
+      BACKUP_BIESSE_DATASOURCE_URL: ${BIESSE_DATASOURCE_URL}
+      BACKUP_BIESSE_DATASOURCE_USERNAME: ${BIESSE_DATASOURCE_USERNAME}
+      BACKUP_BIESSE_DATASOURCE_PASSWORD: ${BIESSE_DATASOURCE_PASSWORD}
     volumes:
       - rm_media_data:/data/rm-media
       - optimizacion_media_data:/data/optimizacion-media
@@ -60,7 +56,7 @@ services:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/actuator/health >/dev/null 2>&1 || exit 1"]
       interval: 30s
       timeout: 10s
-      retries: 5
+      retries: 10
       start_period: 180s
 
   modulebiesse:
@@ -74,23 +70,22 @@ services:
       SERVICE_URL_MODULEBIESSE_8086:
       TZ: America/Lima
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod}
-      BIESSE_DATASOURCE_URL: jdbc:postgresql://${POSTGRES_HOST:?}:${POSTGRES_PORT:-5432}/${POSTGRES_DB_BIESSE:?}
-      BIESSE_DATASOURCE_USERNAME: ${POSTGRES_USER:?}
-      BIESSE_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?}
-      JWT_SECRET: ${JWT_SECRET:?}
-      APP_BIESSE_INTERNAL_TOKEN: ${APP_BIESSE_INTERNAL_TOKEN:?}
+      BIESSE_DATASOURCE_URL: ${BIESSE_DATASOURCE_URL}
+      BIESSE_DATASOURCE_USERNAME: ${BIESSE_DATASOURCE_USERNAME}
+      BIESSE_DATASOURCE_PASSWORD: ${BIESSE_DATASOURCE_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      APP_BIESSE_INTERNAL_TOKEN: ${APP_BIESSE_INTERNAL_TOKEN}
       APP_CORS_ALLOWED_ORIGINS: ${APP_CORS_ALLOWED_ORIGINS:-}
       BIESSE_JPA_DDL_AUTO: ${JPA_DDL_AUTO:-update}
       APP_AUTH_ME_ENDPOINT: http://modulesystem:8080/api/auth/me
       APP_SYSTEM_BASE_URL: http://modulesystem:8080
     depends_on:
-      modulesystem:
-        condition: service_healthy
+      - modulesystem
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8086/actuator/health >/dev/null 2>&1 || exit 1"]
       interval: 30s
       timeout: 10s
-      retries: 5
+      retries: 10
       start_period: 180s
 
 volumes:
