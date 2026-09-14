@@ -51,7 +51,7 @@ Stack completo (frontends + Caddy) sigue en el monorepo `appscanner/` con su pro
 
 1. Nueva aplicación → repo `allcenter-system` → **Build Pack: Docker Compose**.
 2. **Docker Compose Location:** `/docker-compose.yml` (Base Directory `/`).
-3. En **Environment Variables**, rellena las keys de `.env.example` (obligatorias: JDBC, `JWT_SECRET`, `APP_BIESSE_INTERNAL_TOKEN`).
+3. En **Environment Variables**, rellena las keys de `.env.example` (obligatorias: `POSTGRES_*`, `JWT_SECRET`, `APP_BIESSE_INTERNAL_TOKEN`). No dejes literales `${POSTGRES_HOST}` en ningún valor.
 4. **Domains** (importante el puerto interno):
    - `modulesystem` → `https://api.tudominio.com:8080`
    - `modulebiesse` → solo si lo expones públicamente: `https://biesse.tudominio.com:8086`  
