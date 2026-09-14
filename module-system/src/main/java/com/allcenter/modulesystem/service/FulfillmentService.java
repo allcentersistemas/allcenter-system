@@ -118,7 +118,7 @@ public class FulfillmentService {
         orderPersistenceService.notifySeguimientoAfterCommit();
         return new OrderDtos.FulfillmentActionResponse(
                 true,
-                changed ? "XML transmitido a producción" : "XML ya estaba transmitido",
+                changed ? "XML pasado a producción" : "XML ya estaba en producción",
                 null,
                 biesseOrderId);
     }

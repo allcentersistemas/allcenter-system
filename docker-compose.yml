@@ -1,0 +1,100 @@
+# Coolify + local: solo backend (module-system + module-biesse).
+# En Coolify: Build Pack = Docker Compose, Compose Location = /docker-compose.yml
+# Dominios (UI): modulesystem → https://TU_DOMINIO:8080
+#                modulebiesse → https://TU_DOMINIO_BIESSE:8086  (opcional si solo proxy a system)
+#
+# No publica ports en el host: el proxy de Coolify enruta por dominio.
+# Postgres sigue siendo externo (POSTGRES_* / JDBC URLs).
+
+name: allcenter-system
+
+services:
+  modulesystem:
+    build:
+      context: .
+      dockerfile: module-system/Dockerfile
+    restart: unless-stopped
+    expose:
+      - "8080"
+    environment:
+      # Coolify: genera FQDN y enruta el proxy al puerto interno 8080
+      SERVICE_URL_MODULESYSTEM_8080:
+      TZ: America/Lima
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod}
+      SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:?}
+      SPRING_DATASOURCE_USERNAME: ${SPRING_DATASOURCE_USERNAME:?}
+      SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:?}
+      JWT_SECRET: ${JWT_SECRET:?}
+      APP_BIESSE_INTERNAL_TOKEN: ${APP_BIESSE_INTERNAL_TOKEN:?}
+      APP_CORS_ALLOWED_ORIGINS: ${APP_CORS_ALLOWED_ORIGINS:-}
+      JPA_DDL_AUTO: ${JPA_DDL_AUTO:-update}
+      APP_BIESSE_BASE_URL: http://modulebiesse:8086
+      APP_RM_MEDIA_DIR: /data/rm-media
+      APP_OPTIMIZACION_STORAGE_DIR: /data/optimizacion-media
+      APP_AUTH_REGISTRATION_ENABLED: ${APP_AUTH_REGISTRATION_ENABLED:-false}
+      APP_AUTH_FIRST_SETUP_ENABLED: ${APP_AUTH_FIRST_SETUP_ENABLED:-true}
+      MASTER_USER_BOOTSTRAP: ${MASTER_USER_BOOTSTRAP:-false}
+      MASTER_USER_EMAIL: ${MASTER_USER_EMAIL:-}
+      MASTER_USER_PASSWORD: ${MASTER_USER_PASSWORD:-}
+      FIRST_SETUP_SECRET: ${FIRST_SETUP_SECRET:-}
+      APP_MAIL_ENABLED: ${APP_MAIL_ENABLED:-false}
+      APP_MAIL_FROM: ${APP_MAIL_FROM:-noreply@allcenter.local}
+      APP_MAIL_FROM_NAME: ${APP_MAIL_FROM_NAME:-AllCenter}
+      SMTP_HOST: ${SMTP_HOST:-localhost}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_AUTH: ${SMTP_AUTH:-false}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
+      SMTP_SSL_TRUST: ${SMTP_SSL_TRUST:-}
+      SMTP_CHECK_SERVER_IDENTITY: ${SMTP_CHECK_SERVER_IDENTITY:-true}
+      APP_BACKUP_STORAGE_ROOT: /data/backups
+      APP_BACKUP_MAX_ATTACHMENT_MB: ${APP_BACKUP_MAX_ATTACHMENT_MB:-50}
+      BACKUP_BIESSE_DATASOURCE_URL: ${BACKUP_BIESSE_DATASOURCE_URL:-}
+      BACKUP_BIESSE_DATASOURCE_USERNAME: ${BACKUP_BIESSE_DATASOURCE_USERNAME:-}
+      BACKUP_BIESSE_DATASOURCE_PASSWORD: ${BACKUP_BIESSE_DATASOURCE_PASSWORD:-}
+    volumes:
+      - rm_media_data:/data/rm-media
+      - optimizacion_media_data:/data/optimizacion-media
+      - backup_data:/data/backups
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/actuator/health >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+  modulebiesse:
+    build:
+      context: .
+      dockerfile: module-biesse/Dockerfile
+    restart: unless-stopped
+    expose:
+      - "8086"
+    environment:
+      SERVICE_URL_MODULEBIESSE_8086:
+      TZ: America/Lima
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod}
+      BIESSE_DATASOURCE_URL: ${BIESSE_DATASOURCE_URL:?}
+      BIESSE_DATASOURCE_USERNAME: ${BIESSE_DATASOURCE_USERNAME:?}
+      BIESSE_DATASOURCE_PASSWORD: ${BIESSE_DATASOURCE_PASSWORD:?}
+      JWT_SECRET: ${JWT_SECRET:?}
+      APP_BIESSE_INTERNAL_TOKEN: ${APP_BIESSE_INTERNAL_TOKEN:?}
+      APP_CORS_ALLOWED_ORIGINS: ${APP_CORS_ALLOWED_ORIGINS:-}
+      BIESSE_JPA_DDL_AUTO: ${JPA_DDL_AUTO:-update}
+      APP_AUTH_ME_ENDPOINT: http://modulesystem:8080/api/auth/me
+      APP_SYSTEM_BASE_URL: http://modulesystem:8080
+    depends_on:
+      modulesystem:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8086/actuator/health >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+volumes:
+  rm_media_data:
+  optimizacion_media_data:
+  backup_data:

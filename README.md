@@ -31,16 +31,34 @@ Variables habituales: `SPRING_DATASOURCE_*` (PostgreSQL `app_db`), `BIESSE_DATAS
 | Empleados (app + Android) | `/api/auth/*` |
 | Portal clientes | `/api/client/auth/*` |
 
-## Docker
+## Docker (este repo)
 
-Desde la raíz del repo (`appscanner/`):
+Solo backend (`modulesystem` + `modulebiesse`). Postgres externo.
 
 ```bash
-cp .env.example .env   # editar POSTGRES_PASSWORD
+cp .env.example .env   # editar JDBC, JWT_SECRET, APP_BIESSE_INTERNAL_TOKEN
 docker compose up -d --build
 ```
 
-Un solo `.env` y `docker-compose.yml` en la raíz. Producción: `https://app.allcenter.pe` (Caddy + Let's Encrypt).
+| Servicio | Puerto interno | Health |
+|----------|----------------|--------|
+| `modulesystem` | 8080 | `/actuator/health` |
+| `modulebiesse` | 8086 | `/actuator/health` |
+
+Stack completo (frontends + Caddy) sigue en el monorepo `appscanner/` con su propio `docker-compose.yml`.
+
+## Coolify
+
+1. Nueva aplicación → repo `allcenter-system` → **Build Pack: Docker Compose**.
+2. **Docker Compose Location:** `/docker-compose.yml` (Base Directory `/`).
+3. En **Environment Variables**, rellena las keys de `.env.example` (obligatorias: JDBC, `JWT_SECRET`, `APP_BIESSE_INTERNAL_TOKEN`).
+4. **Domains** (importante el puerto interno):
+   - `modulesystem` → `https://api.tudominio.com:8080`
+   - `modulebiesse` → solo si lo expones públicamente: `https://biesse.tudominio.com:8086`  
+     (entre contenedores ya se hablan por `http://modulesystem:8080` / `http://modulebiesse:8086`).
+5. Deploy. No uses `ports:` en el host: el proxy de Coolify enruta por dominio.
+
+`SERVICE_URL_MODULESYSTEM_8080` / `SERVICE_URL_MODULEBIESSE_8086` en el compose permiten que Coolify asigne FQDN y puerto del proxy automáticamente si usas wildcard domain.
 
 ## IntelliJ IDEA
 
