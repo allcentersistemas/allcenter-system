@@ -1,14 +1,10 @@
-# Coolify + local: backends + frontends (monorepo appscanner).
-# En Coolify: Base Directory = raíz del monorepo, Compose Location = /allcenter-system/docker-compose.yml
-# Dominios (UI, puerto interno):
-#   frontend       → https://portal...:80
-#   frontend-client→ https://app...:80
-#   modulesystem   → solo si expones API directa :8080
-#   modulebiesse   → opcional :8086
+# Coolify + local: solo backend (module-system + module-biesse).
+# En Coolify: Build Pack = Docker Compose, Compose Location = /docker-compose.yml
+# Dominios (UI): modulesystem → https://TU_DOMINIO:8080
+#                modulebiesse → https://TU_DOMINIO_BIESSE:8086  (opcional si solo proxy a system)
 #
 # No publica ports en el host: el proxy de Coolify enruta por dominio.
 # Postgres sigue siendo externo (POSTGRES_*).
-# nginx de los frontends habla con module-system / module-biesse (aliases abajo).
 
 name: allcenter-system
 
@@ -61,10 +57,6 @@ services:
       - rm_media_data:/data/rm-media
       - optimizacion_media_data:/data/optimizacion-media
       - backup_data:/data/backups
-    networks:
-      default:
-        aliases:
-          - module-system
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/actuator/health >/dev/null 2>&1 || exit 1"]
       interval: 30s
@@ -92,10 +84,6 @@ services:
       BIESSE_JPA_DDL_AUTO: ${JPA_DDL_AUTO:-update}
       APP_AUTH_ME_ENDPOINT: http://modulesystem:8080/api/auth/me
       APP_SYSTEM_BASE_URL: http://modulesystem:8080
-    networks:
-      default:
-        aliases:
-          - module-biesse
     depends_on:
       modulesystem:
         condition: service_healthy
@@ -105,42 +93,6 @@ services:
       timeout: 10s
       retries: 5
       start_period: 120s
-
-  frontend:
-    build:
-      context: ../frontend
-      dockerfile: Dockerfile
-      args:
-        NGINX_CONF: config/nginx.conf
-        VITE_BUILD_MODE: production
-    restart: unless-stopped
-    expose:
-      - "80"
-    environment:
-      SERVICE_URL_FRONTEND_80:
-    depends_on:
-      modulesystem:
-        condition: service_healthy
-      modulebiesse:
-        condition: service_healthy
-
-  frontend-client:
-    build:
-      context: ../frontend-client
-      dockerfile: Dockerfile
-      args:
-        NGINX_CONF: config/nginx.conf
-        VITE_BUILD_MODE: production
-        VITE_APP_BASE: /
-        VITE_AUTH_REGISTRATION_ENABLED: ${VITE_AUTH_REGISTRATION_ENABLED:-false}
-    restart: unless-stopped
-    expose:
-      - "80"
-    environment:
-      SERVICE_URL_FRONTEND_CLIENT_80:
-    depends_on:
-      modulesystem:
-        condition: service_healthy
 
 volumes:
   rm_media_data:
