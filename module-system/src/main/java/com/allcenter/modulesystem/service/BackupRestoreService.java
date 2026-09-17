@@ -39,6 +39,7 @@ public class BackupRestoreService {
     private final BackupRunRepository runRepository;
     private final BackupProperties backupProperties;
     private final BackupService backupService;
+    private final MediaBackupService mediaBackupService;
 
     @Value("${spring.datasource.url}")
     private String systemJdbcUrl;
@@ -111,7 +112,9 @@ public class BackupRestoreService {
             try (InputStream in = file.getInputStream()) {
                 Files.copy(in, target);
             }
-            String trigger = original.endsWith(".zip") ? "RESTORE_UPLOAD_ZIP" : resolveTriggerType(original);
+            String trigger = BackupService.isCompleteZipName(original)
+                    ? "RESTORE_COMPLETE"
+                    : original.endsWith(".zip") ? "RESTORE_UPLOAD_ZIP" : resolveTriggerType(original);
             BackupRun run = createRunningRestore(trigger, original);
             CompletableFuture.runAsync(() -> performRestore(run.getId(), target, original));
             return BackupRunDto.from(run, backupService::isFileDownloadable);
@@ -131,23 +134,33 @@ public class BackupRestoreService {
         try {
             updateProgress(run, 5, "Preparando restauración…");
             tempDir = Files.createTempDirectory("allcenter-restore-");
-            List<Path> gzipFiles = resolveGzipFiles(sourceFile, tempDir);
+            ExtractedBackup extracted = extractArchive(sourceFile, tempDir);
+            List<Path> gzipFiles = new ArrayList<>(extracted.sqlGzips());
             if (gzipFiles.isEmpty()) {
                 throw new BadRequestException("No se encontraron archivos .sql.gz en el backup");
             }
             gzipFiles.sort(Comparator.comparing(p -> p.getFileName().toString()));
-            int step = 80 / gzipFiles.size();
+            int dbShare = extracted.mediaZip() != null ? 70 : 85;
+            int step = Math.max(1, dbShare / gzipFiles.size());
             int progress = 10;
             for (Path gzipFile : gzipFiles) {
                 String name = gzipFile.getFileName().toString();
                 String target = resolveTargetLabel(name);
-                updateProgress(run, progress, "Restaurando " + target + "…");
+                updateProgress(run, progress, "Limpiando esquema y restaurando " + target + "…");
                 Path sqlFile = decompressGzip(gzipFile, tempDir);
                 restoreGzipToDatabase(name, sqlFile);
                 progress += step;
             }
+            if (extracted.mediaZip() != null) {
+                updateProgress(run, 88, "Restaurando cotizaciones y archivos RM…");
+                mediaBackupService.restoreMediaArchive(extracted.mediaZip());
+            }
             run.setStatus("SUCCESS");
-            run.setMessage("Restauración completada desde " + displayName);
+            run.setMessage(
+                    "Restauración completada desde "
+                            + displayName
+                            + (extracted.mediaZip() != null ? " (bases + archivos)" : "")
+                            + ". Reinicie el backend para alinear esquema y conexiones.");
             updateProgress(run, 100, "Completado");
         } catch (Exception ex) {
             String msg = ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage();
@@ -173,13 +186,16 @@ public class BackupRestoreService {
         }
     }
 
-    private List<Path> resolveGzipFiles(Path source, Path tempDir) throws IOException {
+    private record ExtractedBackup(List<Path> sqlGzips, Path mediaZip) {}
+
+    private ExtractedBackup extractArchive(Path source, Path tempDir) throws IOException {
         String name = source.getFileName().toString().toLowerCase();
         if (name.endsWith(".sql.gz")) {
-            return List.of(source);
+            return new ExtractedBackup(List.of(source), null);
         }
         if (name.endsWith(".zip")) {
-            List<Path> files = new ArrayList<>();
+            List<Path> sql = new ArrayList<>();
+            Path media = null;
             try (ZipInputStream zis = new ZipInputStream(Files.newInputStream(source))) {
                 ZipEntry entry;
                 while ((entry = zis.getNextEntry()) != null) {
@@ -187,17 +203,24 @@ public class BackupRestoreService {
                         continue;
                     }
                     String entryName = Path.of(entry.getName()).getFileName().toString();
-                    if (!entryName.endsWith(".sql.gz")) {
+                    if (entryName.contains("..")) {
                         continue;
                     }
-                    Path out = tempDir.resolve(entryName);
-                    Files.copy(zis, out);
-                    files.add(out);
+                    if (entryName.endsWith(".sql.gz")) {
+                        Path out = tempDir.resolve(entryName);
+                        Files.copy(zis, out);
+                        sql.add(out);
+                    } else if (entryName.startsWith(MediaBackupService.MEDIA_ZIP_PREFIX)
+                            && entryName.endsWith(".zip")) {
+                        Path out = tempDir.resolve(entryName);
+                        Files.copy(zis, out);
+                        media = out;
+                    }
                 }
             }
-            return files;
+            return new ExtractedBackup(sql, media);
         }
-        throw new BadRequestException("Formato no soportado. Use .sql.gz o .zip");
+        throw new BadRequestException("Formato no soportado. Use .sql.gz, .zip o allcenter_backup_*.zip");
     }
 
     private Path decompressGzip(Path gzipFile, Path tempDir) throws IOException {
@@ -213,13 +236,19 @@ public class BackupRestoreService {
 
     private void restoreGzipToDatabase(String gzipFileName, Path sqlFile)
             throws IOException, InterruptedException {
-        if (gzipFileName.startsWith("obras_")) {
+        if (gzipFileName.contains("obras_")) {
+            if (!StringUtils.hasText(backupProperties.biesseUrl())) {
+                throw new BadRequestException(
+                        "Backup obras_*.sql.gz requiere BACKUP_BIESSE_DATASOURCE_URL");
+            }
             JdbcUrlParser.ConnectionInfo info = JdbcUrlParser.parse(backupProperties.biesseUrl());
+            prepareEmptyPublicSchema(info, backupProperties.biesseUsername(), backupProperties.biessePassword());
             runPsql(info, backupProperties.biesseUsername(), backupProperties.biessePassword(), sqlFile);
             return;
         }
-        if (gzipFileName.startsWith("app_db_")) {
+        if (gzipFileName.contains("app_db_")) {
             JdbcUrlParser.ConnectionInfo info = JdbcUrlParser.parse(systemJdbcUrl);
+            prepareEmptyPublicSchema(info, systemUsername, systemPassword);
             runPsql(info, systemUsername, systemPassword, sqlFile);
             return;
         }
@@ -227,6 +256,17 @@ public class BackupRestoreService {
                 "No se reconoce la base del archivo "
                         + gzipFileName
                         + ". Use app_db_*.sql.gz u obras_*.sql.gz");
+    }
+
+    private void prepareEmptyPublicSchema(
+            JdbcUrlParser.ConnectionInfo info, String username, String password)
+            throws IOException, InterruptedException {
+        String sql =
+                "DROP SCHEMA IF EXISTS public CASCADE; "
+                        + "CREATE SCHEMA public; "
+                        + "GRANT ALL ON SCHEMA public TO CURRENT_USER; "
+                        + "GRANT ALL ON SCHEMA public TO public;";
+        runPsqlCommand(info, username, password, sql);
     }
 
     private void runPsql(
@@ -265,6 +305,40 @@ public class BackupRestoreService {
         }
     }
 
+    private void runPsqlCommand(
+            JdbcUrlParser.ConnectionInfo info, String username, String password, String sql)
+            throws IOException, InterruptedException {
+        List<String> command = new ArrayList<>();
+        command.add(backupProperties.psqlPath());
+        command.add("-h");
+        command.add(info.host());
+        command.add("-p");
+        command.add(String.valueOf(info.port()));
+        command.add("-U");
+        command.add(username);
+        command.add("-d");
+        command.add(info.database());
+        command.add("-v");
+        command.add("ON_ERROR_STOP=1");
+        command.add("-c");
+        command.add(sql);
+        ProcessBuilder pb = new ProcessBuilder(command);
+        pb.redirectErrorStream(true);
+        if (StringUtils.hasText(password)) {
+            pb.environment().put("PGPASSWORD", password);
+        }
+        Process process = pb.start();
+        String output;
+        try (InputStream in = process.getInputStream()) {
+            output = new String(in.readAllBytes());
+        }
+        int code = process.waitFor();
+        if (code != 0) {
+            String detail = output.length() > 800 ? output.substring(output.length() - 800) : output;
+            throw new BadRequestException("psql falló (" + info.database() + "): " + detail.trim());
+        }
+    }
+
     private BackupRun createRunningRestore(String triggerType, String sourceLabel) {
         BackupRun run = new BackupRun();
         run.setStartedAt(Instant.now());
@@ -290,17 +364,20 @@ public class BackupRestoreService {
     }
 
     private static String resolveTriggerType(String filename) {
-        if (filename.startsWith("obras_")) {
+        if (BackupService.isCompleteZipName(filename)) {
+            return "RESTORE_COMPLETE";
+        }
+        if (filename != null && filename.contains("obras_")) {
             return "RESTORE_BIESSE";
         }
         return "RESTORE_SYSTEM";
     }
 
     private static String resolveTargetLabel(String filename) {
-        if (filename.startsWith("obras_")) {
+        if (filename != null && filename.contains("obras_")) {
             return "obras (Biesse)";
         }
-        if (filename.startsWith("app_db_")) {
+        if (filename != null && filename.contains("app_db_")) {
             return "app_db";
         }
         return filename;

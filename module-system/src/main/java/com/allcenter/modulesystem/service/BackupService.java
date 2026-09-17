@@ -48,9 +48,12 @@ import org.springframework.context.annotation.DependsOn;
 public class BackupService {
 
     private static final long CONFIG_ID = 1L;
+    public static final String COMPLETE_ZIP_PREFIX = "allcenter_backup_";
     private static final Pattern SAFE_SQL_FILENAME = Pattern.compile("^[a-zA-Z0-9._-]+\\.sql\\.gz$");
     private static final Pattern SAFE_MEDIA_FILENAME =
             Pattern.compile("^media_files_[a-zA-Z0-9._-]+\\.zip$");
+    private static final Pattern SAFE_COMPLETE_FILENAME =
+            Pattern.compile("^allcenter_backup_[a-zA-Z0-9._-]+\\.zip$");
     private static final DateTimeFormatter STAMP =
             DateTimeFormatter.ofPattern("yyyy-MM-dd_HHmmss");
 
@@ -255,8 +258,17 @@ public class BackupService {
                 updateProgress(run, 63, "Archivos comprimidos");
             }
 
+            if (config.isSaveToFolder() && !createdFiles.isEmpty()) {
+                updateProgress(run, 64, "Empaquetando backup completo…");
+                Path complete = persistCompleteBundle(stamp, createdFiles, dumpByFile);
+                String completeName = complete.getFileName().toString();
+                createdFiles.add(completeName);
+                totalBytes += Files.size(complete);
+                updateProgress(run, 65, "Backup completo listo: " + completeName);
+            }
+
             if (config.isSaveToFolder()) {
-                updateProgress(run, 65, "Limpiando copias antiguas…");
+                updateProgress(run, 68, "Limpiando copias antiguas…");
                 pruneOldBackups(config.getRetentionCount());
             }
 
@@ -283,7 +295,7 @@ public class BackupService {
                 run.setMessage(
                         "Backup completado. Correo enviado a: " + emailRecipientsSent + ". Revise spam si no lo ve.");
             } else {
-                run.setMessage("Backup completado");
+                run.setMessage("Backup completado. Descargue allcenter_backup_*.zip para restaurar en el otro entorno.");
             }
             config.setLastSuccessfulRunAt(Instant.now());
             configRepository.save(config);
@@ -466,6 +478,42 @@ public class BackupService {
         }
     }
 
+    private Path persistCompleteBundle(
+            String stamp, List<String> fileNames, java.util.Map<String, byte[]> dumpByFile) throws IOException {
+        String zipName = COMPLETE_ZIP_PREFIX + stamp + ".zip";
+        Path zipPath = storageRoot().resolve(zipName);
+        try (ZipOutputStream zos = new ZipOutputStream(Files.newOutputStream(zipPath))) {
+            for (String fileName : fileNames) {
+                if (fileName.startsWith(COMPLETE_ZIP_PREFIX)) {
+                    continue;
+                }
+                Path source = storageRoot().resolve(fileName);
+                boolean fromDisk = Files.isRegularFile(source);
+                boolean fromMemory = dumpByFile.containsKey(fileName);
+                if (!fromDisk && !fromMemory) {
+                    log.warn("Omitiendo {} en ZIP completo: no está en disco ni en memoria", fileName);
+                    continue;
+                }
+                ZipEntry entry = new ZipEntry(fileName);
+                zos.putNextEntry(entry);
+                if (fromDisk) {
+                    Files.copy(source, zos);
+                } else {
+                    zos.write(dumpByFile.get(fileName));
+                }
+                zos.closeEntry();
+            }
+        }
+        log.info("Backup completo {}", zipPath);
+        return zipPath;
+    }
+
+    public static boolean isCompleteZipName(String filename) {
+        return filename != null
+                && filename.startsWith(COMPLETE_ZIP_PREFIX)
+                && filename.endsWith(".zip");
+    }
+
     private Path createZipBundle(String stamp, List<String> fileNames, java.util.Map<String, byte[]> dumpByFile)
             throws IOException {
         String zipName = "allcenter_backup_" + stamp + ".zip";
@@ -558,6 +606,7 @@ public class BackupService {
     private void pruneOldBackups(int retentionCount) throws IOException {
         pruneFilesBySuffix(retentionCount, ".sql.gz");
         pruneFilesBySuffix(retentionCount, ".zip", MediaBackupService.MEDIA_ZIP_PREFIX);
+        pruneFilesBySuffix(retentionCount, ".zip", COMPLETE_ZIP_PREFIX);
     }
 
     private void pruneFilesBySuffix(int retentionCount, String suffix, String requiredPrefix) throws IOException {
@@ -644,7 +693,8 @@ public class BackupService {
 
     private boolean isBackupFileName(String filename) {
         return SAFE_SQL_FILENAME.matcher(filename).matches()
-                || SAFE_MEDIA_FILENAME.matcher(filename).matches();
+                || SAFE_MEDIA_FILENAME.matcher(filename).matches()
+                || SAFE_COMPLETE_FILENAME.matcher(filename).matches();
     }
 
     boolean isFileDownloadable(String filename) {
