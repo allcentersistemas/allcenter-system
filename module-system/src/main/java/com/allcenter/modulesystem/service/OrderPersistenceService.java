@@ -709,6 +709,14 @@ public class OrderPersistenceService {
         LocalDate launch = resolveSeguimientoSince();
         List<ProyectoOptimizacion> out = new ArrayList<>();
         for (ProyectoOptimizacion p : all) {
+            // Corte de lanzamiento: el tablero parte en cero desde esta fecha (migración / reset).
+            LocalDateTime ref = fechaInicioEstadoActual(p);
+            if (ref == null) {
+                ref = p.getFechacreacion();
+            }
+            if (ref == null || ref.toLocalDate().isBefore(launch)) {
+                continue;
+            }
             if (p.getEstado() == ProyectoEstado.ENTREGADO) {
                 LocalDateTime fe = p.getFechaEstadoEntregado();
                 if (fe == null || !fe.toLocalDate().equals(today)) {
@@ -721,19 +729,6 @@ public class OrderPersistenceService {
                                 ? p.getFechaEstadoCotizado()
                                 : p.getFechacreacion();
                 if (fc == null || fc.isBefore(cotizadoDesde)) {
-                    continue;
-                }
-            }
-            // Lanzamiento limpio: Enviado / Atención / Vendido solo desde la fecha de corte
-            // (Configuración → Seguimiento).
-            if (p.getEstado() == ProyectoEstado.ENVIADO
-                    || p.getEstado() == ProyectoEstado.EN_ATENCION
-                    || p.getEstado() == ProyectoEstado.VENDIDO) {
-                LocalDateTime ref = fechaInicioEstadoActual(p);
-                if (ref == null) {
-                    ref = p.getFechacreacion();
-                }
-                if (ref == null || ref.toLocalDate().isBefore(launch)) {
                     continue;
                 }
             }
