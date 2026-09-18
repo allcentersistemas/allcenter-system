@@ -46,7 +46,8 @@ public class MediaBackupRestoreService {
         return BackupRunDto.from(run, backupService::isFileDownloadable);
     }
 
-    public BackupRunDto startRestoreMediaFromHistory(Long runId, String filename, String confirmText) {
+    public BackupRunDto startRestoreMediaFromHistory(
+            Long runId, String filename, String confirmText, boolean overwriteMedia) {
         requireConfirm(confirmText);
         if (!mediaBackupService.isMediaZipName(filename)) {
             throw new BadRequestException("Solo se pueden restaurar archivos media_files_*.zip desde aquí");
@@ -61,11 +62,11 @@ public class MediaBackupRestoreService {
             throw new BadRequestException("Archivo de backup no encontrado en el servidor");
         }
         BackupRun run = createRunningRestore("RESTORE_MEDIA", filename);
-        CompletableFuture.runAsync(() -> performMediaRestore(run.getId(), source, filename));
+        CompletableFuture.runAsync(() -> performMediaRestore(run.getId(), source, filename, overwriteMedia));
         return BackupRunDto.from(run, backupService::isFileDownloadable);
     }
 
-    public BackupRunDto startRestoreMediaUpload(MultipartFile file, String confirmText) {
+    public BackupRunDto startRestoreMediaUpload(MultipartFile file, String confirmText, boolean overwriteMedia) {
         requireConfirm(confirmText);
         if (file == null || file.isEmpty()) {
             throw new BadRequestException("Seleccione un archivo .zip de archivos");
@@ -86,7 +87,7 @@ public class MediaBackupRestoreService {
                 Files.copy(in, target);
             }
             BackupRun run = createRunningRestore("RESTORE_MEDIA_UPLOAD", original);
-            CompletableFuture.runAsync(() -> performMediaRestore(run.getId(), target, original));
+            CompletableFuture.runAsync(() -> performMediaRestore(run.getId(), target, original, overwriteMedia));
             return BackupRunDto.from(run, backupService::isFileDownloadable);
         } catch (IOException ex) {
             mediaRestoreRunning.set(false);
@@ -126,21 +127,24 @@ public class MediaBackupRestoreService {
         }
     }
 
-    private void performMediaRestore(Long runId, Path sourceFile, String displayName) {
+    private void performMediaRestore(Long runId, Path sourceFile, String displayName, boolean overwriteMedia) {
         BackupRun run = runRepository.findById(runId).orElse(null);
         if (run == null) {
             mediaRestoreRunning.set(false);
             return;
         }
         try {
-            updateProgress(run, 10, "Preparando restauración de archivos…");
+            String modeLabel = overwriteMedia ? "sobrescribir existentes" : "solo añadir faltantes";
+            updateProgress(run, 10, "Preparando restauración de archivos (" + modeLabel + ")…");
             updateProgress(run, 40, "Extrayendo cotizaciones y archivos RM…");
-            mediaBackupService.restoreMediaArchive(sourceFile);
+            mediaBackupService.restoreMediaArchive(sourceFile, overwriteMedia);
             run.setStatus("SUCCESS");
             run.setMessage(
                     "Archivos restaurados desde "
                             + displayName
-                            + " (cotizaciones → "
+                            + " ("
+                            + modeLabel
+                            + "; cotizaciones → "
                             + mediaBackupService.optimizacionMediaRoot()
                             + ", RM → "
                             + mediaBackupService.rmMediaRoot()

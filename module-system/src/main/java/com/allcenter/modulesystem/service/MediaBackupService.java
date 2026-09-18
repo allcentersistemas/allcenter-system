@@ -75,6 +75,13 @@ public class MediaBackupService {
     }
 
     public void restoreMediaArchive(Path zipFile) throws IOException {
+        restoreMediaArchive(zipFile, false);
+    }
+
+    /**
+     * @param overwrite si true, reemplaza archivos existentes; si false, solo añade los que faltan
+     */
+    public void restoreMediaArchive(Path zipFile, boolean overwrite) throws IOException {
         if (!Files.isRegularFile(zipFile)) {
             throw new IOException("Archivo de backup de medios no encontrado");
         }
@@ -94,8 +101,7 @@ public class MediaBackupService {
                     log.warn("Entrada ignorada en restore de medios: {}", normalized);
                     continue;
                 }
-                // Solo añade: no sobrescribe archivos que ya existen en disco.
-                if (Files.exists(target)) {
+                if (!overwrite && Files.exists(target)) {
                     skipped++;
                     continue;
                 }
@@ -107,8 +113,9 @@ public class MediaBackupService {
             }
         }
         log.info(
-                "Restauración de archivos completada desde {} (añadidos={}, omitidos existentes={})",
+                "Restauración de archivos completada desde {} (modo={}, escritos={}, omitidos={})",
                 zipFile.getFileName(),
+                overwrite ? "sobrescribir" : "solo-añadir",
                 restored,
                 skipped);
     }

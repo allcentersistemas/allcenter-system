@@ -59,7 +59,8 @@ public class BackupRestoreService {
                 .toList();
     }
 
-    public BackupRunDto startRestoreFromHistory(Long runId, String filename, String confirmText) {
+    public BackupRunDto startRestoreFromHistory(
+            Long runId, String filename, String confirmText, boolean overwriteMedia) {
         requireConfirm(confirmText);
         if (filename != null && filename.startsWith(MediaBackupService.MEDIA_ZIP_PREFIX)) {
             throw new BadRequestException(
@@ -81,11 +82,11 @@ public class BackupRestoreService {
         String trigger = resolveTriggerType(filename);
         BackupRun run = createRunningRestore(trigger, filename);
         Path copy = source;
-        CompletableFuture.runAsync(() -> performRestore(run.getId(), copy, filename));
+        CompletableFuture.runAsync(() -> performRestore(run.getId(), copy, filename, overwriteMedia));
         return BackupRunDto.from(run, backupService::isFileDownloadable);
     }
 
-    public BackupRunDto startRestoreUpload(MultipartFile file, String confirmText) {
+    public BackupRunDto startRestoreUpload(MultipartFile file, String confirmText, boolean overwriteMedia) {
         requireConfirm(confirmText);
         if (file == null || file.isEmpty()) {
             throw new BadRequestException("Seleccione un archivo .sql.gz o .zip");
@@ -116,7 +117,7 @@ public class BackupRestoreService {
                     ? "RESTORE_COMPLETE"
                     : original.endsWith(".zip") ? "RESTORE_UPLOAD_ZIP" : resolveTriggerType(original);
             BackupRun run = createRunningRestore(trigger, original);
-            CompletableFuture.runAsync(() -> performRestore(run.getId(), target, original));
+            CompletableFuture.runAsync(() -> performRestore(run.getId(), target, original, overwriteMedia));
             return BackupRunDto.from(run, backupService::isFileDownloadable);
         } catch (IOException ex) {
             restoreRunning.set(false);
@@ -124,7 +125,7 @@ public class BackupRestoreService {
         }
     }
 
-    private void performRestore(Long runId, Path sourceFile, String displayName) {
+    private void performRestore(Long runId, Path sourceFile, String displayName, boolean overwriteMedia) {
         BackupRun run = runRepository.findById(runId).orElse(null);
         if (run == null) {
             restoreRunning.set(false);
@@ -152,14 +153,19 @@ public class BackupRestoreService {
                 progress += step;
             }
             if (extracted.mediaZip() != null) {
-                updateProgress(run, 88, "Restaurando cotizaciones y archivos RM…");
-                mediaBackupService.restoreMediaArchive(extracted.mediaZip());
+                String modeLabel = overwriteMedia ? "sobrescribir" : "solo añadir";
+                updateProgress(run, 88, "Restaurando cotizaciones y archivos RM (" + modeLabel + ")…");
+                mediaBackupService.restoreMediaArchive(extracted.mediaZip(), overwriteMedia);
             }
             run.setStatus("SUCCESS");
             run.setMessage(
                     "Restauración completada desde "
                             + displayName
-                            + (extracted.mediaZip() != null ? " (bases + archivos)" : "")
+                            + (extracted.mediaZip() != null
+                                    ? " (bases + archivos; media="
+                                            + (overwriteMedia ? "sobrescribir" : "solo-añadir")
+                                            + ")"
+                                    : "")
                             + ". Reinicie el backend para alinear esquema y conexiones.");
             updateProgress(run, 100, "Completado");
         } catch (Exception ex) {

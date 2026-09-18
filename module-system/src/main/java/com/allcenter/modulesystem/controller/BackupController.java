@@ -88,17 +88,20 @@ public class BackupController {
     @PreAuthorize("@portalAuth.isMaster()")
     public ResponseEntity<BackupRunDto> restoreFromHistory(
             @Valid @RequestBody BackupRestoreFromHistoryRequest request) {
+        boolean overwriteMedia = Boolean.TRUE.equals(request.overwriteMedia());
         return ResponseEntity.status(HttpStatus.ACCEPTED)
                 .body(backupRestoreService.startRestoreFromHistory(
-                        request.runId(), request.filename(), request.confirmText()));
+                        request.runId(), request.filename(), request.confirmText(), overwriteMedia));
     }
 
     @PostMapping(value = "/restore/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("@portalAuth.isMaster()")
     public ResponseEntity<BackupRunDto> restoreUpload(
-            @RequestParam String confirmText, @RequestParam("file") MultipartFile file) {
+            @RequestParam String confirmText,
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(defaultValue = "false") boolean overwriteMedia) {
         return ResponseEntity.status(HttpStatus.ACCEPTED)
-                .body(backupRestoreService.startRestoreUpload(file, confirmText));
+                .body(backupRestoreService.startRestoreUpload(file, confirmText, overwriteMedia));
     }
 
     @GetMapping("/restore/history")
@@ -111,16 +114,19 @@ public class BackupController {
     @PreAuthorize("@portalAuth.isMaster()")
     public ResponseEntity<BackupRunDto> restoreFilesFromHistory(
             @Valid @RequestBody BackupRestoreFromHistoryRequest request) {
+        boolean overwriteMedia = Boolean.TRUE.equals(request.overwriteMedia());
         return ResponseEntity.status(HttpStatus.ACCEPTED)
                 .body(mediaBackupRestoreService.startRestoreMediaFromHistory(
-                        request.runId(), request.filename(), request.confirmText()));
+                        request.runId(), request.filename(), request.confirmText(), overwriteMedia));
     }
 
     @PostMapping(value = "/restore/files/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("@portalAuth.isMaster()")
     public ResponseEntity<BackupRunDto> restoreFilesUpload(
-            @RequestParam String confirmText, @RequestParam("file") MultipartFile file) {
+            @RequestParam String confirmText,
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(defaultValue = "false") boolean overwriteMedia) {
         return ResponseEntity.status(HttpStatus.ACCEPTED)
-                .body(mediaBackupRestoreService.startRestoreMediaUpload(file, confirmText));
+                .body(mediaBackupRestoreService.startRestoreMediaUpload(file, confirmText, overwriteMedia));
     }
 }
