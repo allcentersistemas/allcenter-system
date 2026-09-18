@@ -81,6 +81,7 @@ public class MediaBackupService {
         Files.createDirectories(optimizacionRoot);
         Files.createDirectories(rmRoot);
         int restored = 0;
+        int skipped = 0;
         try (ZipInputStream zis = new ZipInputStream(Files.newInputStream(zipFile))) {
             ZipEntry entry;
             while ((entry = zis.getNextEntry()) != null) {
@@ -93,6 +94,11 @@ public class MediaBackupService {
                     log.warn("Entrada ignorada en restore de medios: {}", normalized);
                     continue;
                 }
+                // Solo añade: no sobrescribe archivos que ya existen en disco.
+                if (Files.exists(target)) {
+                    skipped++;
+                    continue;
+                }
                 Files.createDirectories(target.getParent());
                 try (OutputStream out = Files.newOutputStream(target)) {
                     zis.transferTo(out);
@@ -100,7 +106,11 @@ public class MediaBackupService {
                 restored++;
             }
         }
-        log.info("Restauración de archivos completada desde {} ({} archivo(s))", zipFile.getFileName(), restored);
+        log.info(
+                "Restauración de archivos completada desde {} (añadidos={}, omitidos existentes={})",
+                zipFile.getFileName(),
+                restored,
+                skipped);
     }
 
     private Path resolveRestoreTarget(String entryName) throws IOException {
